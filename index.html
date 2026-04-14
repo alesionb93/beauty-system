@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beauty System - Login</title>
+  <meta name="description" content="Beauty System - Sistema de agendamento para salões de beleza">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <img src="beautySystemLogo.png" alt="Beauty System" class="logo-img">
+      <h1>BEAUTY SYSTEM</h1>
+      <p class="subtitle">Sistema de Agendamento</p>
+      <div class="form-group">
+        <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password">
+      </div>
+      <button class="btn-login" id="btn-login">Entrar</button>
+      <p class="login-error" id="login-error"></p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabaseClient.js"></script>
+  <script>
+    // Buscar role SEMPRE do banco — sem sessionStorage
+    async function getUserRoleFromDb(userId) {
+      var resp = await supabaseClient.from('user_roles').select('role').eq('user_id', userId).maybeSingle();
+      if (resp.data) return resp.data.role;
+      return 'colaborador';
+    }
+
+    async function getUserFromDb(userId) {
+      var resp = await supabaseClient.from('usuarios').select('nome, tenant_id').eq('id', userId).single();
+      return resp.data || null;
+    }
+
+    async function handlePostLogin(userId) {
+      var role = await getUserRoleFromDb(userId);
+      var userData = await getUserFromDb(userId);
+
+      if (role === 'master_admin') {
+        // Redirecionar para seleção de tenant
+        window.location.href = 'select-tenant.html';
+      } else {
+        // Carregar tenant automaticamente
+        if (userData && userData.tenant_id) {
+          localStorage.setItem('currentTenantId', userData.tenant_id);
+        }
+        window.location.href = 'agenda.html';
+      }
+    }
+
+    // Verificar sessão existente
+    (async function() {
+      var { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        await handlePostLogin(session.user.id);
+      }
+    })();
+
+    document.getElementById('btn-login').addEventListener('click', login);
+    document.getElementById('login-pass').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') login();
+    });
+    document.getElementById('login-email').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('login-pass').focus();
+    });
+
+    async function login() {
+      var email = document.getElementById('login-email').value.trim();
+      var pass = document.getElementById('login-pass').value;
+      var errEl = document.getElementById('login-error');
+      errEl.style.display = 'none';
+
+      if (!email || !pass) {
+        errEl.textContent = 'Preencha email e senha.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      var { data, error } = await supabaseClient.auth.signInWithPassword({ email: email, password: pass });
+      if (error) {
+        errEl.textContent = 'Email ou senha incorretos.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      await handlePostLogin(data.user.id);
+    }
+  </script>
+</body>
+</html>

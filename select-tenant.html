@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beauty System - Selecionar Cliente</title>
+  <meta name="description" content="Beauty System - Seleção de Tenant">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+  <div class="select-tenant-wrapper">
+    <!-- Header -->
+    <div class="select-tenant-header">
+      <div class="select-tenant-header-left">
+        <h1>SELECIONE O CLIENTE</h1>
+        <p id="current-tenant-label">CLIENTE ATUAL: Nenhum</p>
+      </div>
+      <div class="select-tenant-header-right">
+        <button class="btn-criar-tenant" id="btn-criar-tenant" onclick="openCriarTenantModal()">
+          <i class="fa-solid fa-plus"></i> CRIAR TENANT
+        </button>
+        <button class="btn-continuar" id="btn-continuar" onclick="continuarParaAgenda()" disabled>
+          CONTINUAR
+        </button>
+      </div>
+    </div>
+
+    <!-- Busca -->
+    <div class="select-tenant-search">
+      <input type="text" id="tenant-search" placeholder="Pesquise pelo nome ou ID do cliente" oninput="filterTenants()">
+    </div>
+
+    <!-- Últimos acessados -->
+    <div class="tenant-section" id="recent-section" style="display:none;">
+      <div class="tenant-section-header" onclick="toggleSection('recent')">
+        <span><i class="fa-solid fa-clock-rotate-left"></i> Últimos acessados</span>
+        <i class="fa-solid fa-chevron-up" id="recent-chevron"></i>
+      </div>
+      <div class="tenant-grid" id="recent-tenants"></div>
+    </div>
+
+    <!-- Todos os tenants -->
+    <div class="tenant-grid" id="all-tenants"></div>
+
+    <!-- Logout -->
+    <div class="select-tenant-footer">
+      <button class="btn-sair-tenant" onclick="logoutTenant()">
+        <i class="fa-solid fa-right-from-bracket"></i> Sair
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Tenant -->
+  <div class="modal-overlay" id="modal-criar-tenant">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Criar Novo Tenant</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-tenant')">&times;</button>
+      </div>
+      <form onsubmit="criarTenant(event)">
+        <!-- Dados do Tenant -->
+        <h4 style="color: var(--gold); margin-bottom: 16px;"><i class="fa-solid fa-building"></i> Dados do Estabelecimento</h4>
+
+        <div class="form-group">
+          <label>Razão Social *</label>
+          <input type="text" id="new-tenant-razao-social" required placeholder="Ex: Salão Bella LTDA">
+        </div>
+        <div class="form-group">
+          <label>Nome Fantasia * <small style="color:var(--text-muted)">(será o nome do tenant)</small></label>
+          <input type="text" id="new-tenant-nome-fantasia" required placeholder="Ex: Salão Bella">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>CPF/CNPJ *</label>
+            <input type="text" id="new-tenant-cpf-cnpj" required placeholder="000.000.000-00" maxlength="18">
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="tel" id="new-tenant-telefone" placeholder="(99) 99999-9999">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="new-tenant-email" placeholder="contato@salao.com">
+        </div>
+
+        <!-- Logo -->
+        <div class="form-group">
+          <label>Logo do Estabelecimento</label>
+          <div class="logo-upload-area">
+            <div class="logo-preview" id="new-tenant-logo-preview">
+              <i class="fa-solid fa-image"></i>
+            </div>
+            <div class="logo-upload-actions">
+              <label class="btn-upload-foto">
+                <i class="fa-solid fa-upload"></i> Escolher logo
+                <input type="file" accept="image/*" id="new-tenant-logo-input" onchange="onTenantLogoChange(this)" style="display:none;">
+              </label>
+              <button type="button" class="btn-remover-foto" onclick="removerTenantLogo()" style="display:none;" id="btn-remover-tenant-logo">Remover</button>
+              <p style="color:var(--text-muted); font-size:0.75rem; font-style:italic;">Recomendado: quadrado, JPG ou PNG</p>
+            </div>
+          </div>
+        </div>
+
+        <hr style="border-color: var(--border); margin: 20px 0;">
+        <h4 style="color: var(--gold); margin-bottom: 16px;"><i class="fa-solid fa-user-shield"></i> Administrador do Tenant</h4>
+
+        <div class="form-group">
+          <label>Nome do Admin *</label>
+          <input type="text" id="new-tenant-admin-nome" required placeholder="Nome completo">
+        </div>
+        <div class="form-group">
+          <label>Email do Admin *</label>
+          <input type="email" id="new-tenant-admin-email" required placeholder="admin@email.com">
+        </div>
+        <div class="form-group">
+          <label>Senha temporária (opcional)</label>
+          <div style="position:relative;">
+            <input type="password" id="new-tenant-admin-senha" placeholder="Gerada automaticamente se vazio">
+            <button type="button" onclick="toggleSenhaVisibility(this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="criar-tenant-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-tenant')">Cancelar</button>
+          <button type="submit" class="btn-submit">Criar Tenant</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabaseClient.js"></script>
+  <script>
+    var allTenants = [];
+    var recentTenants = [];
+    var selectedTenantId = null;
+    var selectedTenantNome = '';
+    var currentUserId = null;
+    var tenantLogoFile = null;
+
+    // Verificar autenticação e role
+    (async function() {
+      var { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        window.location.href = 'index.html';
+        return;
+      }
+      currentUserId = session.user.id;
+
+      // Verificar se é master_admin
+      var roleResp = await supabaseClient.from('user_roles').select('role').eq('user_id', currentUserId).eq('role', 'master_admin').maybeSingle();
+      if (!roleResp.data) {
+        window.location.href = 'agenda.html';
+        return;
+      }
+
+      await loadTenants();
+      await loadRecentTenants();
+      renderAll();
+    })();
+
+    async function loadTenants() {
+      var resp = await supabaseClient.from('tenants').select('*').order('nome');
+      if (resp.error) { console.error('Erro tenants:', resp.error); return; }
+      allTenants = resp.data || [];
+    }
+
+    async function loadRecentTenants() {
+      var resp = await supabaseClient
+        .from('master_tenant_history')
+        .select('tenant_id, accessed_at, tenants(id, nome, logo_url, display_id)')
+        .eq('user_id', currentUserId)
+        .order('accessed_at', { ascending: false })
+        .limit(5);
+      if (resp.error) { console.error('Erro recent:', resp.error); return; }
+      recentTenants = (resp.data || []).filter(function(r) { return r.tenants; }).map(function(r) {
+        return { id: r.tenants.id, nome: r.tenants.nome, logo_url: r.tenants.logo_url, display_id: r.tenants.display_id, accessed_at: r.accessed_at };
+      });
+    }
+
+    function renderAll() {
+      renderRecentTenants();
+      renderAllTenants(allTenants);
+    }
+
+    function renderRecentTenants() {
+      var section = document.getElementById('recent-section');
+      var container = document.getElementById('recent-tenants');
+      if (recentTenants.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = '';
+      container.innerHTML = '';
+      recentTenants.forEach(function(t) {
+        container.appendChild(createTenantCard(t));
+      });
+    }
+
+    function renderAllTenants(tenants) {
+      var container = document.getElementById('all-tenants');
+      container.innerHTML = '';
+      if (tenants.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px; grid-column: 1/-1;">Nenhum tenant encontrado.</p>';
+        return;
+      }
+      tenants.forEach(function(t) {
+        container.appendChild(createTenantCard(t));
+      });
+    }
+
+    function createTenantCard(tenant) {
+      var card = document.createElement('div');
+      card.className = 'tenant-card' + (selectedTenantId === tenant.id ? ' selected' : '');
+      card.onclick = function() { selectTenant(tenant.id, tenant.nome); };
+
+      var initial = tenant.nome.charAt(0).toUpperCase();
+      var displayId = tenant.display_id ? '#' + tenant.display_id : tenant.id.substring(0, 8);
+
+      var avatarContent = '';
+      if (tenant.logo_url) {
+        avatarContent = '<img src="' + tenant.logo_url + '" alt="' + tenant.nome + '">';
+      } else {
+        avatarContent = initial;
+      }
+
+      card.innerHTML =
+        '<div class="tenant-card-avatar">' + avatarContent + '</div>' +
+        '<div class="tenant-card-id">' + displayId + '</div>' +
+        '<div class="tenant-card-nome">' + tenant.nome + '</div>';
+
+      return card;
+    }
+
+    function selectTenant(id, nome) {
+      selectedTenantId = id;
+      selectedTenantNome = nome;
+      document.getElementById('current-tenant-label').textContent = 'CLIENTE ATUAL: ' + nome;
+      document.getElementById('btn-continuar').disabled = false;
+      renderAll();
+    }
+
+    function filterTenants() {
+      var query = document.getElementById('tenant-search').value.toLowerCase().trim();
+      if (!query) {
+        renderAllTenants(allTenants);
+        return;
+      }
+      var filtered = allTenants.filter(function(t) {
+        return t.nome.toLowerCase().indexOf(query) >= 0 || t.id.toLowerCase().indexOf(query) >= 0 || (t.display_id && String(t.display_id).indexOf(query) >= 0);
+      });
+      renderAllTenants(filtered);
+    }
+
+    async function continuarParaAgenda() {
+      if (!selectedTenantId) return;
+      localStorage.setItem('currentTenantId', selectedTenantId);
+      localStorage.setItem('currentTenantNome', selectedTenantNome);
+
+      await supabaseClient.from('master_tenant_history').upsert({
+        user_id: currentUserId,
+        tenant_id: selectedTenantId,
+        accessed_at: new Date().toISOString()
+      }, { onConflict: 'user_id,tenant_id' });
+
+      window.location.href = 'agenda.html';
+    }
+
+    function toggleSection(section) {
+      var grid = document.getElementById(section + '-tenants');
+      var chevron = document.getElementById(section + '-chevron');
+      if (grid.style.display === 'none') {
+        grid.style.display = '';
+        chevron.className = 'fa-solid fa-chevron-up';
+      } else {
+        grid.style.display = 'none';
+        chevron.className = 'fa-solid fa-chevron-down';
+      }
+    }
+
+    // Modal helpers
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+      var anyOpen = document.querySelector('.modal-overlay.active');
+      if (!anyOpen) document.body.style.overflow = '';
+    }
+
+    function openCriarTenantModal() {
+      document.getElementById('new-tenant-razao-social').value = '';
+      document.getElementById('new-tenant-nome-fantasia').value = '';
+      document.getElementById('new-tenant-cpf-cnpj').value = '';
+      document.getElementById('new-tenant-telefone').value = '';
+      document.getElementById('new-tenant-email').value = '';
+      document.getElementById('new-tenant-admin-nome').value = '';
+      document.getElementById('new-tenant-admin-email').value = '';
+      document.getElementById('new-tenant-admin-senha').value = '';
+      document.getElementById('new-tenant-logo-preview').innerHTML = '<i class="fa-solid fa-image"></i>';
+      document.getElementById('btn-remover-tenant-logo').style.display = 'none';
+      tenantLogoFile = null;
+      var fb = document.getElementById('criar-tenant-feedback');
+      fb.style.display = 'none';
+      openModal('modal-criar-tenant');
+    }
+
+    // CPF/CNPJ Mask
+    function maskCpfCnpj(input) {
+      var v = input.value.replace(/\D/g, '');
+      if (v.length <= 11) {
+        // CPF: 000.000.000-00
+        v = v.replace(/(\d{3})(\d)/, '$1.$2');
+        v = v.replace(/(\d{3})(\d)/, '$1.$2');
+        v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+      } else {
+        // CNPJ: 00.000.000/0000-00
+        v = v.substring(0, 14);
+        v = v.replace(/^(\d{2})(\d)/, '$1.$2');
+        v = v.replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3');
+        v = v.replace(/\.(\d{3})(\d)/, '.$1/$2');
+        v = v.replace(/(\d{4})(\d)/, '$1-$2');
+      }
+      input.value = v;
+    }
+
+    // Phone mask
+    function maskTelefone(input) {
+      var v = input.value.replace(/\D/g, '');
+      if (v.length > 11) v = v.substring(0, 11);
+      if (v.length > 6) {
+        input.value = '(' + v.substring(0,2) + ') ' + v.substring(2,7) + '-' + v.substring(7);
+      } else if (v.length > 2) {
+        input.value = '(' + v.substring(0,2) + ') ' + v.substring(2);
+      } else if (v.length > 0) {
+        input.value = '(' + v;
+      }
+    }
+
+    // Attach masks
+    document.getElementById('new-tenant-cpf-cnpj').addEventListener('input', function() { maskCpfCnpj(this); });
+    document.getElementById('new-tenant-telefone').addEventListener('input', function() { maskTelefone(this); });
+
+    // Logo upload
+    function onTenantLogoChange(input) {
+      if (input.files && input.files[0]) {
+        tenantLogoFile = input.files[0];
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById('new-tenant-logo-preview').innerHTML = '<img src="' + e.target.result + '" alt="Logo">';
+          document.getElementById('btn-remover-tenant-logo').style.display = '';
+        };
+        reader.readAsDataURL(input.files[0]);
+      }
+    }
+
+    function removerTenantLogo() {
+      tenantLogoFile = null;
+      document.getElementById('new-tenant-logo-preview').innerHTML = '<i class="fa-solid fa-image"></i>';
+      document.getElementById('btn-remover-tenant-logo').style.display = 'none';
+      document.getElementById('new-tenant-logo-input').value = '';
+    }
+
+    // Toggle password visibility
+    function toggleSenhaVisibility(btn) {
+      var input = btn.parentElement.querySelector('input');
+      if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
+      } else {
+        input.type = 'password';
+        btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
+      }
+    }
+
+    async function uploadTenantLogo(file, tenantId) {
+      var fileExt = file.name.split('.').pop();
+      var fileName = 'tenant-' + tenantId + '.' + fileExt;
+      try {
+        var resp = await supabaseClient.storage.from('tenant-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+        if (resp.error) { console.warn('Upload logo falhou:', resp.error.message); return null; }
+        var urlResp = supabaseClient.storage.from('tenant-logos').getPublicUrl(fileName);
+        return urlResp.data.publicUrl;
+      } catch (err) {
+        console.warn('Erro upload logo:', err);
+        return null;
+      }
+    }
+
+    async function criarTenant(e) {
+      e.preventDefault();
+      var feedback = document.getElementById('criar-tenant-feedback');
+      var razaoSocial = document.getElementById('new-tenant-razao-social').value.trim();
+      var nomeFantasia = document.getElementById('new-tenant-nome-fantasia').value.trim();
+      var cpfCnpj = document.getElementById('new-tenant-cpf-cnpj').value.trim();
+      var telefone = document.getElementById('new-tenant-telefone').value.trim();
+      var email = document.getElementById('new-tenant-email').value.trim();
+      var adminNome = document.getElementById('new-tenant-admin-nome').value.trim();
+      var adminEmail = document.getElementById('new-tenant-admin-email').value.trim();
+      var adminSenha = document.getElementById('new-tenant-admin-senha').value.trim();
+
+      if (!razaoSocial || !nomeFantasia || !cpfCnpj || !adminNome || !adminEmail) {
+        feedback.style.display = 'block';
+        feedback.style.color = '#DC2626';
+        feedback.textContent = 'Preencha todos os campos obrigatórios (*).';
+        return;
+      }
+
+      feedback.style.display = 'block';
+      feedback.style.color = 'var(--text-muted)';
+      feedback.textContent = 'Criando tenant...';
+
+      try {
+        var { data: { session } } = await supabaseClient.auth.getSession();
+
+        // Primeiro criar sem logo_url para obter o tenant_id
+        var resp = await fetch(SUPABASE_URL + '/functions/v1/create-tenant-with-admin', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + session.access_token,
+            'apikey': SUPABASE_KEY
+          },
+          body: JSON.stringify({
+            tenant_nome: nomeFantasia,
+            razao_social: razaoSocial,
+            nome_fantasia: nomeFantasia,
+            cpf_cnpj: cpfCnpj,
+            email: email || null,
+            telefone: telefone || null,
+            logo_url: null,
+            admin_nome: adminNome,
+            admin_email: adminEmail,
+            admin_senha: adminSenha || null
+          })
+        });
+
+        var result = await resp.json();
+
+        if (!resp.ok) {
+          feedback.style.color = '#DC2626';
+          feedback.textContent = result.error || 'Erro ao criar tenant.';
+          return;
+        }
+
+        // Se tem logo, fazer upload e atualizar o tenant
+        if (tenantLogoFile && result.tenant && result.tenant.id) {
+          feedback.textContent = 'Enviando logo...';
+          var logoUrl = await uploadTenantLogo(tenantLogoFile, result.tenant.id);
+          if (logoUrl) {
+            await supabaseClient.from('tenants').update({ logo_url: logoUrl }).eq('id', result.tenant.id);
+            result.tenant.logo_url = logoUrl;
+          }
+        }
+
+        feedback.style.display = 'none';
+        closeModal('modal-criar-tenant');
+
+        alert(
+          'Tenant criado com sucesso!\n\n' +
+          'Tenant: ' + result.tenant.nome + '\n' +
+          'Admin: ' + result.admin.nome + '\n' +
+          'Email: ' + result.admin.email + '\n' +
+          'Senha: ' + result.admin.senha_temporaria + '\n\n' +
+          'Anote estas informações!'
+        );
+
+        await loadTenants();
+        renderAll();
+      } catch (err) {
+        feedback.style.color = '#DC2626';
+        feedback.textContent = 'Erro de rede: ' + err.message;
+      }
+    }
+
+    async function logoutTenant() {
+      await supabaseClient.auth.signOut();
+      localStorage.removeItem('currentTenantId');
+      localStorage.removeItem('currentTenantNome');
+      window.location.href = 'index.html';
+    }
+  </script>
+</body>
+</html>

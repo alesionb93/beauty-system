@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beauty System</title>
+  <meta name="description" content="Beauty System - Sistema de agendamento para salões de beleza">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+
+  <!-- Hamburger -->
+  <button class="hamburger" id="hamburger"><i class="fa-solid fa-bars"></i></button>
+
+  <!-- Sidebar overlay -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <button class="close-sidebar" id="close-sidebar"><i class="fa-solid fa-xmark"></i></button>
+      <div class="sidebar-header">
+        <img src="beautySystemLogo.png" alt="Beauty System">
+        <div class="brand">
+          <h2>BEAUTY SYSTEM</h2>
+          <p>Agendamento</p>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-page="agendamentos"><i class="fa-regular fa-calendar"></i> Agendamentos</button>
+        <button class="nav-btn" data-page="clientes"><i class="fa-regular fa-address-book"></i> Clientes</button>
+        <button class="nav-btn" data-page="profissionais"><i class="fa-solid fa-scissors"></i> Profissionais</button>
+        <button class="nav-btn nav-admin-only" data-page="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+        <button class="nav-btn" data-page="configuracoes"><i class="fa-solid fa-gear"></i> Configurações</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-info" id="user-info"></div>
+        <button class="btn-sair" id="btn-sair"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+
+      <!-- AGENDAMENTOS -->
+      <div class="page active" id="page-agendamentos">
+        <div class="page-header">
+          <h2>Agendamentos</h2>
+          <div class="page-header-actions">
+            <button class="btn-filter admin-only" id="btn-filtrar-agendas" title="Filtrar agendas"><i class="fa-solid fa-filter"></i> Filtrar</button>
+            <button class="btn-novo" id="btn-novo-agendamento"><i class="fa-solid fa-plus"></i> Novo</button>
+          </div>
+        </div>
+        <!-- Filtro de profissionais (admin) -->
+        <div class="filter-bar admin-only" id="filter-bar" style="display:none;">
+          <div class="filter-chips" id="filter-chips"></div>
+        </div>
+        <div class="agenda-grid">
+          <div class="calendar-card">
+            <div class="calendar-nav">
+              <button id="prev-month">&lt;</button>
+              <span class="month-year" id="month-year"></span>
+              <button id="next-month">&gt;</button>
+            </div>
+            <div class="calendar-weekdays">
+              <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+            </div>
+            <div class="calendar-days" id="calendar-days"></div>
+          </div>
+          <div class="day-detail-card">
+            <div class="day-detail-header" id="day-detail-header">Selecione uma data</div>
+            <div class="timeline-container" id="day-appointments"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLIENTES -->
+      <div class="page" id="page-clientes">
+        <div class="page-header">
+          <h2>Clientes</h2>
+          <button class="btn-novo" id="btn-novo-cliente"><i class="fa-solid fa-plus"></i> Novo Cliente</button>
+        </div>
+        <div class="birthday-banner" id="birthday-banner" style="display:none;"></div>
+        <div class="clients-table-wrapper">
+          <table class="clients-table">
+            <thead><tr><th>Nome</th><th>Telefone</th><th>Nascimento</th></tr></thead>
+            <tbody id="clients-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PROFISSIONAIS -->
+      <div class="page" id="page-profissionais">
+        <div class="page-header">
+          <h2>Profissionais & Serviços</h2>
+          <div class="page-header-actions">
+            <button class="btn-novo admin-only" id="btn-add-profissional" onclick="openModalCriarProfissional()" style="display:none;">
+              <i class="fa-solid fa-user-plus"></i> Adicionar Profissional
+            </button>
+            <button class="btn-filter admin-only" id="btn-gerenciar-servicos" onclick="openModalGerenciarServicos()" style="display:none;">
+              <i class="fa-solid fa-gear"></i> Gerenciar Serviços
+            </button>
+          </div>
+        </div>
+        <div class="professionals-grid" id="professionals-grid"></div>
+      </div>
+
+      <!-- DASHBOARD (admin only) -->
+      <div class="page admin-only" id="page-dashboard">
+        <div class="page-header">
+          <h2>Dashboard</h2>
+        </div>
+        <div class="dash-filters">
+          <div class="form-group">
+            <label>Data Início</label>
+            <input type="date" id="dash-inicio">
+          </div>
+          <div class="form-group">
+            <label>Data Fim</label>
+            <input type="date" id="dash-fim">
+          </div>
+          <button class="btn-submit btn-dash-apply" onclick="loadDashboard()">Aplicar</button>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-card">
+            <div class="dash-card-title">Total de Agendamentos</div>
+            <div class="dash-card-value" id="dash-total-ag">0</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Ticket Médio</div>
+            <div class="dash-card-value" id="dash-ticket">R$ 0,00</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Total Serviços</div>
+            <div class="dash-card-value" id="dash-total-servicos">0</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Faturamento Total</div>
+            <div class="dash-card-value" id="dash-faturamento">R$ 0,00</div>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h3>Faturamento por Horário</h3>
+          <div class="dash-chart" id="dash-chart-horarios"></div>
+        </div>
+
+        <div class="dash-section">
+          <h3>Por Profissional</h3>
+          <div class="dash-table-wrapper">
+            <table class="dash-table">
+              <thead><tr><th>Profissional</th><th>Atendimentos</th><th>Serviços</th><th>Faturamento</th></tr></thead>
+              <tbody id="dash-prof-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-row">
+          <div class="dash-section dash-half">
+            <h3>Top 10 Serviços</h3>
+            <div class="dash-table-wrapper">
+              <table class="dash-table">
+                <thead><tr><th>Serviço</th><th>Qtd</th><th>Valor Total</th></tr></thead>
+                <tbody id="dash-top-servicos"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="dash-section dash-half">
+            <h3>Top 10 Clientes</h3>
+            <div class="dash-table-wrapper">
+              <table class="dash-table">
+                <thead><tr><th>Cliente</th><th>Atendimentos</th></tr></thead>
+                <tbody id="dash-top-clientes"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======================== -->
+      <!-- CONFIGURAÇÕES -->
+      <!-- ======================== -->
+      <div class="page" id="page-configuracoes">
+        <div class="page-header">
+          <h2>Configurações</h2>
+        </div>
+
+        <div class="config-layout">
+          <!-- Menu lateral interno -->
+          <div class="config-sidebar">
+            <button class="config-tab active" data-config-tab="meu-perfil">
+              <i class="fa-regular fa-user"></i> Meu Perfil
+            </button>
+            <button class="config-tab admin-only-tab" data-config-tab="usuarios" id="tab-usuarios">
+              <i class="fa-solid fa-users"></i> Usuários
+            </button>
+            <button class="config-tab" data-config-tab="dados-cadastrais">
+              <i class="fa-solid fa-building"></i> Dados Cadastrais
+            </button>
+          </div>
+
+          <!-- Conteúdo das abas -->
+          <div class="config-content">
+
+            <!-- ABA: Meu Perfil -->
+            <div class="config-panel active" id="config-meu-perfil">
+              <div class="config-section">
+                <div class="config-section-left">
+                  <h3>Informações pessoais</h3>
+                  <p class="config-help-text">As informações pessoais são necessárias para que o proprietário deste usuário seja facilmente identificado.</p>
+                </div>
+                <div class="config-section-right">
+                  <div class="form-group">
+                    <label>Nome completo</label>
+                    <input type="text" id="perfil-nome" placeholder="Seu nome">
+                  </div>
+                  <div class="form-group">
+                    <label>E-mail</label>
+                    <input type="email" id="perfil-email" placeholder="seu@email.com" readonly>
+                  </div>
+
+                </div>
+              </div>
+
+
+
+              <div class="config-actions">
+                <button class="btn-alterar-senha" onclick="openModal('modal-alterar-senha')">
+                  <i class="fa-solid fa-pen"></i> ALTERAR SENHA
+                </button>
+                <button class="btn-submit btn-salvar-perfil" onclick="salvarPerfil()">
+                  SALVAR ALTERAÇÕES <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- ABA: Usuários (ADMIN ONLY) -->
+            <div class="config-panel" id="config-usuarios">
+              <div class="config-section-header">
+                <h3>Usuários do Sistema</h3>
+                <button class="btn-novo" id="btn-novo-usuario" onclick="openModalCriarUsuario()">
+                  <i class="fa-solid fa-plus"></i> Novo Usuário
+                </button>
+              </div>
+              <div class="config-users-count" id="config-users-count"></div>
+              <div class="config-users-table-wrapper">
+                <table class="config-users-table">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>Email</th>
+                      <th>Permissão</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usuarios-tbody"></tbody>
+                </table>
+              </div>
+              <!-- Mobile: cards -->
+              <div class="config-users-cards" id="usuarios-cards"></div>
+            </div>
+
+            <!-- ABA: Dados Cadastrais -->
+            <div class="config-panel" id="config-dados-cadastrais">
+              <div class="config-section-header">
+                <h3>Dados Cadastrais do Estabelecimento</h3>
+              </div>
+
+              <div class="dados-cadastrais-logo-area">
+                <div class="dados-cadastrais-logo-preview" id="dc-logo-preview">
+                  <i class="fa-solid fa-image"></i>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label class="btn-upload-foto">
+                    <i class="fa-solid fa-upload"></i> Alterar logo
+                    <input type="file" accept="image/*" id="dc-logo-input" onchange="onDcLogoChange(this)" style="display:none;">
+                  </label>
+                  <button type="button" class="btn-remover-foto" onclick="removerDcLogo()" id="btn-remover-dc-logo" style="display:none;">Remover logo</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Razão Social</label>
+                <input type="text" id="dc-razao-social" placeholder="Razão social">
+              </div>
+              <div class="form-group">
+                <label>Nome Fantasia</label>
+                <input type="text" id="dc-nome-fantasia" placeholder="Nome fantasia">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>CPF/CNPJ</label>
+                  <input type="text" id="dc-cpf-cnpj" placeholder="000.000.000-00" maxlength="18">
+                </div>
+                <div class="form-group">
+                  <label>Telefone</label>
+                  <input type="tel" id="dc-telefone" placeholder="(99) 99999-9999">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="dc-email" placeholder="contato@salao.com">
+              </div>
+
+              <div id="dc-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+              <div class="config-actions">
+                <div></div>
+                <button class="btn-submit btn-salvar-perfil" onclick="salvarDadosCadastrais()">
+                  SALVAR ALTERAÇÕES <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- MODAL: Identificação do Cliente -->
+  <div class="modal-overlay" id="modal-identificacao">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Identificação do Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-identificacao')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Telefone</label>
+        <input type="tel" id="id-telefone" placeholder="(99) 99999-9999">
+      </div>
+      <div id="id-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-identificacao')">Cancelar</button>
+        <button class="btn-submit" onclick="consultarCliente()">Consultar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Agendamento -->
+  <div class="modal-overlay" id="modal-agendamento">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-agendamento-titulo">Novo Agendamento</h3>
+        <button class="modal-close" onclick="closeModal('modal-agendamento')">&times;</button>
+      </div>
+      <form id="form-agendamento" onsubmit="saveAppointment(event)">
+        <input type="hidden" id="ag-id" value="">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cliente</label>
+            <input type="text" id="ag-cliente" required readonly>
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="tel" id="ag-telefone" required readonly>
+          </div>
+        </div>
+
+        <!-- Container de serviços (múltiplos) -->
+        <div id="servicos-container"></div>
+
+        <button type="button" class="btn-add-servico" id="btn-add-servico" onclick="adicionarBlocoServico()">
+          <i class="fa-solid fa-circle-plus"></i> Adicionar outro serviço
+        </button>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="ag-data" required>
+          </div>
+          <div class="form-group">
+            <label>Hora</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="ag-hora-h" required style="flex:1;">
+                <option value="07">07</option>
+                <option value="08">08</option>
+                <option value="09" selected>09</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+                <option value="13">13</option>
+                <option value="14">14</option>
+                <option value="15">15</option>
+                <option value="16">16</option>
+                <option value="17">17</option>
+                <option value="18">18</option>
+                <option value="19">19</option>
+                <option value="20">20</option>
+                <option value="21">21</option>
+              </select>
+              <span style="font-weight:600;color:var(--text-muted);">:</span>
+              <select id="ag-minuto" required style="flex:1;">
+                <option value="00" selected>00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-delete" id="btn-excluir-agendamento" onclick="confirmarExclusao()" style="display:none;">
+            <i class="fa-solid fa-trash"></i> Excluir Agendamento
+          </button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmação de exclusão -->
+  <div class="modal-overlay" id="modal-confirmar-exclusao">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Confirmar Exclusão</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-exclusao')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza que deseja excluir este agendamento?</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-exclusao')">Não</button>
+        <button class="btn-delete" onclick="excluirAgendamento()">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade de Base (gramas) -->
+  <div class="modal-overlay" id="modal-base-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Quantidade de Base</h3>
+        <button class="modal-close" onclick="closeModal('modal-base-qtd')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Selecione a quantidade (gramas)</label>
+        <select id="base-qtd-select"></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-base-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarBaseQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade de Pigmentação (gramas) -->
+  <div class="modal-overlay" id="modal-pigmento-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Quantidade de Pigmentação</h3>
+        <button class="modal-close" onclick="closeModal('modal-pigmento-qtd')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Selecione a quantidade (gramas)</label>
+        <select id="pigmento-qtd-select"></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-pigmento-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarPigmentoQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Cliente -->
+  <div class="modal-overlay" id="modal-cliente">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Novo Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-cliente')">&times;</button>
+      </div>
+      <form id="form-cliente" onsubmit="saveClient(event)">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="cl-nome" required>
+        </div>
+        <div class="form-group">
+          <label>Telefone</label>
+          <input type="tel" id="cl-telefone" required>
+        </div>
+        <div class="form-group">
+          <label>Data de Nascimento</label>
+          <input type="date" id="cl-nascimento">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-cliente')">Cancelar</button>
+          <button type="submit" class="btn-submit">Cadastrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Histórico do Cliente -->
+  <div class="modal-overlay" id="modal-historico">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Histórico do Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-historico')">&times;</button>
+      </div>
+      <div id="historico-conteudo"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gerenciar Serviços -->
+  <div class="modal-overlay" id="modal-gerenciar-servicos">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Gerenciar Serviços</h3>
+        <button class="modal-close" onclick="closeModal('modal-gerenciar-servicos')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="servico-crud-header">
+          <button class="btn-novo" onclick="openCriarServico()"><i class="fa-solid fa-plus"></i> Novo Serviço</button>
+        </div>
+        <div id="lista-servicos-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/Editar Serviço -->
+  <div class="modal-overlay" id="modal-crud-servico">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-crud-servico-titulo">Novo Serviço</h3>
+        <button class="modal-close" onclick="closeModal('modal-crud-servico')">&times;</button>
+      </div>
+      <form onsubmit="salvarServicoCrud(event)">
+        <input type="hidden" id="svc-crud-id">
+        <div class="form-group">
+          <label>Nome do Serviço</label>
+          <input type="text" id="svc-crud-nome" required placeholder="Ex: Corte Feminino">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Preço (R$)</label>
+            <input type="number" id="svc-crud-preco" required step="0.01" min="0" placeholder="150.00">
+          </div>
+          <div class="form-group">
+            <label>Duração (min)</label>
+            <input type="number" id="svc-crud-duracao" required min="5" step="5" placeholder="60">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <label class="checkbox-label" style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; word-break: break-word; overflow-wrap: break-word; min-width: 0;">
+            <input type="checkbox" id="svc-crud-usa-cores" style="flex-shrink: 0; margin-top: 3px;">
+            <span style="flex: 1; min-width: 0;">🎨 Este serviço utiliza sistema de cores</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-crud-servico')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Vincular Serviços a Profissional (EDITAR PROFISSIONAL) -->
+  <div class="modal-overlay" id="modal-vincular-servicos">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Editar Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-vincular-servicos')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Seção: dados do profissional -->
+        <div class="edit-prof-section">
+          <div class="edit-prof-foto-area">
+            <div class="avatar avatar--lg" id="edit-prof-avatar-preview">?</div>
+            <div class="edit-prof-foto-actions">
+              <label class="btn-upload-foto" id="edit-prof-foto-label">
+                <i class="fa-solid fa-camera"></i> Alterar foto
+                <input type="file" accept="image/*" id="edit-prof-foto-input" onchange="onEditProfFotoChange(this)" style="display:none;">
+              </label>
+              <button type="button" class="btn-remover-foto" onclick="removerEditProfFoto()">Remover</button>
+              <p class="foto-recomendacao">Recomendado: 96×96px, formato quadrado (JPG ou PNG)</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Nome do Profissional</label>
+            <input type="text" id="edit-prof-nome" placeholder="Nome">
+          </div>
+          <input type="hidden" id="edit-prof-id">
+          <input type="hidden" id="edit-prof-old-nome">
+        </div>
+
+        <hr style="border-color: var(--border); margin: 20px 0;">
+
+        <!-- Seção: serviços vinculados -->
+        <h4 style="color: var(--gold); font-family: var(--font-display); margin-bottom: 12px;">Serviços vinculados</h4>
+        <div id="vincular-servicos-list" class="vincular-servicos-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-delete" onclick="confirmarExcluirProfissional()" style="flex:0 0 auto; padding: 12px 16px;">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+        <button class="btn-cancel" onclick="closeModal('modal-vincular-servicos')">Cancelar</button>
+        <button class="btn-submit" onclick="salvarEdicaoProfissional()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Profissional -->
+  <div class="modal-overlay" id="modal-criar-profissional">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-profissional')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovoProfissional(event)">
+        <div class="form-group">
+          <label>Nome do Profissional</label>
+          <input type="text" id="novo-prof-nome" required placeholder="Ex: Maria Silva">
+        </div>
+
+        <div class="form-group">
+          <label>Foto</label>
+          <div class="criar-prof-foto-area">
+            <div class="avatar avatar--lg" id="novo-prof-avatar-preview">?</div>
+            <div class="criar-prof-foto-actions">
+              <label class="btn-upload-foto">
+                <i class="fa-solid fa-camera"></i> Escolher foto
+                <input type="file" accept="image/*" id="novo-prof-foto-input" onchange="onNovoProfFotoChange(this)" style="display:none;">
+              </label>
+              <p class="foto-recomendacao">Recomendado: 96×96px, formato quadrado (JPG ou PNG)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Serviços</label>
+          <p class="config-help-text" style="margin-bottom:8px;">Selecione os serviços que este profissional realiza.</p>
+          <div id="novo-prof-servicos-list" class="vincular-servicos-list"></div>
+        </div>
+
+        <div id="criar-prof-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-profissional')">Cancelar</button>
+          <button type="submit" class="btn-submit">Criar Profissional</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar exclusão de profissional -->
+  <div class="modal-overlay" id="modal-confirmar-excluir-prof">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Excluir Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-excluir-prof')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza que deseja excluir este profissional? Todos os vínculos de serviços serão removidos.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-excluir-prof')">Não</button>
+        <button class="btn-delete" onclick="executarExcluirProfissional()">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gerenciar Cores do Serviço -->
+  <div class="modal-overlay" id="modal-gerenciar-cores">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🎨 Cores — <span id="cores-servico-nome"></span></h3>
+        <button class="modal-close" onclick="closeModal('modal-gerenciar-cores')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="cores-servico-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/Editar Cor -->
+  <div class="modal-overlay" id="modal-crud-cor">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-crud-cor-titulo">Nova Cor</h3>
+        <button class="modal-close" onclick="closeModal('modal-crud-cor')">&times;</button>
+      </div>
+      <form onsubmit="salvarCorCrud(event)">
+        <input type="hidden" id="cor-crud-id">
+        <div class="form-group">
+          <label>Nome da cor</label>
+          <input type="text" id="cor-crud-nome" required placeholder="Ex: 1-0">
+        </div>
+        <div class="form-group">
+          <label>Cor</label>
+          <div class="cor-picker-row">
+            <input type="color" id="cor-crud-picker" value="#888888" onchange="onCorPickerChange(this)">
+            <input type="text" id="cor-crud-hex" value="#888888" placeholder="#RRGGBB" oninput="onCorHexInput(this)" maxlength="7">
+            <div class="cor-crud-preview" id="cor-crud-preview" style="background:#888888"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-crud-cor')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================== -->
+  <!-- MODAIS DE CONFIGURAÇÕES -->
+  <!-- ======================== -->
+
+  <!-- MODAL: Alterar Senha -->
+  <div class="modal-overlay" id="modal-alterar-senha">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Alterar Senha</h3>
+        <button class="modal-close" onclick="closeModal('modal-alterar-senha')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovaSenha(event)">
+        <div class="form-group">
+          <label>Senha atual</label>
+          <input type="password" id="senha-atual" required placeholder="Digite sua senha atual">
+        </div>
+        <div class="form-group">
+          <label>Nova senha</label>
+          <input type="password" id="senha-nova" required placeholder="Mínimo 6 caracteres" minlength="6">
+        </div>
+        <div class="form-group">
+          <label>Confirmar nova senha</label>
+          <input type="password" id="senha-confirmar" required placeholder="Repita a nova senha" minlength="6">
+        </div>
+        <div id="senha-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-alterar-senha')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar Nova Senha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Usuário -->
+  <div class="modal-overlay" id="modal-criar-usuario">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Criar Novo Usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-usuario')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovoUsuario(event)">
+        <!-- Seção: Informações de acesso -->
+        <div class="config-form-section">
+          <h4>Informações de acesso</h4>
+          <p class="config-help-text">Informe o login e o grupo de permissões no qual pertence o usuário.</p>
+
+          <div class="form-group">
+            <label>Grupo de acesso</label>
+            <select id="novo-user-role" required>
+              <option value="colaborador">Colaborador</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Seção: Informações pessoais -->
+        <div class="config-form-section">
+          <h4>Informações pessoais</h4>
+          <p class="config-help-text">As informações pessoais são necessárias para identificação do usuário.</p>
+          <div class="form-group">
+            <label>Nome completo (obrigatório)</label>
+            <input type="text" id="novo-user-nome" required placeholder="Nome completo">
+          </div>
+          <div class="form-group">
+            <label>E-mail (obrigatório)</label>
+            <input type="email" id="novo-user-email" required placeholder="email@exemplo.com">
+          </div>
+
+        </div>
+
+        <div id="criar-user-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-usuario')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Editar Usuário -->
+  <div class="modal-overlay" id="modal-editar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Editar Usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-editar-usuario')">&times;</button>
+      </div>
+      <form onsubmit="salvarEdicaoUsuario(event)">
+        <input type="hidden" id="edit-user-id">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="edit-user-nome" required>
+        </div>
+
+        <div class="form-group">
+          <label>Permissão</label>
+          <select id="edit-user-role" required>
+            <option value="colaborador">Colaborador</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-editar-usuario')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabaseClient.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
