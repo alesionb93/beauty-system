@@ -487,6 +487,22 @@ async function deleteAppointment(id) {
     if (histResp.data && histResp.data[0] && ag.servicos && ag.servicos.length > 0) {
       var histId = histResp.data[0].id;
       var histSvcRows = ag.servicos.map(function(s) {
+        var coresDetalhes = [];
+        if (s.bases && s.bases.length > 0) {
+          s.bases.forEach(function(b) {
+            coresDetalhes.push({ tipo: 'base', cor: b.cor, qtd: b.qtd || 0, hex: b.hex || null });
+          });
+        }
+        if (s.pigmentacoes && s.pigmentacoes.length > 0) {
+          s.pigmentacoes.forEach(function(p) {
+            coresDetalhes.push({ tipo: 'pigmento', cor: p.cor, qtd: p.qtd || 0, hex: p.hex || null });
+          });
+        }
+        if (s.cores && s.cores.length > 0) {
+          s.cores.forEach(function(c) {
+            coresDetalhes.push({ tipo: 'cor', cor: c, qtd: 0, hex: null });
+          });
+        }
         return {
           historico_atendimento_id: histId,
           servico_nome: s.servico,
@@ -494,6 +510,7 @@ async function deleteAppointment(id) {
           duracao: s.duracao || 30,
           cor_nome: s.cor || null,
           cor_hex: null,
+          cores_detalhes: coresDetalhes.length > 0 ? coresDetalhes : null,
           tenant_id: tenantId
         };
       });
@@ -1680,7 +1697,7 @@ async function openHistorico(cliente) {
   var resp = await query1;
   var historico = resp.data || [];
 
-  var query2 = supabaseClient.from('agendamentos').select('*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex))').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
+  var query2 = supabaseClient.from('agendamentos').select('*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
   if (tenantId) query2 = query2.eq('tenant_id', tenantId);
   var resp2 = await query2;
   var agendamentos = resp2.data || [];
@@ -1692,7 +1709,26 @@ async function openHistorico(cliente) {
       allProfissionais.forEach(function(p) { profNomeMap[p.id] = p.nome; });
       ag.profissional = profNomeMap[ag.profissional_id] || '';
       ag.servicos = ag.agendamento_servicos.map(function(as) {
-        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: [], pigmentacoes: [], cores: as.cores ? [as.cores.nome] : [] };
+        var bases = [];
+        var pigmentacoes = [];
+        var coresArr = [];
+        if (as.agendamento_servico_cores && as.agendamento_servico_cores.length > 0) {
+          as.agendamento_servico_cores.forEach(function(asc) {
+            if (asc.cores) {
+              if (asc.tipo === 'base') {
+                bases.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
+              } else if (asc.tipo === 'pigmento') {
+                pigmentacoes.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
+              } else if (asc.tipo === 'cor') {
+                coresArr.push(asc.cores.nome);
+              }
+            }
+          });
+        }
+        if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && as.cores) {
+          coresArr.push(as.cores.nome);
+        }
+        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr };
       });
     }
   });
@@ -1700,7 +1736,24 @@ async function openHistorico(cliente) {
   historico.forEach(function(h) {
     if (h.historico_servicos && h.historico_servicos.length > 0 && !h.servicos) {
       h.servicos = h.historico_servicos.map(function(hs) {
-        return { profissional: h.profissional_nome || '', servico: hs.servico_nome, bases: [], pigmentacoes: [], cores: hs.cor_nome ? [hs.cor_nome] : [] };
+        var bases = [];
+        var pigmentacoes = [];
+        var coresArr = [];
+        if (hs.cores_detalhes && Array.isArray(hs.cores_detalhes)) {
+          hs.cores_detalhes.forEach(function(cd) {
+            if (cd.tipo === 'base') {
+              bases.push({ cor: cd.cor, qtd: cd.qtd || 0, hex: cd.hex || null });
+            } else if (cd.tipo === 'pigmento') {
+              pigmentacoes.push({ cor: cd.cor, qtd: cd.qtd || 0, hex: cd.hex || null });
+            } else if (cd.tipo === 'cor') {
+              coresArr.push(cd.cor);
+            }
+          });
+        }
+        if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && hs.cor_nome) {
+          coresArr.push(hs.cor_nome);
+        }
+        return { profissional: h.profissional_nome || '', servico: hs.servico_nome, bases: bases, pigmentacoes: pigmentacoes, cores: coresArr };
       });
     }
   });
@@ -1728,7 +1781,7 @@ async function openHistorico(cliente) {
             svcLine += ' — Base: ';
             s.bases.forEach(function(b, idx) {
               var opt = colorOptions.find(function(o) { return o.code === b.cor; });
-              var hex = opt ? opt.hex : '#888';
+              var hex = b.hex || (opt ? opt.hex : '#888');
               svcLine += '<span class="hist-cor-badge"><span class="hist-cor-swatch" style="background:' + hex + '"></span>' + b.cor;
               if (b.qtd) svcLine += ' (' + b.qtd + 'g)';
               svcLine += '</span>';
@@ -1739,7 +1792,7 @@ async function openHistorico(cliente) {
             svcLine += ' — Pigmentação: ';
             s.pigmentacoes.forEach(function(p, idx) {
               var opt = pigmentOptions.find(function(o) { return o.code === p.cor; });
-              var hex = opt ? opt.hex : '#888';
+              var hex = p.hex || (opt ? opt.hex : '#888');
               svcLine += '<span class="hist-cor-badge"><span class="hist-cor-swatch" style="background:' + hex + '"></span>' + p.cor;
               if (p.qtd) svcLine += ' (' + p.qtd + 'g)';
               svcLine += '</span>';

@@ -1207,7 +1207,7 @@
     </div>
   </div>
 
-  <!-- MODAL: Quantidade de Base (gramas) -->
+  <!-- MODAL: Quantidade de Base (LEGADO - mantido para compatibilidade) -->
   <div class="modal-overlay" id="modal-base-qtd">
     <div class="modal modal-small">
       <div class="modal-header">
@@ -1225,7 +1225,7 @@
     </div>
   </div>
 
-  <!-- MODAL: Quantidade de Pigmentação (gramas) -->
+  <!-- MODAL: Quantidade de Pigmentação (LEGADO - mantido para compatibilidade) -->
   <div class="modal-overlay" id="modal-pigmento-qtd">
     <div class="modal modal-small">
       <div class="modal-header">
@@ -1239,6 +1239,23 @@
       <div class="modal-actions">
         <button class="btn-cancel" onclick="closeModal('modal-pigmento-qtd')">Cancelar</button>
         <button class="btn-submit" onclick="confirmarPigmentoQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade Dinâmica (NOVO - usado por todos os serviços com cores) -->
+  <div class="modal-overlay" id="modal-dynamic-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-dynamic-qtd-titulo">Quantidade</h3>
+        <button class="modal-close" onclick="closeModal('modal-dynamic-qtd')">&times;</button>
+      </div>
+      <div class="form-group" id="dynamic-qtd-body">
+        <!-- Conteúdo gerado dinamicamente pelo JS -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-dynamic-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarDynamicQtd()">Confirmar</button>
       </div>
     </div>
   </div>
