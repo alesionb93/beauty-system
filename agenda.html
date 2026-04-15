@@ -8,7 +8,17 @@
   <link rel="stylesheet" href="estilos.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+  <style>
+    .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
+    .pcr-app { z-index: 99999 !important; position: fixed !important; }
+    /* Sidebar collapse when theme is open */
+    body.tema-fullscreen .sidebar { display: none !important; }
+    body.tema-fullscreen .main-content { margin-left: 0 !important; }
+    body.tema-fullscreen .hamburger { display: none !important; }
+  </style>
 </head>
 <body>
 
@@ -23,7 +33,7 @@
     <aside class="sidebar" id="sidebar">
       <button class="close-sidebar" id="close-sidebar"><i class="fa-solid fa-xmark"></i></button>
       <div class="sidebar-header">
-        <img src="beautySystemLogo.png" alt="Beauty System">
+        <img src="beautySystemLogo.png" alt="Beauty System" id="sidebar-logo">
         <div class="brand">
           <h2>BEAUTY SYSTEM</h2>
           <p>Agendamento</p>
@@ -200,6 +210,9 @@
             <button class="config-tab" data-config-tab="dados-cadastrais">
               <i class="fa-solid fa-building"></i> Dados Cadastrais
             </button>
+            <button class="config-tab master-only-tab" data-config-tab="tema-agenda">
+              <i class="fa-solid fa-palette"></i> Tema da Agenda
+            </button>
           </div>
 
           <!-- Conteúdo das abas -->
@@ -313,6 +326,622 @@
                 </button>
               </div>
             </div>
+
+            <!-- ABA: Tema da Agenda (ADMIN ONLY) -->
+            <div class="config-panel master-only-panel" id="config-tema-agenda">
+              <style>
+                /* ===== TEMA EDITOR — 3 BLOCOS ===== */
+                .tema-block {
+                  background: var(--bg-card);
+                  border: 1px solid var(--border);
+                  border-radius: 18px;
+                  box-shadow: var(--shadow-sm);
+                  overflow: hidden;
+                  margin-bottom: 28px;
+                }
+                .tema-block-header {
+                  padding: 20px 24px 12px;
+                }
+                .tema-block-header h3 {
+                  font-size: 1.05rem;
+                  color: var(--text);
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  margin-bottom: 4px;
+                }
+                .tema-block-header p {
+                  color: var(--text-muted);
+                  font-size: 0.85rem;
+                  line-height: 1.5;
+                }
+                .tema-block-content {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 0;
+                }
+                .tema-block-controls {
+                  padding: 0 24px 24px;
+                  border-right: 1px solid var(--border);
+                }
+                .tema-block-preview {
+                  padding: 20px;
+                  background: rgba(0,0,0,0.02);
+                  display: flex;
+                  align-items: flex-start;
+                  justify-content: center;
+                  min-height: 280px;
+                }
+                .tema-grid-2 {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 16px 18px;
+                  align-items: start;
+                }
+                .tema-field {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                }
+                .tema-field > label,
+                .tema-field-title {
+                  font-size: 0.84rem;
+                  font-weight: 600;
+                  color: var(--text);
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                }
+                .tema-picker-row {
+                  display: flex;
+                  align-items: center;
+                  gap: 12px;
+                  min-height: 52px;
+                }
+                .tema-hex-input {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: monospace;
+                  width: 110px;
+                }
+                .tema-hex-label {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: monospace;
+                  display: inline-flex;
+                  align-items: center;
+                  min-width: 100px;
+                }
+                .tema-select {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: var(--font);
+                  width: 100%;
+                }
+                .tema-help {
+                  position: relative;
+                  display: inline-flex;
+                  align-items: center;
+                }
+                .tema-help-icon {
+                  width: 18px; height: 18px; border-radius: 999px;
+                  border: 1px solid rgba(108,58,237,0.24);
+                  background: rgba(108,58,237,0.08);
+                  color: var(--gold); font-size: 11px; font-weight: 700;
+                  display: inline-flex; align-items: center; justify-content: center;
+                  cursor: help;
+                }
+                .tema-help-box {
+                  position: fixed; min-width: 220px; max-width: 280px;
+                  background: var(--bg-card); color: var(--text);
+                  border: 1px solid var(--border); border-radius: 12px;
+                  box-shadow: 0 12px 28px rgba(15,23,42,0.16);
+                  padding: 10px 14px; font-size: 0.8rem; line-height: 1.5;
+                  opacity: 0; pointer-events: none;
+                  transition: opacity 0.18s ease; z-index: 99999; display: none;
+                }
+                .tema-help:hover .tema-help-box { opacity: 1; display: block; }
+                .tema-font-preview-box {
+                  margin-top: 12px; padding: 14px;
+                  background: rgba(108,58,237,0.06);
+                  border: 1px solid rgba(108,58,237,0.12);
+                  border-radius: 14px; color: var(--text);
+                }
+                .tema-logo-row {
+                  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+                }
+                .tema-logo-preview {
+                  width: 80px; height: 80px; border-radius: 18px;
+                  background: rgba(108,58,237,0.08);
+                  border: 1px dashed rgba(108,58,237,0.28);
+                  display: flex; align-items: center; justify-content: center;
+                  overflow: hidden; flex-shrink: 0;
+                }
+                .tema-logo-preview img { width: 100%; height: 100%; object-fit: contain; }
+                .tema-logo-placeholder {
+                  width: 100%; height: 100%;
+                  display: inline-flex; align-items: center; justify-content: center;
+                  color: var(--gold); font-weight: 700; font-size: 1.1rem;
+                }
+                .tema-upload-actions { display: flex; flex-direction: column; gap: 8px; }
+
+                /* ── Preview: Bloco 1 (Global) ── */
+                .pv-global-frame {
+                  width: 100%; max-width: 400px;
+                  border-radius: 14px; overflow: hidden;
+                  border: 1px solid var(--border);
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                }
+                .pv-global-layout {
+                  display: grid;
+                  grid-template-columns: 140px 1fr;
+                  min-height: 300px;
+                }
+                .tema-preview-sidebar {
+                  padding: 16px 12px; color: #fff;
+                }
+                .tema-preview-brand {
+                  display: flex; align-items: center; gap: 8px;
+                  margin-bottom: 16px; padding-bottom: 12px;
+                  border-bottom: 1px solid rgba(255,255,255,0.12);
+                }
+                .tema-preview-logo {
+                  width: 36px; height: 36px; border-radius: 10px;
+                  display: flex; align-items: center; justify-content: center;
+                  font-weight: 700; font-size: 0.75rem; overflow: hidden;
+                }
+                .tema-preview-brand-text { display: flex; flex-direction: column; gap: 2px; }
+                .tema-preview-brand-text strong { font-size: 0.72rem; line-height: 1.2; }
+                .tema-preview-brand-text span { font-size: 0.62rem; }
+                .tema-preview-menu { display: flex; flex-direction: column; gap: 4px; }
+                .tema-preview-menu-item {
+                  padding: 8px 10px; border-radius: 8px;
+                  font-size: 0.72rem; font-weight: 500;
+                  border-left: 3px solid transparent;
+                }
+                .pv-global-main { padding: 16px; }
+                .pv-global-topbar {
+                  display: flex; justify-content: space-between;
+                  align-items: center; margin-bottom: 14px;
+                }
+                .pv-global-topbar h4 { font-size: 0.9rem; font-weight: 700; }
+                .pv-global-btns { display: flex; gap: 6px; }
+                .pv-global-btn {
+                  height: 30px; padding: 0 12px; border-radius: 999px;
+                  font-size: 0.68rem; font-weight: 600;
+                  border: 1px solid transparent;
+                  display: inline-flex; align-items: center; gap: 4px;
+                }
+                .pv-global-placeholder {
+                  height: 60px; border-radius: 10px;
+                  border: 1px dashed rgba(0,0,0,0.12);
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 0.7rem; color: var(--text-muted);
+                }
+
+                /* ── Preview: Bloco 2 (Calendário) ── */
+                .pv-cal-frame {
+                  width: 100%; max-width: 340px;
+                  border-radius: 14px; overflow: hidden;
+                  padding: 18px;
+                }
+                .tema-preview-cal-header {
+                  display: flex; align-items: center;
+                  justify-content: space-between; margin-bottom: 14px;
+                }
+                .tema-preview-cal-header button {
+                  width: 28px; height: 28px; border-radius: 8px;
+                  background: transparent; border: none; font-size: 1rem;
+                }
+                .tema-preview-weekdays {
+                  display: grid; grid-template-columns: repeat(7, 1fr);
+                  gap: 4px; margin-bottom: 8px;
+                }
+                .tema-preview-weekdays span {
+                  text-align: center; font-size: 0.68rem; font-weight: 500;
+                }
+                .tema-preview-cal-grid {
+                  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+                }
+                .tema-preview-cal-day {
+                  width: 100%; min-height: 32px; border-radius: 8px;
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 0.78rem;
+                }
+                .tema-preview-cal-day.is-empty {
+                  background: transparent !important; box-shadow: none !important;
+                }
+
+                /* ── Preview: Bloco 3 (Agendamento) ── */
+                .pv-appt-frame {
+                  width: 100%; max-width: 380px;
+                  border-radius: 14px; overflow: hidden;
+                  padding: 18px;
+                }
+                .pv-appt-day-title {
+                  font-size: 0.95rem; font-weight: 700; margin-bottom: 16px;
+                }
+                .pv-appt-timeline { display: flex; flex-direction: column; gap: 4px; }
+                .pv-appt-time-row {
+                  display: grid; grid-template-columns: 48px 1fr;
+                  gap: 10px; align-items: start; min-height: 56px;
+                }
+                .tema-preview-time { font-size: 0.78rem; padding-top: 4px; }
+                .tema-preview-line {
+                  border-top: 1px solid rgba(0,0,0,0.06);
+                  position: relative; min-height: 56px;
+                }
+                .tp-appt-block {
+                  position: relative; border-radius: 10px;
+                  padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;
+                  margin-top: 4px;
+                }
+                .tp-appt-block .appt-time { font-size: 0.72rem; font-weight: 700; }
+                .tp-appt-block .appt-client { font-size: 0.78rem; font-weight: 600; }
+                .tp-appt-block .appt-service { font-size: 0.7rem; }
+
+                @media (max-width: 1100px) {
+                  .tema-block-content { grid-template-columns: 1fr; }
+                  .tema-block-controls { border-right: none; border-bottom: 1px solid var(--border); }
+                }
+                @media (max-width: 700px) {
+                  .tema-grid-2 { grid-template-columns: 1fr; }
+                  .pv-global-layout { grid-template-columns: 1fr; }
+                }
+
+                /* Pickr fixes */
+                .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
+                .pcr-app { z-index: 99999 !important; }
+              </style>
+
+              <div class="config-section-header">
+                <h3>Tema da Agenda</h3>
+                <p style="color:var(--gold);font-size:0.9rem;margin-top:4px;">Personalize a aparência da agenda sem afetar os dados cadastrais do tenant.</p>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 1 — TEMA GLOBAL
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-palette"></i> Tema Global</h3>
+                  <p>Cor de destaque, fundo da página, menu lateral e textos.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <label>Cor de destaque</label>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-gold" data-default="#6C3AED"></div>
+                          <input type="text" class="tema-hex-input" id="tema-gold-hex" value="#6C3AED" maxlength="7" oninput="syncColorFromHex()">
+                        </div>
+                        <div id="tema-color-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Fundo da página
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Área principal atrás dos cartões e calendário.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-bg" data-default="#F8F8F6"></div>
+                          <span class="tema-hex-label" id="tema-bg-label">#F8F8F6</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Menu lateral
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Barra de navegação à esquerda com logo e links.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-sidebar-bg" data-default="#1B1340"></div>
+                          <span class="tema-hex-label" id="tema-sidebar-bg-label">#1B1340</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <label>Cor do texto</label>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-text-color" data-default="#1A1A2E"></div>
+                          <input type="text" class="tema-hex-input" id="tema-text-color-hex" value="#1A1A2E" maxlength="7" oninput="syncTextColorFromHex()">
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do título da página
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Cor do título "Agendamentos" no topo da página.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-page-title-color" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-page-title-color-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <label>Fonte</label>
+                        <select id="tema-font" class="tema-select">
+                          <option value="Inter">Inter</option>
+                          <option value="Poppins">Poppins</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                        </select>
+                        <div class="tema-font-preview-box">
+                          <span id="tema-font-preview" style="font-size:0.9rem;">Exemplo de texto com a fonte</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Logo -->
+                    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+                      <div class="tema-field-title" style="margin-bottom:10px;"><i class="fa-solid fa-image"></i> Logo do menu lateral</div>
+                      <div class="tema-logo-row">
+                        <div class="tema-logo-preview" id="tema-logo-preview">
+                          <span class="tema-logo-placeholder" id="tema-logo-icon">BS</span>
+                          <img id="tema-logo-img" alt="Logo" style="display:none;">
+                        </div>
+                        <div class="tema-upload-actions">
+                          <label class="btn-upload-foto" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                            <i class="fa-solid fa-upload"></i> Enviar logo
+                            <input type="file" accept="image/*" id="tema-logo-input" style="display:none;" onchange="onTemaLogoChange(this)">
+                          </label>
+                          <button type="button" class="btn-remover-foto" id="btn-remover-tema-logo" style="display:none;" onclick="removerTemaLogo()">Remover logo</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Global -->
+                  <div class="tema-block-preview">
+                    <div class="pv-global-frame">
+                      <div class="pv-global-layout">
+                        <div class="tema-preview-sidebar" id="tp-sidebar">
+                          <div class="tema-preview-brand">
+                            <div class="tema-preview-logo" id="tp-logo">BS</div>
+                            <div class="tema-preview-brand-text">
+                              <strong id="tp-brand-name">BEAUTY SYSTEM</strong>
+                              <span id="tp-brand-caption">Agenda</span>
+                            </div>
+                          </div>
+                          <div class="tema-preview-menu">
+                            <div class="tema-preview-menu-item is-active" id="tp-menu-active">📅 Agendamentos</div>
+                            <div class="tema-preview-menu-item">👥 Clientes</div>
+                            <div class="tema-preview-menu-item">✂️ Profissionais</div>
+                            <div class="tema-preview-menu-item">📊 Dashboard</div>
+                            <div class="tema-preview-menu-item">⚙️ Configurações</div>
+                          </div>
+                        </div>
+                        <div class="pv-global-main" id="tp-global-body">
+                          <div class="pv-global-topbar">
+                            <h4 id="tp-global-title">Agendamentos</h4>
+                            <div class="pv-global-btns">
+                              <div class="pv-global-btn" id="tp-global-filter-btn"><i class="fa-solid fa-filter"></i> Filtrar</div>
+                              <div class="pv-global-btn" id="tp-global-new-btn"><i class="fa-solid fa-plus"></i> Novo</div>
+                            </div>
+                          </div>
+                          <div class="pv-global-placeholder">Conteúdo da página</div>
+                          <div class="pv-global-placeholder" style="margin-top:8px;height:40px;">Cards de agendamento</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 2 — CALENDÁRIO
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-calendar-days"></i> Calendário</h3>
+                  <p>Cores do cartão, borda, texto dos dias, título do mês e dia selecionado.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cartão (fundo)
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Fundo do card do calendário e do detalhe do dia.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-card" data-default="#FFFFFF"></div>
+                          <span class="tema-hex-label" id="tema-card-label">#FFFFFF</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cartão hover
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Estado ao passar o mouse sobre os dias.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-card-hover" data-default="#F0F0EE"></div>
+                          <span class="tema-hex-label" id="tema-card-hover-label">#F0F0EE</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Borda do calendário
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Contorno do card do calendário mensal.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-border" data-default="#E5E7EB"></div>
+                          <span class="tema-hex-label" id="tema-cal-border-label">#E5E7EB</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Texto dos dias
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Números e nomes dos dias da semana.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-text" data-default="#6B7280"></div>
+                          <span class="tema-hex-label" id="tema-cal-text-label">#6B7280</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Título do mês
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Texto "Abril 2026" no topo do calendário.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-month" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-cal-month-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Dia selecionado (fundo)</div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-selected-bg" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-cal-selected-bg-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Dia selecionado (texto)</div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-selected-text" data-default="#FFFFFF"></div>
+                          <span class="tema-hex-label" id="tema-cal-selected-text-label">#FFFFFF</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Calendário -->
+                  <div class="tema-block-preview">
+                    <div class="pv-cal-frame" id="tp-cal-card">
+                      <div class="tema-preview-cal-header">
+                        <button type="button" id="tp-cal-nav-l">‹</button>
+                        <strong id="tp-cal-month" style="font-size:0.9rem;">Abril 2026</strong>
+                        <button type="button" id="tp-cal-nav-r">›</button>
+                      </div>
+                      <div class="tema-preview-weekdays" id="tp-cal-weekdays">
+                        <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+                      </div>
+                      <div class="tema-preview-cal-grid" id="tp-cal-grid"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 3 — AGENDAMENTO
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-clock"></i> Card de Agendamento</h3>
+                  <p>Personalize a borda, horário, nome do cliente, serviço e fundo do box.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <div class="tema-field-title">Borda lateral
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Barra colorida na esquerda do card de agendamento.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-border" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-appt-border-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do horário
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Ex: "13:00 – 14:30"</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-time" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-appt-time-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do cliente
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Nome do cliente no card.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-client" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-appt-client-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do serviço
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Texto do serviço (ex: "Design de sobrancelhas").</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-service" data-default="#6B7280"></div>
+                          <span class="tema-hex-label" id="tema-appt-service-label">#6B7280</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Fundo do box
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Background do card de agendamento na timeline.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-bg" data-default="rgba(108,58,237,0.08)"></div>
+                          <span class="tema-hex-label" id="tema-appt-bg-label">rgba(108,58,237,0.08)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Agendamento -->
+                  <div class="tema-block-preview">
+                    <div class="pv-appt-frame" id="tp-appt-card-bg">
+                      <div class="pv-appt-day-title" id="tp-appt-day-header">terça-feira, 14 de abril</div>
+                      <div class="pv-appt-timeline" id="tp-appt-timeline">
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">12:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">13:00</div>
+                          <div class="tema-preview-line">
+                            <div class="tp-appt-block" style="margin-top:4px;">
+                              <span class="appt-time">13:00 – 14:30</span>
+                              <span class="appt-client">Teste</span>
+                              <span class="appt-service">Design de sobrancelhas</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">14:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">15:00</div>
+                          <div class="tema-preview-line">
+                            <div class="tp-appt-block" style="margin-top:4px;">
+                              <span class="appt-time">15:00 – 15:30</span>
+                              <span class="appt-client">Maria Silva</span>
+                              <span class="appt-service">Corte + Escova</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">16:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   AÇÕES (SALVAR / RESTAURAR)
+                   ═══════════════════════════════════ -->
+              <div class="config-actions" style="margin-top:20px;">
+                <button type="button" class="btn-alterar-senha" onclick="resetarTema()">
+                  <i class="fa-solid fa-rotate-left"></i> RESTAURAR PADRÃO
+                </button>
+                <button type="button" class="btn-submit btn-salvar-perfil" onclick="salvarTema()">
+                  SALVAR TEMA <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+              <div id="tema-feedback" style="display:none;margin-top:12px;padding:10px 16px;border-radius:8px;font-size:0.9rem;text-align:center;"></div>
+            </div>
+
 
           </div>
         </div>
@@ -809,6 +1438,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+  <script src="tema-agenda-script.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

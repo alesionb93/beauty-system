@@ -31,12 +31,50 @@ var profColorPalette = ['#5bc0de', '#9b59b6', '#e91e90', '#2ecc71', '#e67e22', '
 
 /* ===== MULTI-TENANT: Funções de Role e Tenant (SEMPRE do banco) ===== */
 
+function resolveUserRoleRows(roleRows, tenantId) {
+  if (!roleRows || roleRows.length === 0) return 'colaborador';
+
+  if (roleRows.some(function(row) { return row.role === 'master_admin'; })) {
+    return 'master_admin';
+  }
+
+  if (tenantId) {
+    if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'admin'; })) {
+      return 'admin';
+    }
+    if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'colaborador'; })) {
+      return 'colaborador';
+    }
+  }
+
+  if (roleRows.some(function(row) { return row.role === 'admin'; })) {
+    return 'admin';
+  }
+
+  if (roleRows.some(function(row) { return row.role === 'colaborador'; })) {
+    return 'colaborador';
+  }
+
+  return roleRows[0].role || 'colaborador';
+}
+
 async function getUserRole() {
-  var { data: { session } } = await supabaseClient.auth.getSession();
+  var sessionResp = await supabaseClient.auth.getSession();
+  var session = sessionResp.data.session;
   if (!session) return 'colaborador';
-  var resp = await supabaseClient.from('user_roles').select('role').eq('user_id', session.user.id).maybeSingle();
-  if (resp.data) return resp.data.role;
-  return 'colaborador';
+
+  var tenantId = localStorage.getItem('currentTenantId');
+  if (!tenantId) {
+    tenantId = await getUserTenant();
+  }
+
+  var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', session.user.id);
+  if (resp.error) {
+    console.error('Erro ao buscar roles:', resp.error);
+    return 'colaborador';
+  }
+
+  return resolveUserRoleRows(resp.data || [], tenantId);
 }
 
 async function getUserTenant() {
@@ -101,6 +139,11 @@ async function applyPermissions() {
       if (brand) brand.textContent = tenantNome;
     }
   }
+
+  // Mostrar/ocultar elementos master-only (ex: Tema da Agenda)
+  document.querySelectorAll('.master-only-tab, .master-only-panel').forEach(function(el) {
+    el.style.display = isMasterAdmin() ? '' : 'none';
+  });
 
   return true;
 }
@@ -1051,22 +1094,20 @@ function buildBlockContent(block, a, heightPx, endTime, serviceNames) {
   block.style.flexDirection = 'column';
   block.style.justifyContent = 'center';
   if (heightPx <= 38) {
-    block.innerHTML = '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;">' +
-      '<span style="color:#6C3AED;font-weight:700;">' + timeRange + '</span> <b>' + a.cliente + '</b>' + serviceText + '</div>';
+    block.innerHTML = '<div class="tb-row-compact">' +
+      '<span class="tb-time">' + timeRange + '</span> <span class="tb-client">' + a.cliente + '</span><span class="tb-service">' + serviceText + '</span></div>';
   } else if (heightPx <= 55) {
-    block.innerHTML = '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#6C3AED;font-weight:700;">' + timeRange + '</div>' +
-      '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;"><b>' + a.cliente + '</b>' + serviceText + '</div>';
+    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + '</div>' +
+      '<div class="tb-row-compact"><span class="tb-client">' + a.cliente + '</span><span class="tb-service">' + serviceText + '</span></div>';
   } else {
-    block.innerHTML = '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:#6C3AED;font-weight:700;">' + timeRange + '</div>' +
-      '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:700;">' + a.cliente + '</div>' +
-      '<div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#1A1A2E;">' + serviceNames + '</div>';
+    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + '</div>' +
+      '<div class="tb-client tb-truncate">' + a.cliente + '</div>' +
+      '<div class="tb-service tb-truncate">' + serviceNames + '</div>';
   }
 }
 
-/* ===== AGENDAMENTO MODAL ===== */
 function openAgendamentoModal(agId, clienteNome, clienteTel) {
   editingAppointmentId = agId || null;
-  document.getElementById('ag-id').value = agId || '';
   document.getElementById('ag-cliente').value = clienteNome || '';
   document.getElementById('ag-telefone').value = clienteTel || '';
   document.getElementById('modal-agendamento-titulo').textContent = agId ? 'Editar Agendamento' : 'Novo Agendamento';
@@ -2077,57 +2118,101 @@ async function loadDashboard() {
   if (!inicio || !fim) return;
   var tenantId = getCurrentTenantId();
 
-  var q1 = supabaseClient.from('agendamentos').select('*').gte('data', inicio).lte('data', fim);
+  // Build profissional id->nome map
+  var profIdToNome = {};
+  allProfissionais.forEach(function(p) { profIdToNome[p.id] = p.nome; });
+
+  // Query agendamentos WITH services joined
+  var q1 = supabaseClient.from('agendamentos')
+    .select('*, agendamento_servicos(servico_id, preco, duracao, servicos(id, nome, preco, duracao))')
+    .gte('data', inicio).lte('data', fim);
   if (tenantId) q1 = q1.eq('tenant_id', tenantId);
-  var q2 = supabaseClient.from('historico_atendimentos').select('*').gte('data', inicio).lte('data', fim);
+
+  // Query historico
+  var q2 = supabaseClient.from('historico_atendimentos')
+    .select('*, historico_servicos(servico_nome, preco, duracao)')
+    .gte('data', inicio).lte('data', fim);
   if (tenantId) q2 = q2.eq('tenant_id', tenantId);
 
   var resp1 = await q1;
   var resp2 = await q2;
-  var all = (resp1.data || []).concat(resp2.data || []);
 
-  all.forEach(function(a) {
-    if (a.servicos && typeof a.servicos === 'string') { try { a.servicos = JSON.parse(a.servicos); } catch(e) { a.servicos = null; } }
-  });
-
-  var totalAg = all.length;
+  var totalAg = 0;
   var totalFaturamento = 0;
   var totalServicos = 0;
   var profData = {};
   var servicoCount = {};
   var clienteCount = {};
   var profHoraFat = {};
-  Object.keys(professionals).forEach(function(name) { profHoraFat[name] = {}; });
+  allProfissionais.forEach(function(p) { profHoraFat[p.nome] = {}; });
 
-  all.forEach(function(a) {
+  // Process agendamentos (with joined services)
+  (resp1.data || []).forEach(function(a) {
+    totalAg++;
     var hora = (a.hora || '').substring(0, 2);
-    var clienteNomeDash = a.cliente_nome || a.cliente || '';
+    var clienteNomeDash = a.cliente_nome || '';
     clienteCount[clienteNomeDash] = (clienteCount[clienteNomeDash] || 0) + 1;
-    var dashProfNome = a.profissional || a.profissional_nome || '';
-    var svcs = a.servicos ? (typeof a.servicos === 'string' ? JSON.parse(a.servicos) : a.servicos) : [{ profissional: dashProfNome, servico: a.servico || '' }];
-    svcs.forEach(function(s) {
-      var sp = servicePrices[s.servico];
-      var preco = sp ? sp.preco : 0;
-      totalFaturamento += preco;
-      totalServicos++;
-      if (!profData[s.profissional]) profData[s.profissional] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-      profData[s.profissional].servicos++;
-      profData[s.profissional].faturamento += preco;
-      if (profHoraFat[s.profissional]) {
-        if (!profHoraFat[s.profissional][hora]) profHoraFat[s.profissional][hora] = 0;
-        profHoraFat[s.profissional][hora] += preco;
-      }
-      if (!servicoCount[s.servico]) servicoCount[s.servico] = { qtd: 0, valor: 0 };
-      servicoCount[s.servico].qtd++;
-      servicoCount[s.servico].valor += preco;
-    });
-    var profsSeen = [];
-    svcs.forEach(function(s) {
-      if (profsSeen.indexOf(s.profissional) < 0) {
-        profsSeen.push(s.profissional);
-        if (profData[s.profissional]) profData[s.profissional].atendimentos++;
-      }
-    });
+    var profNome = profIdToNome[a.profissional_id] || '';
+
+    var svcs = a.agendamento_servicos || [];
+    if (svcs.length === 0) {
+      // Fallback: count as 1 service with no price
+      if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+      profData[profNome].atendimentos++;
+    } else {
+      if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+      profData[profNome].atendimentos++;
+      svcs.forEach(function(as) {
+        var svcNome = as.servicos ? as.servicos.nome : '';
+        var preco = parseFloat(as.preco) || 0;
+        totalFaturamento += preco;
+        totalServicos++;
+        profData[profNome].servicos++;
+        profData[profNome].faturamento += preco;
+        if (profHoraFat[profNome]) {
+          if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
+          profHoraFat[profNome][hora] += preco;
+        }
+        if (svcNome) {
+          if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
+          servicoCount[svcNome].qtd++;
+          servicoCount[svcNome].valor += preco;
+        }
+      });
+    }
+  });
+
+  // Process historico_atendimentos (with joined historico_servicos)
+  (resp2.data || []).forEach(function(h) {
+    totalAg++;
+    var hora = (h.hora || '').substring(0, 2);
+    var clienteNomeDash = h.cliente_nome || '';
+    clienteCount[clienteNomeDash] = (clienteCount[clienteNomeDash] || 0) + 1;
+    var profNome = h.profissional_nome || '';
+
+    var svcs = h.historico_servicos || [];
+    if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+    profData[profNome].atendimentos++;
+
+    if (svcs.length > 0) {
+      svcs.forEach(function(hs) {
+        var preco = parseFloat(hs.preco) || 0;
+        totalFaturamento += preco;
+        totalServicos++;
+        profData[profNome].servicos++;
+        profData[profNome].faturamento += preco;
+        if (profHoraFat[profNome]) {
+          if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
+          profHoraFat[profNome][hora] += preco;
+        }
+        var svcNome = hs.servico_nome || '';
+        if (svcNome) {
+          if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
+          servicoCount[svcNome].qtd++;
+          servicoCount[svcNome].valor += preco;
+        }
+      });
+    }
   });
 
   var ticketMedio = totalAg > 0 ? totalFaturamento / totalAg : 0;
@@ -2141,6 +2226,7 @@ async function loadDashboard() {
   var profTbody = document.getElementById('dash-prof-tbody');
   profTbody.innerHTML = '';
   Object.keys(profData).forEach(function(name) {
+    if (!name) return;
     var d = profData[name];
     profTbody.innerHTML += '<tr><td>' + name + '</td><td>' + d.atendimentos + '</td><td>' + d.servicos + '</td><td>' + formatCurrency(d.faturamento) + '</td></tr>';
   });
@@ -2160,9 +2246,12 @@ async function loadDashboard() {
 
 function renderLineChart(profHoraFat) {
   var chartDiv = document.getElementById('dash-chart-horarios');
+  if (!chartDiv) return;
   var allHours = [];
   Object.keys(profHoraFat).forEach(function(prof) {
-    Object.keys(profHoraFat[prof]).forEach(function(h) { if (allHours.indexOf(h) < 0) allHours.push(h); });
+    Object.keys(profHoraFat[prof]).forEach(function(h) {
+      if (allHours.indexOf(h) === -1) allHours.push(h);
+    });
   });
   allHours.sort();
   if (allHours.length === 0) { chartDiv.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:40px 0;">Sem dados</p>'; return; }
@@ -2244,8 +2333,17 @@ async function initConfiguracoes() {
   if (sessionResp.data.session) { currentAuthUser = sessionResp.data.session.user; }
   await loadCurrentUsuario();
   renderMeuPerfil();
-  var tabUsuarios = document.getElementById('tab-usuarios');
+
+  var tabUsuarios = document.querySelector('.config-tab[data-config-tab="usuarios"]');
   if (tabUsuarios) { tabUsuarios.style.display = isAdmin() ? '' : 'none'; }
+
+  document.querySelectorAll('.master-only-tab').forEach(function(el) {
+    el.style.display = isMasterAdmin() ? '' : 'none';
+  });
+  document.querySelectorAll('.master-only-panel').forEach(function(el) {
+    el.style.display = isMasterAdmin() ? '' : 'none';
+  });
+
   if (isAdmin()) { await loadUsuarios(); renderUsuarios(); }
 }
 
@@ -2265,8 +2363,8 @@ async function loadUsuarios() {
 
   // Enriquecer com roles do banco
   for (var i = 0; i < allUsuarios.length; i++) {
-    var roleResp = await supabaseClient.from('user_roles').select('role').eq('user_id', allUsuarios[i].id).maybeSingle();
-    allUsuarios[i].role = roleResp.data ? roleResp.data.role : 'colaborador';
+    var roleResp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', allUsuarios[i].id);
+    allUsuarios[i].role = resolveUserRoleRows(roleResp.data || [], tenantId);
   }
 }
 
@@ -2414,13 +2512,14 @@ async function salvarEdicaoUsuario(e) {
   var resp = await supabaseClient.from('usuarios').update({ nome: nome }).eq('id', id);
   if (resp.error) { showToast('Erro!'); return; }
 
-  // Atualizar role em user_roles
+  // Atualizar role em user_roles sem acumular duplicatas por tenant
   var tenantId = getCurrentTenantId();
-  await supabaseClient.from('user_roles').upsert({
+  await supabaseClient.from('user_roles').delete().eq('user_id', id).eq('tenant_id', tenantId);
+  await supabaseClient.from('user_roles').insert([{
     user_id: id,
     role: role,
     tenant_id: tenantId
-  }, { onConflict: 'user_id,role' });
+  }]);
 
   closeModal('modal-editar-usuario');
   showToast('Usuário atualizado!');

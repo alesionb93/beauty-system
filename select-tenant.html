@@ -145,6 +145,19 @@
     var currentUserId = null;
     var tenantLogoFile = null;
 
+    async function getUserRoles(userId) {
+      var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
+      if (resp.error) {
+        console.error('Erro ao buscar roles:', resp.error);
+        return [];
+      }
+      return resp.data || [];
+    }
+
+    function hasMasterAdminRole(roleRows) {
+      return roleRows.some(function(row) { return row.role === 'master_admin'; });
+    }
+
     // Verificar autenticação e role
     (async function() {
       var { data: { session } } = await supabaseClient.auth.getSession();
@@ -155,8 +168,8 @@
       currentUserId = session.user.id;
 
       // Verificar se é master_admin
-      var roleResp = await supabaseClient.from('user_roles').select('role').eq('user_id', currentUserId).eq('role', 'master_admin').maybeSingle();
-      if (!roleResp.data) {
+      var roleRows = await getUserRoles(currentUserId);
+      if (!hasMasterAdminRole(roleRows)) {
         window.location.href = 'agenda.html';
         return;
       }

@@ -29,11 +29,41 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
   <script>
-    // Buscar role SEMPRE do banco — sem sessionStorage
-    async function getUserRoleFromDb(userId) {
-      var resp = await supabaseClient.from('user_roles').select('role').eq('user_id', userId).maybeSingle();
-      if (resp.data) return resp.data.role;
-      return 'colaborador';
+    // Buscar roles SEMPRE do banco — sem sessionStorage
+    async function getUserRolesFromDb(userId) {
+      var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
+      if (resp.error) {
+        console.error('Erro ao buscar roles:', resp.error);
+        return [];
+      }
+      return resp.data || [];
+    }
+
+    function resolveUserRole(roleRows, tenantId) {
+      if (!roleRows || roleRows.length === 0) return 'colaborador';
+
+      if (roleRows.some(function(row) { return row.role === 'master_admin'; })) {
+        return 'master_admin';
+      }
+
+      if (tenantId) {
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'admin'; })) {
+          return 'admin';
+        }
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'colaborador'; })) {
+          return 'colaborador';
+        }
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'admin'; })) {
+        return 'admin';
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'colaborador'; })) {
+        return 'colaborador';
+      }
+
+      return roleRows[0].role || 'colaborador';
     }
 
     async function getUserFromDb(userId) {
@@ -42,8 +72,9 @@
     }
 
     async function handlePostLogin(userId) {
-      var role = await getUserRoleFromDb(userId);
       var userData = await getUserFromDb(userId);
+      var roleRows = await getUserRolesFromDb(userId);
+      var role = resolveUserRole(roleRows, userData && userData.tenant_id ? userData.tenant_id : null);
 
       if (role === 'master_admin') {
         // Redirecionar para seleção de tenant
