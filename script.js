@@ -509,11 +509,41 @@ async function deleteAppointment(id) {
 
 async function insertClient(clientObj) {
   var tenantId = getCurrentTenantId();
+
+  // Verificar se já existe cliente com mesmo telefone no tenant
+  var existente = await buscarClientePorTelefone(clientObj.telefone, tenantId);
+  if (existente) {
+    console.log('Cliente já existe com este telefone, retornando existente:', existente.id);
+    return existente;
+  }
+
   var row = { nome: clientObj.nome, telefone: clientObj.telefone, tenant_id: tenantId };
   if (clientObj.nascimento) row.nascimento = clientObj.nascimento;
   var resp = await supabaseClient.from('clientes').insert([row]).select();
-  if (resp.error) { console.error('Erro inserir cliente:', resp.error); return null; }
+
+  // Tratar erro de unique constraint (duplicidade por concorrência)
+  if (resp.error) {
+    if (resp.error.code === '23505' || (resp.error.message && resp.error.message.indexOf('unique') !== -1)) {
+      console.warn('Duplicidade detectada, buscando cliente existente...');
+      var existente2 = await buscarClientePorTelefone(clientObj.telefone, tenantId);
+      if (existente2) return existente2;
+    }
+    console.error('Erro inserir cliente:', resp.error);
+    return null;
+  }
   return resp.data[0];
+}
+
+// Buscar cliente por telefone no tenant (comparação por dígitos)
+async function buscarClientePorTelefone(telefone, tenantId) {
+  var telefoneDigits = telefone.replace(/\D/g, '');
+  var query = supabaseClient.from('clientes').select('*').eq('tenant_id', tenantId);
+  var resp = await query;
+  if (resp.error || !resp.data) return null;
+  var found = resp.data.find(function(c) {
+    return c.telefone.replace(/\D/g, '') === telefoneDigits;
+  });
+  return found || null;
 }
 
 /* ===== CRUD DE SERVIÇOS (com tenant_id) ===== */
@@ -700,9 +730,22 @@ async function consultarCliente() {
   feedback.style.color = 'var(--text-muted)';
   feedback.textContent = 'Consultando...';
 
+  var telDigits = tel.replace(/\D/g,'');
   var found = clients.find(function(c) {
-    return c.telefone.replace(/\D/g,'') === tel.replace(/\D/g,'');
+    return c.telefone.replace(/\D/g,'') === telDigits;
   });
+
+  // Se não encontrou localmente, buscar direto no banco
+  if (!found) {
+    var tenantId = getCurrentTenantId();
+    var dbResult = await buscarClientePorTelefone(tel, tenantId);
+    if (dbResult) {
+      found = { id: dbResult.id, nome: dbResult.nome, telefone: dbResult.telefone, nascimento: dbResult.nascimento || '' };
+      if (!clients.some(function(c) { return c.id === found.id; })) {
+        clients.push(found);
+      }
+    }
+  }
 
   if (found) {
     feedback.style.color = 'var(--gold)';
@@ -1596,6 +1639,22 @@ async function saveClient(e) {
   var telefone = document.getElementById('cl-telefone').value.trim();
   var nascimento = document.getElementById('cl-nascimento').value;
   if (!nome || !telefone) return;
+
+  // Verificar duplicidade antes de tentar inserir
+  var tenantId = getCurrentTenantId();
+  var existente = await buscarClientePorTelefone(telefone, tenantId);
+  if (existente) {
+    showToast('Cliente já cadastrado com este telefone: ' + existente.nome, 'error');
+    closeModal('modal-cliente');
+    await loadClients();
+    renderClients();
+    if (pendingClienteFromIdentificacao) {
+      pendingClienteFromIdentificacao = null;
+      setTimeout(function() { openAgendamentoModal(null, existente.nome, existente.telefone); }, 500);
+    }
+    return;
+  }
+
   var result = await insertClient({ nome: nome, telefone: telefone, nascimento: nascimento });
   if (!result) { showToast('Erro ao cadastrar cliente!'); return; }
   showToast('Cliente cadastrado!');
@@ -1741,7 +1800,11 @@ function renderProfessionals() {
       editBtn = '<button class="btn-edit-prof" onclick="openModalEditarProfissional(\'' + name.replace(/'/g, "\\'") + '\')"><i class="fa-solid fa-pen"></i></button>';
     }
     var avatarHtml = getAvatarHtml(name, '');
-    card.innerHTML = '<div class="card-header">' + avatarHtml + '<span class="name">' + name + '</span>' + editBtn + '</div><ul class="services-list">' + services + '</ul>';
+    // Verificar se profissional está vinculado a um usuário
+    var profObj = allProfissionais.find(function(p) { return p.nome === name; });
+    var linkedUser = profObj ? allUsuarios.find(function(u) { return u.profissional_id === profObj.id; }) : null;
+    var linkedBadge = linkedUser ? '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(108,58,237,0.07);color:var(--gold,#6C3AED);font-size:0.68rem;font-weight:500;padding:2px 8px 2px 6px;border-radius:20px;margin-left:6px;border:1px solid rgba(108,58,237,0.12);letter-spacing:0.01em;"><i class=\'fa-solid fa-link\' style=\'font-size:0.55rem;opacity:0.7;\'></i>' + linkedUser.nome + '</span>' : '';
+    card.innerHTML = '<div class="card-header">' + avatarHtml + '<span class="name">' + name + '</span>' + linkedBadge + editBtn + '</div><ul class="services-list">' + services + '</ul>';
     container.appendChild(card);
   });
   if (Object.keys(professionals).length === 0) {
@@ -1751,6 +1814,7 @@ function renderProfessionals() {
 
 /* ===== PROFISSIONAIS CRUD ===== */
 var novoProfFotoFile = null;
+var novoUserProfFotoFile = null;
 var editProfFotoFile = null;
 var editProfFotoRemoved = false;
 var editingProfId = null;
@@ -1779,6 +1843,18 @@ function onNovoProfFotoChange(input) {
     var reader = new FileReader();
     reader.onload = function(e) {
       document.getElementById('novo-prof-avatar-preview').innerHTML = '<img src="' + e.target.result + '" alt="Foto">';
+    };
+    reader.readAsDataURL(input.files[0]);
+  }
+}
+
+
+function onNovoUserProfFotoChange(input) {
+  if (input.files && input.files[0]) {
+    novoUserProfFotoFile = input.files[0];
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      document.getElementById('novo-user-prof-foto-preview').innerHTML = '<img src="' + e.target.result + '" alt="Foto">';
     };
     reader.readAsDataURL(input.files[0]);
   }
@@ -2309,12 +2385,19 @@ function openModal(id) { document.getElementById(id).classList.add('active'); do
 function closeModal(id) { document.getElementById(id).classList.remove('active'); var anyOpen = document.querySelector('.modal-overlay.active'); if (!anyOpen) document.body.style.overflow = ''; }
 
 /* ===== TOAST ===== */
-function showToast(msg) {
+function showToast(msg, type) {
+  type = type || 'success';
   var existing = document.querySelector('.toast');
   if (existing) existing.remove();
   var div = document.createElement('div');
-  div.className = 'toast';
-  div.innerHTML = '<i class="fa-solid fa-circle-check"></i>' + msg;
+  div.className = 'toast toast-' + type;
+  var icons = {
+    success: 'fa-circle-check',
+    error: 'fa-circle-xmark',
+    warning: 'fa-triangle-exclamation',
+    info: 'fa-circle-info'
+  };
+  div.innerHTML = '<i class="fa-solid ' + (icons[type] || icons.success) + '"></i>' + msg;
   document.body.appendChild(div);
   setTimeout(function() { div.classList.add('hide'); setTimeout(function() { div.remove(); }, 300); }, 3000);
 }
@@ -2388,12 +2471,13 @@ function renderUsuarios() {
   allUsuarios.forEach(function(u) {
     var tr = document.createElement('tr');
     var roleBadge = '<span class="role-badge ' + u.role + '">' + u.role + '</span>';
+    var profBadge = u.profissional_id ? ' <span class="role-badge" style="background:rgba(72,187,120,0.15);color:#48bb78;font-size:0.7rem;">\u{1F464} Profissional</span>' : '';
     var actions = '<div class="servico-crud-actions"><button class="btn-icon" onclick="openEditarUsuario(\x27' + u.id + '\x27)"><i class="fa-solid fa-pen"></i></button></div>';
-    tr.innerHTML = '<td>' + u.nome + '</td><td>' + u.email + '</td><td>' + roleBadge + '</td><td>' + actions + '</td>';
+    tr.innerHTML = '<td>' + u.nome + '</td><td>' + u.email + '</td><td>' + roleBadge + profBadge + '</td><td>' + actions + '</td>';
     tbody.appendChild(tr);
     var card = document.createElement('div');
     card.className = 'user-card';
-    card.innerHTML = '<div class="user-card-header"><span class="user-card-name">' + u.nome + '</span>' + roleBadge + '</div><div class="user-card-email">' + u.email + '</div><div class="user-card-footer">' + actions + '</div>';
+    card.innerHTML = '<div class="user-card-header"><span class="user-card-name">' + u.nome + '</span>' + roleBadge + profBadge + '</div><div class="user-card-email">' + u.email + '</div><div class="user-card-footer">' + actions + '</div>';
     cardsContainer.appendChild(card);
   });
 }
@@ -2433,64 +2517,300 @@ async function salvarNovaSenha(e) {
   showToast('Senha alterada!');
 }
 
+
+// ===== VÍNCULO USUÁRIO ↔ PROFISSIONAL =====
+function selectProfVinculo(cardEl, tipo, context) {
+  // context = 'novo' or 'edit'
+  var prefix = context === 'novo' ? 'novo-user' : 'edit-user';
+  var container = context === 'novo' ? 'novo-user-prof-options' : 'edit-user-prof-options';
+
+  // Update radio
+  var radio = cardEl.querySelector('input[type="radio"]');
+  radio.checked = true;
+
+  // Update card visuals
+  document.querySelectorAll('#' + container + ' .prof-vinculo-card').forEach(function(c) {
+    c.classList.remove('selected');
+  });
+  cardEl.classList.add('selected');
+
+  // Toggle sub-panels
+  var selectWrapper = document.getElementById(prefix + '-prof-select-wrapper');
+  selectWrapper.classList.toggle('visible', tipo === 'existente');
+
+  if (context === 'novo') {
+    var preview = document.getElementById('novo-user-prof-criar-preview');
+    preview.classList.toggle('visible', tipo === 'criar');
+    // Show/hide foto upload for "criar automático"
+    var fotoUpload = document.getElementById('novo-user-prof-foto-upload');
+    if (fotoUpload) {
+      fotoUpload.classList.toggle('visible', tipo === 'criar');
+      if (tipo !== 'criar') {
+        // Reset foto when switching away
+        novoUserProfFotoFile = null;
+        var fotoPreview = document.getElementById('novo-user-prof-foto-preview');
+        if (fotoPreview) fotoPreview.innerHTML = '<i class="fa-solid fa-camera"></i>';
+        var fotoInput = document.getElementById('novo-user-prof-foto-input');
+        if (fotoInput) fotoInput.value = '';
+      }
+    }
+    if (tipo === 'criar') {
+      var nome = document.getElementById('novo-user-nome').value.trim() || '(digite o nome acima)';
+      document.getElementById('novo-user-prof-criar-nome').textContent = nome;
+    }
+  }
+}
+
+// Update preview name as user types
+document.addEventListener('input', function(e) {
+  if (e.target && e.target.id === 'novo-user-nome') {
+    var tipo = document.querySelector('input[name="novo-user-prof-tipo"]:checked');
+    if (tipo && tipo.value === 'criar') {
+      document.getElementById('novo-user-prof-criar-nome').textContent = e.target.value.trim() || '(digite o nome acima)';
+    }
+  }
+});
+
+function populateProfSelect(selectId, excludeUserId) {
+  var select = document.getElementById(selectId);
+  select.innerHTML = '<option value="">-- Selecione um profissional --</option>';
+  var vinculados = {};
+  allUsuarios.forEach(function(u) {
+    if (u.profissional_id && u.id !== excludeUserId) vinculados[u.profissional_id] = true;
+  });
+  allProfissionais.forEach(function(p) {
+    if (!vinculados[p.id]) {
+      var opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.nome;
+      select.appendChild(opt);
+    }
+  });
+}
+
 function openModalCriarUsuario() {
   document.getElementById('novo-user-nome').value = '';
   document.getElementById('novo-user-email').value = '';
   document.getElementById('novo-user-role').value = 'colaborador';
+  // Reset cards
+  document.querySelectorAll('#novo-user-prof-options .prof-vinculo-card').forEach(function(c, i) {
+    c.classList.toggle('selected', i === 0);
+    c.querySelector('input[type="radio"]').checked = (i === 0);
+  });
+  document.getElementById('novo-user-prof-select-wrapper').classList.remove('visible');
+  document.getElementById('novo-user-prof-criar-preview').classList.remove('visible');
+  // Reset foto upload
+  novoUserProfFotoFile = null;
+  var fotoUploadEl = document.getElementById('novo-user-prof-foto-upload');
+  if (fotoUploadEl) fotoUploadEl.classList.remove('visible');
+  var fotoPreviewEl = document.getElementById('novo-user-prof-foto-preview');
+  if (fotoPreviewEl) fotoPreviewEl.innerHTML = '<i class="fa-solid fa-camera"></i>';
+  var fotoInputEl = document.getElementById('novo-user-prof-foto-input');
+  if (fotoInputEl) fotoInputEl.value = '';
+  populateProfSelect('novo-user-profissional-id', null);
   var feedback = document.getElementById('criar-user-feedback');
   feedback.style.display = 'none';
   openModal('modal-criar-usuario');
 }
 
+var _criarUsuarioEmAndamento = false;
+var _signupCooldownAte = 0;
+var _signupCooldownTimer = null;
+
 async function salvarNovoUsuario(e) {
   e.preventDefault();
-  var nome = document.getElementById('novo-user-nome').value.trim();
-  var email = document.getElementById('novo-user-email').value.trim().toLowerCase();
-  var role = document.getElementById('novo-user-role').value;
+
+  var form = document.querySelector('#modal-criar-usuario form');
+  var btnSubmit = form ? form.querySelector('button[type="submit"]') : null;
   var feedback = document.getElementById('criar-user-feedback');
+  var emailInput = document.getElementById('novo-user-email');
 
-  if (!nome || !email) { feedback.style.display = 'block'; feedback.style.color = '#e74c3c'; feedback.textContent = 'Preencha todos os campos.'; return; }
-
-  feedback.style.display = 'block'; feedback.style.color = 'var(--text-muted)'; feedback.textContent = 'Criando usuário...';
-
-  var senhaProvisoria = 'Beauty@' + Math.random().toString(36).substring(2, 8);
-  var sessionBefore = await supabaseClient.auth.getSession();
-
-  var signUpResp = await supabaseClient.auth.signUp({ email: email, password: senhaProvisoria });
-  if (signUpResp.error) { feedback.style.color = '#e74c3c'; feedback.textContent = 'Erro: ' + signUpResp.error.message; return; }
-
-  var newAuthId = signUpResp.data.user ? signUpResp.data.user.id : null;
-
-  if (sessionBefore.data.session) {
-    await supabaseClient.auth.setSession({ access_token: sessionBefore.data.session.access_token, refresh_token: sessionBefore.data.session.refresh_token });
-  }
-
-  if (!newAuthId) { feedback.style.color = '#e74c3c'; feedback.textContent = 'Erro: ID do usuário não obtido.'; return; }
-
+  var nome = (document.getElementById('novo-user-nome').value || '').trim();
+  var email = (((emailInput ? emailInput.value : '') || '').trim()).toLowerCase();
+  var role = document.getElementById('novo-user-role').value;
+  var profTipoEl = document.querySelector('input[name="novo-user-prof-tipo"]:checked');
+  var profTipo = profTipoEl ? profTipoEl.value : 'nenhum';
+  var profIdSel = document.getElementById('novo-user-profissional-id').value || '';
   var tenantId = getCurrentTenantId();
 
-  var insertResp = await supabaseClient.from('usuarios').insert([{
-    id: newAuthId,
-    nome: nome,
-    email: email,
-    tenant_id: tenantId
-  }]);
+  // --- Helpers internos ---
+  function setFeedback(message, color) {
+    if (!feedback) return;
+    feedback.style.display = 'block';
+    feedback.style.color = color;
+    feedback.textContent = message;
+  }
 
-  if (insertResp.error) { feedback.style.color = '#e74c3c'; feedback.textContent = 'Erro: ' + insertResp.error.message; return; }
+  function clearFeedback() {
+    if (!feedback) return;
+    feedback.style.display = 'none';
+    feedback.textContent = '';
+  }
 
-  // Inserir role na tabela user_roles
-  await supabaseClient.from('user_roles').insert([{
-    user_id: newAuthId,
-    role: role,
-    tenant_id: tenantId
-  }]);
+  function lockButton(label) {
+    if (!btnSubmit) return;
+    if (!btnSubmit.dataset.originalText) btnSubmit.dataset.originalText = btnSubmit.textContent;
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = label || 'Salvando...';
+  }
 
-  feedback.style.display = 'none';
-  closeModal('modal-criar-usuario');
-  showToast('Usuário criado! Senha: ' + senhaProvisoria);
-  alert('Usuário criado!\n\nEmail: ' + email + '\nSenha: ' + senhaProvisoria + '\n\nAnote e entregue ao usuário.');
-  await loadUsuarios();
-  renderUsuarios();
+  function resetButton() {
+    if (!btnSubmit) return;
+    btnSubmit.disabled = false;
+    btnSubmit.textContent = btnSubmit.dataset.originalText || 'Salvar';
+  }
+
+  function aplicarCooldown(segundos) {
+    var total = parseInt(segundos, 10);
+    if (!total || total < 1) total = 60;
+    _signupCooldownAte = Date.now() + (total * 1000);
+    if (_signupCooldownTimer) { clearInterval(_signupCooldownTimer); _signupCooldownTimer = null; }
+
+    function renderCooldown() {
+      var restante = Math.max(0, Math.ceil((_signupCooldownAte - Date.now()) / 1000));
+      if (restante <= 0) {
+        _signupCooldownAte = 0;
+        if (_signupCooldownTimer) { clearInterval(_signupCooldownTimer); _signupCooldownTimer = null; }
+        resetButton();
+        return;
+      }
+      if (btnSubmit) { btnSubmit.disabled = true; btnSubmit.textContent = 'Aguarde (' + restante + 's)'; }
+    }
+
+    renderCooldown();
+    _signupCooldownTimer = setInterval(renderCooldown, 1000);
+  }
+
+  async function parseJsonSafe(response) {
+    try { return await response.json(); } catch (_) { return null; }
+  }
+
+  // --- Validações ---
+  if (_criarUsuarioEmAndamento) {
+    setFeedback('Aguarde, já existe uma criação em andamento.', '#e67e22');
+    return;
+  }
+
+  if (_signupCooldownAte > Date.now()) {
+    var restante = Math.ceil((_signupCooldownAte - Date.now()) / 1000);
+    setFeedback('Servidor temporariamente limitado. Aguarde ' + restante + 's para tentar novamente.', '#e67e22');
+    lockButton('Aguarde (' + restante + 's)');
+    return;
+  }
+
+  if (!nome || !email) { setFeedback('Preencha todos os campos.', '#e74c3c'); return; }
+  if (!tenantId) { setFeedback('Tenant não identificado. Recarregue a página.', '#e74c3c'); return; }
+
+  // Validação de email via browser + regex
+  if (emailInput && !emailInput.checkValidity()) { setFeedback('E-mail inválido. Verifique o formato.', '#e74c3c'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { setFeedback('E-mail inválido. Verifique o formato.', '#e74c3c'); return; }
+
+  if (profTipo === 'existente' && !profIdSel) { setFeedback('Selecione um profissional existente.', '#e74c3c'); return; }
+
+  _criarUsuarioEmAndamento = true;
+  lockButton('Validando...');
+  setFeedback('Validando dados...', 'var(--text-muted)');
+
+  try {
+    // Checar duplicado no cache local primeiro (sem gastar request)
+    var usuarioEmCache = Array.isArray(allUsuarios)
+      ? allUsuarios.find(function(u) { return (u.email || '').trim().toLowerCase() === email; })
+      : null;
+
+    if (usuarioEmCache) { setFeedback('Já existe um usuário com esse e-mail.', '#e74c3c'); return; }
+
+    // Se cache vazio, checar via banco (query leve, NÃO usa Auth)
+    if (!Array.isArray(allUsuarios) || allUsuarios.length === 0) {
+      setFeedback('Verificando e-mail...', 'var(--text-muted)');
+      var usuarioResp = await supabaseClient.from('usuarios').select('id').eq('email', email).maybeSingle();
+      if (usuarioResp.error) { throw new Error('Não foi possível validar o e-mail agora.'); }
+      if (usuarioResp.data) { setFeedback('Já existe um usuário com esse e-mail.', '#e74c3c'); return; }
+    }
+
+    // Upload de foto (se opção "criar" selecionada)
+    var fotoUrl = null;
+    if (profTipo === 'criar' && novoUserProfFotoFile) {
+      lockButton('Enviando foto...');
+      setFeedback('Enviando foto do profissional...', 'var(--text-muted)');
+      fotoUrl = await uploadProfFoto(novoUserProfFotoFile, nome);
+    }
+
+    // Obter sessão do admin logado
+    var sessionResp = await supabaseClient.auth.getSession();
+    var session = sessionResp && sessionResp.data ? sessionResp.data.session : null;
+    if (!session || !session.access_token) { throw new Error('Sua sessão expirou. Faça login novamente.'); }
+
+    lockButton('Criando usuário...');
+    setFeedback('Criando acesso e vínculo...', 'var(--text-muted)');
+
+    // *** CHAMADA ÚNICA à Edge Function (usa Admin API no backend, sem rate limit público) ***
+    var response = await fetch(SUPABASE_URL + '/functions/v1/admin-create-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + session.access_token
+      },
+      body: JSON.stringify({
+        nome: nome,
+        email: email,
+        role: role,
+        tenant_id: tenantId,
+        profissional: {
+          tipo: profTipo,
+          id: profTipo === 'existente' ? profIdSel : null,
+          foto_url: fotoUrl
+        }
+      })
+    });
+
+    var payload = await parseJsonSafe(response);
+
+    if (response.status === 409) {
+      setFeedback((payload && payload.message) || 'Já existe um usuário com esse e-mail.', '#e74c3c');
+      return;
+    }
+
+    if (response.status === 429) {
+      var retryAfter = parseInt(response.headers.get('Retry-After') || (payload && payload.retry_after) || '60', 10);
+      setFeedback((payload && payload.message) || 'Muitas tentativas. Aguarde um pouco.', '#e67e22');
+      aplicarCooldown(retryAfter);
+      return;
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      setFeedback((payload && payload.message) || 'Sem permissão para criar usuários.', '#e74c3c');
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error((payload && payload.message) || 'Erro ao criar usuário.');
+    }
+
+    // Sucesso!
+    clearFeedback();
+    closeModal('modal-criar-usuario');
+    showToast('Usuário criado com sucesso!');
+
+    var senhaInfo = (payload && payload.senha_provisoria) || '(definida no backend)';
+    alert('Usuário criado!\n\nEmail: ' + email + '\nSenha: ' + senhaInfo + '\n\nAnote e entregue ao usuário.');
+
+    await loadUsuarios();
+    renderUsuarios();
+    if (profTipo === 'criar') { await loadProfissionais(); renderProfessionals(); }
+
+  } catch (err) {
+    var msg = err && err.message ? err.message : 'Erro inesperado ao criar usuário.';
+    if (/429|rate.?limit/i.test(msg)) {
+      setFeedback('Servidor temporariamente limitado. Aguarde e tente novamente.', '#e67e22');
+      aplicarCooldown(60);
+      return;
+    }
+    setFeedback(msg, '#e74c3c');
+  } finally {
+    _criarUsuarioEmAndamento = false;
+    if (!_signupCooldownAte || _signupCooldownAte <= Date.now()) { resetButton(); }
+  }
 }
 
 function openEditarUsuario(id) {
@@ -2499,6 +2819,22 @@ function openEditarUsuario(id) {
   document.getElementById('edit-user-id').value = user.id;
   document.getElementById('edit-user-nome').value = user.nome;
   document.getElementById('edit-user-role').value = user.role;
+
+  // Preencher vínculo profissional
+  var hasProf = !!user.profissional_id;
+  var cards = document.querySelectorAll('#edit-user-prof-options .prof-vinculo-card');
+  cards.forEach(function(c) {
+    var radio = c.querySelector('input[type="radio"]');
+    var isMatch = hasProf ? radio.value === 'existente' : radio.value === 'nenhum';
+    radio.checked = isMatch;
+    c.classList.toggle('selected', isMatch);
+  });
+  document.getElementById('edit-user-prof-select-wrapper').classList.toggle('visible', hasProf);
+  populateProfSelect('edit-user-profissional-id', user.id);
+  if (hasProf) {
+    document.getElementById('edit-user-profissional-id').value = user.profissional_id;
+  }
+
   openModal('modal-editar-usuario');
 }
 
@@ -2511,6 +2847,11 @@ async function salvarEdicaoUsuario(e) {
 
   var resp = await supabaseClient.from('usuarios').update({ nome: nome }).eq('id', id);
   if (resp.error) { showToast('Erro!'); return; }
+
+  // Atualizar vínculo profissional
+  var profTipo = document.querySelector('input[name="edit-user-prof-tipo"]:checked').value;
+  var profIdSel = profTipo === 'existente' ? document.getElementById('edit-user-profissional-id').value : null;
+  await supabaseClient.from('usuarios').update({ profissional_id: profIdSel || null }).eq('id', id);
 
   // Atualizar role em user_roles sem acumular duplicatas por tenant
   var tenantId = getCurrentTenantId();

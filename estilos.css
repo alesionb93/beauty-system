@@ -1131,3 +1131,16 @@ body {
 }
 .dados-cadastrais-logo-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 14px; }
 .dados-cadastrais-logo-preview i { font-size: 2.5rem; color: var(--text-muted); }
+
+/* ===== TOAST TYPES ===== */
+.toast-success { background: #16a34a; color: #fff; }
+.toast-success i { color: #bbf7d0; }
+
+.toast-error { background: #dc2626; color: #fff; }
+.toast-error i { color: #fecaca; }
+
+.toast-warning { background: #d97706; color: #fff; }
+.toast-warning i { color: #fef3c7; }
+
+.toast-info { background: #2563eb; color: #fff; }
+.toast-info i { color: #bfdbfe; }
