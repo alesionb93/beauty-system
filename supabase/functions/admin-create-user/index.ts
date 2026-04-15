@@ -7,6 +7,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+const MAX_USERS_PER_TENANT = 3
+
 type RoleRow = {
   role: string
   tenant_id: string | null
@@ -48,6 +50,38 @@ async function rollbackUser(
     await supabaseAdmin.from('usuarios').delete().eq('id', userId)
     await supabaseAdmin.auth.admin.deleteUser(userId)
   }
+}
+
+/**
+ * Conta usuários do tenant que NÃO são master_admin.
+ * master_admin não consome licença de nenhum tenant.
+ */
+async function countTenantUsers(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  tenantId: string,
+): Promise<number> {
+  // Buscar todos os usuários do tenant
+  const { data: usuarios, error } = await supabaseAdmin
+    .from('usuarios')
+    .select('id')
+    .eq('tenant_id', tenantId)
+
+  if (error || !usuarios) return 0
+
+  // Buscar quais deles são master_admin
+  const userIds = usuarios.map((u) => u.id)
+  if (userIds.length === 0) return 0
+
+  const { data: masterRoles } = await supabaseAdmin
+    .from('user_roles')
+    .select('user_id')
+    .in('user_id', userIds)
+    .eq('role', 'master_admin')
+
+  const masterIds = new Set((masterRoles || []).map((r) => r.user_id))
+
+  // Contar apenas usuários que NÃO são master_admin
+  return usuarios.filter((u) => !masterIds.has(u.id)).length
 }
 
 serve(async (req: Request) => {
@@ -141,6 +175,18 @@ serve(async (req: Request) => {
 
     if (!isMasterAdmin && !isTenantAdmin) {
       return jsonResponse({ message: 'Sem permissão para criar usuários neste tenant.' }, 403)
+    }
+
+    // ===============================
+    // 📊 VERIFICAR LIMITE DE LICENÇAS (3 por tenant)
+    // master_admin NÃO conta na licença
+    // ===============================
+    const currentCount = await countTenantUsers(supabaseAdmin, tenantId)
+
+    if (currentCount >= MAX_USERS_PER_TENANT) {
+      return jsonResponse({
+        message: `Limite de ${MAX_USERS_PER_TENANT} usuários por tenant atingido. Este tenant já possui ${currentCount} usuário(s) ativos (master_admin não conta).`,
+      }, 403)
     }
 
     const { data: existingUsuario, error: existingUsuarioError } = await supabaseAdmin
@@ -264,6 +310,9 @@ serve(async (req: Request) => {
       }
     }
 
+    // ===============================
+    // 🏷️ INSERIR ROLE (OBRIGATÓRIO)
+    // ===============================
     const { error: roleInsertError } = await supabaseAdmin.from('user_roles').insert([
       {
         user_id: newUserId,
@@ -277,6 +326,28 @@ serve(async (req: Request) => {
       await rollbackUser(supabaseAdmin, newUserId, createdProfessionalId)
       return jsonResponse({ message: 'Erro ao salvar role do usuário: ' + roleInsertError.message }, 500)
     }
+
+    // ===============================
+    // ✅ VERIFICAÇÃO PÓS-CRIAÇÃO
+    // ===============================
+    const { data: roleVerify } = await supabaseAdmin
+      .from('user_roles')
+      .select('id, role, tenant_id')
+      .eq('user_id', newUserId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+
+    if (!roleVerify) {
+      console.error('ALERTA: Role não encontrada após inserção para user_id=' + newUserId)
+      // Tentar inserir novamente como fallback
+      await supabaseAdmin.from('user_roles').upsert([{
+        user_id: newUserId,
+        role,
+        tenant_id: tenantId,
+      }], { onConflict: 'user_id,role' })
+    }
+
+    console.log('Usuário criado com sucesso. User:', newUserId, 'Role:', role, 'Tenant:', tenantId, 'Role verificada:', !!roleVerify)
 
     return jsonResponse({
       success: true,

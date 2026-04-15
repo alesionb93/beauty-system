@@ -440,7 +440,10 @@ body {
 }
 
 .professional-card .card-header { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
-.professional-card .name { font-size: 1.15rem; font-weight: 600; }
+.professional-card .prof-info { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; }
+.professional-card .name { font-size: 1.15rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70%; flex-shrink: 1; }
+.professional-card .linked-badge { display: inline-flex; align-items: center; gap: 4px; background: rgba(108,58,237,0.07); color: var(--gold, #6C3AED); font-size: 0.68rem; font-weight: 500; padding: 2px 8px 2px 6px; border-radius: 20px; border: 1px solid rgba(108,58,237,0.12); letter-spacing: 0.01em; white-space: nowrap; flex-shrink: 0; max-width: 30%; overflow: hidden; text-overflow: ellipsis; }
+.professional-card .btn-edit-prof { flex-shrink: 0; margin-left: auto; }
 .professional-card .services-list { list-style: none; }
 
 .professional-card .services-list li {

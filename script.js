@@ -1803,8 +1803,8 @@ function renderProfessionals() {
     // Verificar se profissional está vinculado a um usuário
     var profObj = allProfissionais.find(function(p) { return p.nome === name; });
     var linkedUser = profObj ? allUsuarios.find(function(u) { return u.profissional_id === profObj.id; }) : null;
-    var linkedBadge = linkedUser ? '<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(108,58,237,0.07);color:var(--gold,#6C3AED);font-size:0.68rem;font-weight:500;padding:2px 8px 2px 6px;border-radius:20px;margin-left:6px;border:1px solid rgba(108,58,237,0.12);letter-spacing:0.01em;"><i class=\'fa-solid fa-link\' style=\'font-size:0.55rem;opacity:0.7;\'></i>' + linkedUser.nome + '</span>' : '';
-    card.innerHTML = '<div class="card-header">' + avatarHtml + '<span class="name">' + name + '</span>' + linkedBadge + editBtn + '</div><ul class="services-list">' + services + '</ul>';
+    var linkedBadge = linkedUser ? '<span class="linked-badge"><i class="fa-solid fa-link" style="font-size:0.55rem;opacity:0.7;"></i>' + linkedUser.nome + '</span>' : '';
+    card.innerHTML = '<div class="card-header">' + avatarHtml + '<div class="prof-info"><span class="name">' + name + '</span>' + linkedBadge + '</div>' + editBtn + '</div><ul class="services-list">' + services + '</ul>';
     container.appendChild(card);
   });
   if (Object.keys(professionals).length === 0) {
@@ -2471,7 +2471,7 @@ function renderUsuarios() {
   allUsuarios.forEach(function(u) {
     var tr = document.createElement('tr');
     var roleBadge = '<span class="role-badge ' + u.role + '">' + u.role + '</span>';
-    var profBadge = u.profissional_id ? ' <span class="role-badge" style="background:rgba(72,187,120,0.15);color:#48bb78;font-size:0.7rem;">\u{1F464} Profissional</span>' : '';
+    var profBadge = u.profissional_id ? ' <span class="role-badge" style="background:rgba(72,187,120,0.15);color:#48bb78;font-size:0.7rem;padding:2px 6px;"><i class=\'fa-solid fa-link\' style=\'font-size:0.6rem;\'></i></span>' : '';
     var actions = '<div class="servico-crud-actions"><button class="btn-icon" onclick="openEditarUsuario(\x27' + u.id + '\x27)"><i class="fa-solid fa-pen"></i></button></div>';
     tr.innerHTML = '<td>' + u.nome + '</td><td>' + u.email + '</td><td>' + roleBadge + profBadge + '</td><td>' + actions + '</td>';
     tbody.appendChild(tr);

@@ -10,6 +10,15 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+const MAX_USERS_PER_TENANT = 3
+
+function jsonResponse(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -22,10 +31,7 @@ serve(async (req: Request) => {
     const authHeader = req.headers.get('Authorization')
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return new Response(
-        JSON.stringify({ error: 'Authorization header inválido' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Authorization header inválido' }, 401)
     }
 
     const token = authHeader.replace('Bearer ', '')
@@ -65,10 +71,7 @@ serve(async (req: Request) => {
 
     if (authError || !callerUser) {
       console.error('Erro ao validar JWT:', authError)
-      return new Response(
-        JSON.stringify({ error: 'Token inválido' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Token inválido' }, 401)
     }
 
     console.log('Usuário autenticado:', callerUser.id)
@@ -88,10 +91,7 @@ serve(async (req: Request) => {
     }
 
     if (!roleData) {
-      return new Response(
-        JSON.stringify({ error: 'Acesso negado. Apenas master_admin pode criar tenants.' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Acesso negado. Apenas master_admin pode criar tenants.' }, 403)
     }
 
     // ===============================
@@ -113,24 +113,15 @@ serve(async (req: Request) => {
 
     // Validações
     if (!tenant_nome?.trim() && !nome_fantasia?.trim()) {
-      return new Response(
-        JSON.stringify({ error: 'Nome do tenant ou Nome Fantasia é obrigatório' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Nome do tenant ou Nome Fantasia é obrigatório' }, 400)
     }
 
     if (!admin_nome?.trim()) {
-      return new Response(
-        JSON.stringify({ error: 'Nome do admin é obrigatório' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Nome do admin é obrigatório' }, 400)
     }
 
     if (!admin_email?.trim()) {
-      return new Response(
-        JSON.stringify({ error: 'Email do admin é obrigatório' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Email do admin é obrigatório' }, 400)
     }
 
     const senha = admin_senha?.trim()
@@ -163,10 +154,7 @@ serve(async (req: Request) => {
 
     if (tenantError) {
       console.error('Erro tenant:', tenantError)
-      return new Response(
-        JSON.stringify({ error: 'Erro ao criar tenant: ' + tenantError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Erro ao criar tenant: ' + tenantError.message }, 500)
     }
 
     const tenantId = tenantData.id
@@ -183,10 +171,7 @@ serve(async (req: Request) => {
 
     if (createUserError) {
       await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
-      return new Response(
-        JSON.stringify({ error: 'Erro ao criar usuário: ' + createUserError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Erro ao criar usuário: ' + createUserError.message }, 500)
     }
 
     const newUserId = authData.user.id
@@ -204,16 +189,14 @@ serve(async (req: Request) => {
       }])
 
     if (usuarioError) {
+      console.error('Erro ao inserir usuario:', usuarioError)
       await supabaseAdmin.auth.admin.deleteUser(newUserId)
       await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
-      return new Response(
-        JSON.stringify({ error: 'Erro ao inserir usuario: ' + usuarioError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Erro ao inserir usuario: ' + usuarioError.message }, 500)
     }
 
     // ===============================
-    // 🏷️ STEP 4: ROLE
+    // 🏷️ STEP 4: ROLE (OBRIGATÓRIO)
     // ===============================
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
@@ -224,46 +207,60 @@ serve(async (req: Request) => {
       }])
 
     if (roleError) {
+      console.error('Erro ao inserir role:', roleError)
       await supabaseAdmin.from('usuarios').delete().eq('id', newUserId)
       await supabaseAdmin.auth.admin.deleteUser(newUserId)
       await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
-      return new Response(
-        JSON.stringify({ error: 'Erro ao inserir role: ' + roleError.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+      return jsonResponse({ error: 'Erro ao inserir role: ' + roleError.message }, 500)
     }
+
+    // ===============================
+    // ✅ VERIFICAÇÃO PÓS-CRIAÇÃO
+    // ===============================
+    const { data: roleVerify } = await supabaseAdmin
+      .from('user_roles')
+      .select('id, role, tenant_id')
+      .eq('user_id', newUserId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle()
+
+    if (!roleVerify) {
+      console.error('ALERTA: Role não encontrada após inserção para user_id=' + newUserId)
+      // Tentar inserir novamente como fallback
+      await supabaseAdmin.from('user_roles').upsert([{
+        user_id: newUserId,
+        role: 'admin',
+        tenant_id: tenantId,
+      }], { onConflict: 'user_id,role' })
+    }
+
+    console.log('Tenant criado com sucesso. Tenant:', tenantId, 'User:', newUserId, 'Role verificada:', !!roleVerify)
 
     // ===============================
     // ✅ SUCESSO
     // ===============================
-    return new Response(
-      JSON.stringify({
-        success: true,
-        tenant: {
-          id: tenantId,
-          nome: finalTenantNome,
-          razao_social: razao_social?.trim() || null,
-          nome_fantasia: nome_fantasia?.trim() || null,
-          cpf_cnpj: cpf_cnpj?.trim() || null,
-          email: email?.trim() || null,
-          telefone: telefone?.trim() || null,
-          logo_url: logo_url?.trim() || null,
-        },
-        admin: {
-          id: newUserId,
-          nome: admin_nome.trim(),
-          email: admin_email.trim().toLowerCase(),
-          senha_temporaria: senha,
-        },
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse({
+      success: true,
+      tenant: {
+        id: tenantId,
+        nome: finalTenantNome,
+        razao_social: razao_social?.trim() || null,
+        nome_fantasia: nome_fantasia?.trim() || null,
+        cpf_cnpj: cpf_cnpj?.trim() || null,
+        email: email?.trim() || null,
+        telefone: telefone?.trim() || null,
+        logo_url: logo_url?.trim() || null,
+      },
+      admin: {
+        id: newUserId,
+        nome: admin_nome.trim(),
+        email: admin_email.trim().toLowerCase(),
+        senha_temporaria: senha,
+      },
+    })
 
   } catch (err) {
     console.error('Erro interno:', err)
-    return new Response(
-      JSON.stringify({ error: 'Erro interno: ' + (err as Error).message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    return jsonResponse({ error: 'Erro interno: ' + (err as Error).message }, 500)
   }
 })
