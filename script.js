@@ -1803,7 +1803,7 @@ function renderProfessionals() {
     // Verificar se profissional está vinculado a um usuário
     var profObj = allProfissionais.find(function(p) { return p.nome === name; });
     var linkedUser = profObj ? allUsuarios.find(function(u) { return u.profissional_id === profObj.id; }) : null;
-    var linkedBadge = linkedUser ? '<span class="linked-badge"><i class="fa-solid fa-link" style="font-size:0.55rem;opacity:0.7;"></i>' + linkedUser.nome + '</span>' : '';
+    var linkedBadge = linkedUser ? '<span class="linked-badge" title="' + linkedUser.nome + '"><i class="fa-solid fa-link" style="font-size:0.55rem;opacity:0.7;"></i></span>' : '';
     card.innerHTML = '<div class="card-header">' + avatarHtml + '<div class="prof-info"><span class="name">' + name + '</span>' + linkedBadge + '</div>' + editBtn + '</div><ul class="services-list">' + services + '</ul>';
     container.appendChild(card);
   });

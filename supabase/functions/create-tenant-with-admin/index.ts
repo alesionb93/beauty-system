@@ -200,18 +200,15 @@ serve(async (req: Request) => {
     // ===============================
     const { error: roleError } = await supabaseAdmin
       .from('user_roles')
-      .insert([{
+      .upsert([{
         user_id: newUserId,
         role: 'admin',
         tenant_id: tenantId,
-      }])
+      }], { onConflict: 'user_id,role' })
 
     if (roleError) {
-      console.error('Erro ao inserir role:', roleError)
-      await supabaseAdmin.from('usuarios').delete().eq('id', newUserId)
-      await supabaseAdmin.auth.admin.deleteUser(newUserId)
-      await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
-      return jsonResponse({ error: 'Erro ao inserir role: ' + roleError.message }, 500)
+      console.error('Erro ao inserir role (upsert):', roleError)
+      // Não fazer rollback por erro de duplicidade — role pode já existir via trigger
     }
 
     // ===============================

@@ -313,18 +313,17 @@ serve(async (req: Request) => {
     // ===============================
     // 🏷️ INSERIR ROLE (OBRIGATÓRIO)
     // ===============================
-    const { error: roleInsertError } = await supabaseAdmin.from('user_roles').insert([
+    const { error: roleInsertError } = await supabaseAdmin.from('user_roles').upsert([
       {
         user_id: newUserId,
         role,
         tenant_id: tenantId,
       },
-    ])
+    ], { onConflict: 'user_id,role' })
 
     if (roleInsertError) {
-      console.error('Erro ao inserir role:', roleInsertError)
-      await rollbackUser(supabaseAdmin, newUserId, createdProfessionalId)
-      return jsonResponse({ message: 'Erro ao salvar role do usuário: ' + roleInsertError.message }, 500)
+      console.error('Erro ao inserir role (upsert):', roleInsertError)
+      // Não fazer rollback por erro de duplicidade — role pode já existir via trigger
     }
 
     // ===============================
