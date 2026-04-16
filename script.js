@@ -6,6 +6,7 @@ var allProfissionais = [];
 
 /* ===== CORES DINÂMICAS (carregadas do Supabase) ===== */
 var coresPorServico = {};
+var corConfigPorServico = {};
 var colorOptions = [];
 var pigmentOptions = [];
 var professionalAvatars = {};
@@ -319,6 +320,77 @@ function getCoresDoServico(servicoNome) {
   return coresPorServico[svc.id] || { base: [], pigmento: [] };
 }
 
+function getCoresDoServico_legacy() {
+  // Fallback: retorna todas as cores de todos os serviços
+  var all = { base: [], pigmento: [] };
+  Object.keys(coresPorServico).forEach(function(sid) {
+    all.base = all.base.concat(coresPorServico[sid].base);
+    all.pigmento = all.pigmento.concat(coresPorServico[sid].pigmento);
+  });
+  return all;
+}
+
+
+/* ===== CARREGAR CONFIGURAÇÃO DE QUANTIDADES (servico_cor_config) ===== */
+async function loadCorConfig() {
+  var tenantId = getCurrentTenantId();
+  var query = supabaseClient.from('servico_cor_config').select('*');
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  var resp = await query;
+  if (resp.error) { console.warn('servico_cor_config não encontrada ou erro:', resp.error.message); return; }
+  corConfigPorServico = {};
+  (resp.data || []).forEach(function(cfg) {
+    if (!corConfigPorServico[cfg.servico_id]) corConfigPorServico[cfg.servico_id] = {};
+    corConfigPorServico[cfg.servico_id][cfg.tipo] = cfg;
+  });
+}
+
+function getQtdOptions(servicoId, tipo) {
+  var cfg = (corConfigPorServico[servicoId] || {})[tipo];
+  if (!cfg) {
+    if (tipo === 'base') return { options: generateRange(5, 120, 5), unidade: 'g' };
+    return { options: generateRange(1, 10, 1), unidade: 'g' };
+  }
+  var unidade = cfg.unidade || 'g';
+  return { options: generateRange(cfg.qtd_min || 5, cfg.qtd_max || 120, cfg.qtd_step || 5), unidade: unidade };
+}
+
+function generateRange(min, max, step) {
+  var arr = [];
+  for (var i = min; i <= max; i += step) arr.push(i);
+  return arr;
+}
+
+function populateQtdSelect(selectEl, servicoId, tipo) {
+  selectEl.innerHTML = '';
+  var config = getQtdOptions(servicoId, tipo);
+  if (config.options === 'livre') {
+    // Replace select with input
+    var input = document.createElement('input');
+    input.type = 'number';
+    input.min = config.min;
+    input.max = config.max;
+    input.value = config.min;
+    input.id = selectEl.id;
+    input.className = 'form-control';
+    input.placeholder = config.min + '-' + config.max + config.unidade;
+    selectEl.parentNode.replaceChild(input, selectEl);
+    // Update label
+    var label = input.parentNode.querySelector('label');
+    if (label) label.textContent = 'Digite a quantidade (' + config.unidade + ')';
+    return;
+  }
+  config.options.forEach(function(v) {
+    var opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v + config.unidade;
+    selectEl.appendChild(opt);
+  });
+  // Update label
+  var label = selectEl.parentNode.querySelector('label');
+  if (label) label.textContent = 'Selecione a quantidade (' + config.unidade + ')';
+}
+
 /* CRUD de Cores (com tenant_id) */
 async function criarCor(nome, hex, tipo, servicoId) {
   var tenantId = getCurrentTenantId();
@@ -487,20 +559,24 @@ async function deleteAppointment(id) {
     if (histResp.data && histResp.data[0] && ag.servicos && ag.servicos.length > 0) {
       var histId = histResp.data[0].id;
       var histSvcRows = ag.servicos.map(function(s) {
+        // Construir cores_detalhes JSON para histórico
         var coresDetalhes = [];
         if (s.bases && s.bases.length > 0) {
           s.bases.forEach(function(b) {
-            coresDetalhes.push({ tipo: 'base', cor: b.cor, qtd: b.qtd || 0, hex: b.hex || null });
+            var corObj = findCorByNome(b.cor);
+            coresDetalhes.push({ tipo: 'base', cor: b.cor, qtd: b.qtd || 0, hex: corObj ? corObj.hex : '#888' });
           });
         }
         if (s.pigmentacoes && s.pigmentacoes.length > 0) {
           s.pigmentacoes.forEach(function(p) {
-            coresDetalhes.push({ tipo: 'pigmento', cor: p.cor, qtd: p.qtd || 0, hex: p.hex || null });
+            var corObj = findCorByNome(p.cor);
+            coresDetalhes.push({ tipo: 'pigmento', cor: p.cor, qtd: p.qtd || 0, hex: corObj ? corObj.hex : '#888' });
           });
         }
         if (s.cores && s.cores.length > 0) {
           s.cores.forEach(function(c) {
-            coresDetalhes.push({ tipo: 'cor', cor: c, qtd: 0, hex: null });
+            var corObj = findCorByNome(c);
+            coresDetalhes.push({ tipo: 'cor', cor: c, qtd: 0, hex: corObj ? corObj.hex : '#888' });
           });
         }
         return {
@@ -510,7 +586,7 @@ async function deleteAppointment(id) {
           duracao: s.duracao || 30,
           cor_nome: s.cor || null,
           cor_hex: null,
-          cores_detalhes: coresDetalhes.length > 0 ? coresDetalhes : null,
+          cores_detalhes: coresDetalhes.length > 0 ? JSON.stringify(coresDetalhes) : null,
           tenant_id: tenantId
         };
       });
@@ -633,6 +709,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   await loadServicos();
   await loadProfissionalServicos();
   await loadCores();
+  await loadCorConfig();
   await loadClients();
   await loadAppointments();
 
@@ -699,19 +776,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   maskTelefone(document.getElementById('id-telefone'));
   maskTelefone(document.getElementById('cl-telefone'));
 
-  var baseQtdSelect = document.getElementById('base-qtd-select');
-  for (var g = 5; g <= 120; g += 5) {
-    var opt = document.createElement('option');
-    opt.value = g; opt.textContent = g + 'g';
-    baseQtdSelect.appendChild(opt);
-  }
-
-  var pigQtdSelect = document.getElementById('pigmento-qtd-select');
-  for (var pg = 1; pg <= 10; pg += 1) {
-    var opt2 = document.createElement('option');
-    opt2.value = pg; opt2.textContent = pg + 'g';
-    pigQtdSelect.appendChild(opt2);
-  }
+  // Quantidade selects serão populados dinamicamente via populateQtdSelect()
+  // Fallback: popular com valores padrão caso servico_cor_config não exista
+  populateQtdSelect(document.getElementById('base-qtd-select'), null, 'base');
+  populateQtdSelect(document.getElementById('pigmento-qtd-select'), null, 'pigmento');
 
   switchPage('agendamentos');
 });
@@ -1296,36 +1364,46 @@ function onSvcProfChange(selectEl) {
 
 function onSvcServicoChange(selectEl) {
   var block = selectEl.closest('.servico-block');
-  var prof = block.querySelector('.svc-profissional').value;
   var servico = selectEl.value;
   var extrasDiv = block.querySelector('.svc-extras');
   extrasDiv.innerHTML = '';
 
-  var isColoracao = servico === 'Coloração';
-  var isRubia = prof === 'Rubia';
+  // Encontrar o serviço pelo nome e verificar usa_cores (database-driven)
+  var svcObj = allServicos.find(function(s) { return s.nome === servico; });
+  if (!svcObj || !svcObj.usa_cores) return;
 
-  if (isColoracao) {
-    var cores = getCoresDoServico('Coloração');
+  var servicoId = svcObj.id;
+  var cores = coresPorServico[servicoId] || { base: [], pigmento: [] };
+  var temBase = cores.base.length > 0;
+  var temPigmento = cores.pigmento.length > 0;
 
-    if (isRubia) {
-      extrasDiv.innerHTML =
-        '<div class="form-group"><label>Base</label>' +
+  if (temBase || temPigmento) {
+    var html = '';
+    if (temBase) {
+      html += '<div class="form-group"><label>Base</label>' +
         '<div class="bases-container"></div>' +
-        '<button type="button" class="btn-add-cor" onclick="adicionarCampoBase(this)"><i class="fa-solid fa-circle-plus"></i> Adicionar outra base</button>' +
-        '</div>' +
-        '<div class="form-group"><label>Pigmentação</label>' +
-        '<div class="pig-container"></div>' +
-        '<button type="button" class="btn-add-cor" onclick="adicionarPigmentacao(this)"><i class="fa-solid fa-circle-plus"></i> Adicionar pigmentação</button>' +
+        '<button type="button" class="btn-add-cor" onclick="adicionarCampoBase(this)" data-servico-id="' + servicoId + '"><i class="fa-solid fa-circle-plus"></i> Adicionar outra base</button>' +
         '</div>';
-      adicionarCampoBase(extrasDiv.querySelector('.btn-add-cor'));
-    } else {
-      extrasDiv.innerHTML =
-        '<div class="form-group"><label>Cores</label>' +
-        '<div class="cores-container"></div>' +
-        '<button type="button" class="btn-add-cor" onclick="adicionarCorSimples(this)"><i class="fa-solid fa-circle-plus"></i> Adicionar cor</button>' +
-        '</div>';
-      adicionarCorSimples(extrasDiv.querySelector('.btn-add-cor'));
     }
+    if (temPigmento) {
+      html += '<div class="form-group"><label>Pigmentação</label>' +
+        '<div class="pig-container"></div>' +
+        '<button type="button" class="btn-add-cor" onclick="adicionarPigmentacao(this)" data-servico-id="' + servicoId + '"><i class="fa-solid fa-circle-plus"></i> Adicionar pigmentação</button>' +
+        '</div>';
+    }
+    extrasDiv.innerHTML = html;
+    // Store servicoId on the block for later use
+    block.dataset.servicoId = servicoId;
+    if (temBase) adicionarCampoBase(extrasDiv.querySelector('[onclick*="adicionarCampoBase"]'));
+  } else {
+    // Serviço usa cores mas não tem base/pigmento configurados - mostrar seletor simples
+    extrasDiv.innerHTML =
+      '<div class="form-group"><label>Cores</label>' +
+      '<div class="cores-container"></div>' +
+      '<button type="button" class="btn-add-cor" onclick="adicionarCorSimples(this)" data-servico-id="' + servicoId + '"><i class="fa-solid fa-circle-plus"></i> Adicionar cor</button>' +
+      '</div>';
+    block.dataset.servicoId = servicoId;
+    adicionarCorSimples(extrasDiv.querySelector('.btn-add-cor'));
   }
 }
 
@@ -1358,7 +1436,8 @@ function adicionarCampoBaseComValor(container, corVal, qtdVal) {
   display.appendChild(removeBtn);
   var dropdown = document.createElement('div');
   dropdown.className = 'base-grid-dropdown';
-  var cores = getCoresDoServico('Coloração');
+  var servicoId = container.closest('.servico-block') ? container.closest('.servico-block').dataset.servicoId : null;
+  var cores = servicoId ? (coresPorServico[servicoId] || { base: [], pigmento: [] }) : getCoresDoServico_legacy();
   var baseCores = cores.base;
   baseCores.forEach(function(opt) {
     var item = document.createElement('div');
@@ -1375,9 +1454,12 @@ function adicionarCampoBaseComValor(container, corVal, qtdVal) {
       wrapper.dataset.cor = opt.nome;
       dropdown.classList.remove('open');
       pendingBaseCallback = function(qtd) {
+        var cfgU = getQtdOptions(servicoId, 'base');
         wrapper.dataset.qtd = qtd;
-        qtdBadge.textContent = qtd + 'g';
+        qtdBadge.textContent = qtd + (cfgU.unidade || 'g');
       };
+      var baseQtdSel = document.getElementById('base-qtd-select');
+      if (baseQtdSel) populateQtdSelect(baseQtdSel, servicoId, 'base');
       openModal('modal-base-qtd');
     };
     dropdown.appendChild(item);
@@ -1432,7 +1514,8 @@ function adicionarPigmentacaoComValor(container, corVal, qtdVal) {
   display.appendChild(removeBtn);
   var dropdown = document.createElement('div');
   dropdown.className = 'pig-dropdown';
-  var cores = getCoresDoServico('Coloração');
+  var servicoId = container.closest('.servico-block') ? container.closest('.servico-block').dataset.servicoId : null;
+  var cores = servicoId ? (coresPorServico[servicoId] || { base: [], pigmento: [] }) : getCoresDoServico_legacy();
   var pigCores = cores.pigmento;
   pigCores.forEach(function(opt) {
     var item = document.createElement('div');
@@ -1449,9 +1532,12 @@ function adicionarPigmentacaoComValor(container, corVal, qtdVal) {
       wrapper.dataset.cor = opt.nome;
       dropdown.classList.remove('open');
       pendingPigmentoCallback = function(qtd) {
+        var cfgU = getQtdOptions(servicoId, 'pigmento');
         wrapper.dataset.qtd = qtd;
-        qtdBadge.textContent = qtd + 'g';
+        qtdBadge.textContent = qtd + (cfgU.unidade || 'g');
       };
+      var pigQtdSel = document.getElementById('pigmento-qtd-select');
+      if (pigQtdSel) populateQtdSelect(pigQtdSel, servicoId, 'pigmento');
       openModal('modal-pigmento-qtd');
     };
     dropdown.appendChild(item);
@@ -1509,7 +1595,8 @@ function adicionarCorSimplesComValor(container, valor) {
   display.appendChild(removeBtn);
   var dropdown = document.createElement('div');
   dropdown.className = 'cor-dropdown';
-  var cores = getCoresDoServico('Coloração');
+  var servicoId = container.closest('.servico-block') ? container.closest('.servico-block').dataset.servicoId : null;
+  var cores = servicoId ? (coresPorServico[servicoId] || { base: [], pigmento: [] }) : getCoresDoServico_legacy();
   var allCores = cores.base.concat(cores.pigmento);
   if (allCores.length === 0) { allCores = colorOptions.map(function(o) { return { nome: o.code, hex: o.hex }; }); }
   allCores.forEach(function(opt) {
@@ -1697,7 +1784,7 @@ async function openHistorico(cliente) {
   var resp = await query1;
   var historico = resp.data || [];
 
-  var query2 = supabaseClient.from('agendamentos').select('*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
+  var query2 = supabaseClient.from('agendamentos').select('*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
   if (tenantId) query2 = query2.eq('tenant_id', tenantId);
   var resp2 = await query2;
   var agendamentos = resp2.data || [];
@@ -1709,25 +1796,17 @@ async function openHistorico(cliente) {
       allProfissionais.forEach(function(p) { profNomeMap[p.id] = p.nome; });
       ag.profissional = profNomeMap[ag.profissional_id] || '';
       ag.servicos = ag.agendamento_servicos.map(function(as) {
-        var bases = [];
-        var pigmentacoes = [];
-        var coresArr = [];
+        var bases = [], pigmentacoes = [], coresArr = [];
         if (as.agendamento_servico_cores && as.agendamento_servico_cores.length > 0) {
           as.agendamento_servico_cores.forEach(function(asc) {
             if (asc.cores) {
-              if (asc.tipo === 'base') {
-                bases.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
-              } else if (asc.tipo === 'pigmento') {
-                pigmentacoes.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
-              } else if (asc.tipo === 'cor') {
-                coresArr.push(asc.cores.nome);
-              }
+              if (asc.tipo === 'base') bases.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
+              else if (asc.tipo === 'pigmento') pigmentacoes.push({ cor: asc.cores.nome, qtd: asc.quantidade || 0, hex: asc.cores.hex });
+              else if (asc.tipo === 'cor') coresArr.push(asc.cores.nome);
             }
           });
         }
-        if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && as.cores) {
-          coresArr.push(as.cores.nome);
-        }
+        if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && as.cores) coresArr.push(as.cores.nome);
         return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr };
       });
     }
@@ -1736,21 +1815,15 @@ async function openHistorico(cliente) {
   historico.forEach(function(h) {
     if (h.historico_servicos && h.historico_servicos.length > 0 && !h.servicos) {
       h.servicos = h.historico_servicos.map(function(hs) {
-        var bases = [];
-        var pigmentacoes = [];
-        var coresArr = [];
-        if (hs.cores_detalhes && Array.isArray(hs.cores_detalhes)) {
-          hs.cores_detalhes.forEach(function(cd) {
-            if (cd.tipo === 'base') {
-              bases.push({ cor: cd.cor, qtd: cd.qtd || 0, hex: cd.hex || null });
-            } else if (cd.tipo === 'pigmento') {
-              pigmentacoes.push({ cor: cd.cor, qtd: cd.qtd || 0, hex: cd.hex || null });
-            } else if (cd.tipo === 'cor') {
-              coresArr.push(cd.cor);
-            }
+        var bases = [], pigmentacoes = [], coresArr = [];
+        if (hs.cores_detalhes) {
+          var detalhes = typeof hs.cores_detalhes === 'string' ? JSON.parse(hs.cores_detalhes) : hs.cores_detalhes;
+          detalhes.forEach(function(d) {
+            if (d.tipo === 'base') bases.push({ cor: d.cor, qtd: d.qtd || 0, hex: d.hex || '#888' });
+            else if (d.tipo === 'pigmento') pigmentacoes.push({ cor: d.cor, qtd: d.qtd || 0, hex: d.hex || '#888' });
+            else coresArr.push(d.cor);
           });
-        }
-        if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && hs.cor_nome) {
+        } else if (hs.cor_nome) {
           coresArr.push(hs.cor_nome);
         }
         return { profissional: h.profissional_nome || '', servico: hs.servico_nome, bases: bases, pigmentacoes: pigmentacoes, cores: coresArr };
@@ -1780,8 +1853,8 @@ async function openHistorico(cliente) {
           if (s.bases && s.bases.length > 0) {
             svcLine += ' — Base: ';
             s.bases.forEach(function(b, idx) {
-              var opt = colorOptions.find(function(o) { return o.code === b.cor; });
-              var hex = b.hex || (opt ? opt.hex : '#888');
+              var hex = b.hex || '#888';
+              if (!b.hex) { var opt = colorOptions.find(function(o) { return o.code === b.cor; }); hex = opt ? opt.hex : '#888'; }
               svcLine += '<span class="hist-cor-badge"><span class="hist-cor-swatch" style="background:' + hex + '"></span>' + b.cor;
               if (b.qtd) svcLine += ' (' + b.qtd + 'g)';
               svcLine += '</span>';
@@ -1791,8 +1864,8 @@ async function openHistorico(cliente) {
           if (s.pigmentacoes && s.pigmentacoes.length > 0) {
             svcLine += ' — Pigmentação: ';
             s.pigmentacoes.forEach(function(p, idx) {
-              var opt = pigmentOptions.find(function(o) { return o.code === p.cor; });
-              var hex = p.hex || (opt ? opt.hex : '#888');
+              var hex = p.hex || '#888';
+              if (!p.hex) { var opt = pigmentOptions.find(function(o) { return o.code === p.cor; }); hex = opt ? opt.hex : '#888'; }
               svcLine += '<span class="hist-cor-badge"><span class="hist-cor-swatch" style="background:' + hex + '"></span>' + p.cor;
               if (p.qtd) svcLine += ' (' + p.qtd + 'g)';
               svcLine += '</span>';
@@ -2155,7 +2228,215 @@ function renderListaCoresServico() {
   if (cores.pigmento.length === 0) { pigHtml += '<p class="cores-empty">Nenhuma cor de pigmentação.</p>'; }
   else { cores.pigmento.forEach(function(c) { pigHtml += '<div class="cor-crud-row"><div class="cor-crud-swatch" style="background:' + c.hex + '"></div><span class="cor-crud-nome">' + c.nome + '</span><span class="cor-crud-hex">' + c.hex + '</span><div class="cor-crud-actions"><button class="btn-icon" onclick="openEditarCor(\'' + c.id + '\')"><i class="fa-solid fa-pen"></i></button><button class="btn-icon btn-danger" onclick="confirmarExcluirCor(\'' + c.id + '\')"><i class="fa-solid fa-trash"></i></button></div></div>'; }); }
   pigHtml += '</div></div>';
-  container.innerHTML = baseHtml + pigHtml;
+  // Configuração de Quantidades
+  var configHtml = '<div class="cores-section qtd-config-section" style="margin-top:16px"><div class="cores-section-header"><h4><i class="fa-solid fa-palette"></i> Quantidades por Cor</h4></div>';
+  configHtml += '<p class="qtd-config-desc">Defina como as quantidades serão selecionadas no agendamento para cada tipo de cor deste serviço:</p>';
+  var cfgBase = (corConfigPorServico[gerenciarCoresServicoId] || {}).base;
+  var cfgPig = (corConfigPorServico[gerenciarCoresServicoId] || {}).pigmento;
+  configHtml += '<div class="qtd-config-grid">';
+  configHtml += renderCorConfigRow('base', cfgBase);
+  configHtml += renderCorConfigRow('pigmento', cfgPig);
+  configHtml += '</div>';
+  configHtml += '<div class="qtd-config-footer"><div class="qtd-config-footer-left"><i class="fa-solid fa-sparkles"></i><div><div class="footer-title">Configuração de quantidades</div><div class="footer-desc">Salve as configurações de intervalo para aplicá-las no agendamento.</div></div></div><button type="button" class="btn-submit" onclick="salvarCorConfig()"><i class="fa-solid fa-check"></i> Salvar configuração</button></div>';
+  configHtml += '</div>';
+  container.innerHTML = baseHtml + pigHtml + configHtml;
+  initQtdConfigState();
+}
+
+/* ===== DIRTY STATE para config de quantidades ===== */
+var _qtdConfigInitialState = {};
+var _qtdConfigDirty = false;
+
+function _getQtdConfigCurrentState() {
+  var state = {};
+  ['base', 'pigmento'].forEach(function(tipo) {
+    var prefix = 'cfg-' + tipo;
+    var minEl = document.getElementById(prefix + '-min');
+    var maxEl = document.getElementById(prefix + '-max');
+    var stepEl = document.getElementById(prefix + '-step');
+    var unidadeEl = document.getElementById(prefix + '-unidade');
+    if (minEl && maxEl && stepEl && unidadeEl) {
+      state[tipo] = {
+        min: minEl.value,
+        max: maxEl.value,
+        step: stepEl.value,
+        unidade: unidadeEl.value
+      };
+    }
+  });
+  return JSON.stringify(state);
+}
+
+function _checkQtdDirty() {
+  var current = _getQtdConfigCurrentState();
+  _qtdConfigDirty = (current !== JSON.stringify(_qtdConfigInitialState));
+}
+
+function _updateQtdPreview(tipo) {
+  var prefix = 'cfg-' + tipo;
+  var minEl = document.getElementById(prefix + '-min');
+  var maxEl = document.getElementById(prefix + '-max');
+  var stepEl = document.getElementById(prefix + '-step');
+  var unidadeEl = document.getElementById(prefix + '-unidade');
+  if (!minEl || !maxEl || !stepEl || !unidadeEl) return;
+  var min = parseInt(minEl.value) || 0;
+  var max = parseInt(maxEl.value) || 0;
+  var step = parseInt(stepEl.value) || 1;
+  var unidade = unidadeEl.value ? unidadeEl.value.trim() : 'g';
+  var previewEl = document.getElementById(prefix + '-preview');
+  var countEl = document.getElementById(prefix + '-count');
+  if (!previewEl) return;
+  if (step <= 0 || min > max || min <= 0) {
+    previewEl.textContent = 'Parâmetros inválidos';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  var total = Math.floor((max - min) / step) + 1;
+  if (countEl) countEl.textContent = total + ' opções serão geradas';
+  // Smart preview: show max 4 first + ... + last
+  if (total <= 6) {
+    var parts = [];
+    for (var v = min; v <= max; v += step) parts.push(v + unidade);
+    previewEl.textContent = parts.join(' • ');
+  } else {
+    var parts = [];
+    for (var j = 0; j < 4; j++) parts.push((min + j * step) + unidade);
+    parts.push('...');
+    parts.push(max + unidade);
+    previewEl.textContent = parts.join(' • ');
+  }
+}
+
+function _onQtdFieldChange(tipo) {
+  _checkQtdDirty();
+  _updateQtdPreview(tipo);
+}
+
+function renderCorConfigRow(tipo, cfg) {
+  var tipoLabel = tipo === 'base' ? 'Base' : 'Pigmentação';
+  var min = cfg ? (cfg.qtd_min || 5) : (tipo === 'base' ? 5 : 1);
+  var max = cfg ? (cfg.qtd_max || 120) : (tipo === 'base' ? 120 : 10);
+  var step = cfg ? (cfg.qtd_step || 5) : (tipo === 'base' ? 5 : 1);
+  var unidade = cfg ? (cfg.unidade || 'g') : 'g';
+  var prefix = 'cfg-' + tipo;
+  var icon = tipo === 'base' ? 'fa-droplet' : 'fa-pen-fancy';
+
+  var html = '<div class="qtd-config-card">';
+  // Header
+  html += '<div class="qtd-config-card-header">';
+  html += '<div class="qtd-config-card-header-left">';
+  html += '<div class="qtd-config-card-icon"><i class="fa-solid ' + icon + '"></i></div>';
+  html += '<div><div class="qtd-config-card-title">' + tipoLabel + '</div>';
+  html += '<div class="qtd-config-card-subtitle">Configuração de quantidade</div></div>';
+  html += '</div>';
+  html += '<div class="qtd-config-toggle"><span>Ativo</span><button type="button" class="toggle-switch active" id="' + prefix + '-toggle" onclick="_toggleQtdCard(\'' + tipo + '\')"></button></div>';
+  html += '</div>';
+  // Type bar (visual)
+  html += '<div class="qtd-config-type-bar">';
+  html += '<div class="qtd-config-type-item active"><i class="fa-solid fa-chart-bar"></i> Intervalo</div>';
+  
+  
+  html += '</div>';
+  // Fields
+  html += '<div class="qtd-config-fields" id="' + prefix + '-fields">';
+  html += '<div class="qtd-config-field"><label>Mínimo</label><input type="number" id="' + prefix + '-min" value="' + min + '" oninput="_onQtdFieldChange(\'' + tipo + '\')"></div>';
+  html += '<div class="qtd-config-field"><label>Máximo</label><input type="number" id="' + prefix + '-max" value="' + max + '" oninput="_onQtdFieldChange(\'' + tipo + '\')"></div>';
+  html += '<div class="qtd-config-field"><label>Step</label><input type="number" id="' + prefix + '-step" value="' + step + '" oninput="_onQtdFieldChange(\'' + tipo + '\')"></div>';
+  html += '<div class="qtd-config-field"><label>Unidade</label><select id="' + prefix + '-unidade" onchange="_onQtdFieldChange(\'' + tipo + '\')"><option value="g"' + (unidade === 'g' ? ' selected' : '') + '>g</option><option value="ml"' + (unidade === 'ml' ? ' selected' : '') + '>ml</option><option value="un"' + (unidade === 'un' ? ' selected' : '') + '>un</option></select></div>';
+  html += '</div>';
+  // Preview
+  html += '<div class="qtd-preview-section" id="' + prefix + '-preview-section">';
+  html += '<div class="qtd-preview-top"><span class="qtd-preview-badge"><i class="fa-solid fa-eye"></i> Prévia</span><span class="qtd-preview-count" id="' + prefix + '-count"></span></div>';
+  html += '<div class="qtd-preview-box"><div class="qtd-preview-text" id="' + prefix + '-preview"></div></div>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+
+
+function _toggleQtdCard(tipo) {
+  var prefix = 'cfg-' + tipo;
+  var btn = document.getElementById(prefix + '-toggle');
+  var fields = document.getElementById(prefix + '-fields');
+  var preview = document.getElementById(prefix + '-preview-section');
+  if (!btn) return;
+  var isActive = btn.classList.contains('active');
+  if (isActive) {
+    btn.classList.remove('active');
+    if (fields) fields.classList.add('qtd-config-fields-disabled');
+    if (preview) preview.style.opacity = '0.4';
+  } else {
+    btn.classList.add('active');
+    if (fields) fields.classList.remove('qtd-config-fields-disabled');
+    if (preview) preview.style.opacity = '1';
+  }
+  _checkQtdDirty();
+}
+
+function initQtdConfigState() {
+  setTimeout(function() {
+    _updateQtdPreview('base');
+    _updateQtdPreview('pigmento');
+    _qtdConfigInitialState = JSON.parse(_getQtdConfigCurrentState());
+    _qtdConfigDirty = false;
+  }, 50);
+}
+
+async function salvarCorConfig() {
+  var tenantId = getCurrentTenantId();
+  var servicoId = gerenciarCoresServicoId;
+
+  for (var i = 0; i < 2; i++) {
+    var tipo = i === 0 ? 'base' : 'pigmento';
+    var prefix = 'cfg-' + tipo;
+    var unidade = document.getElementById(prefix + '-unidade').value.trim() || 'g';
+    var payload = {
+      servico_id: servicoId,
+      tipo: tipo,
+      tipo_quantidade: 'intervalo',
+      unidade: unidade,
+      tenant_id: tenantId,
+      updated_at: new Date().toISOString(),
+      qtd_min: parseInt(document.getElementById(prefix + '-min').value) || 5,
+      qtd_max: parseInt(document.getElementById(prefix + '-max').value) || 120,
+      qtd_step: parseInt(document.getElementById(prefix + '-step').value) || 5,
+      qtd_lista: []
+    };
+    var existing = (corConfigPorServico[servicoId] || {})[tipo];
+    if (existing && existing.id) {
+      var resp = await supabaseClient.from('servico_cor_config').update(payload).eq('id', existing.id);
+      if (resp.error) { showToast('Erro ao salvar: ' + resp.error.message); return; }
+    } else {
+      payload.created_at = new Date().toISOString();
+      var resp = await supabaseClient.from('servico_cor_config').insert([payload]);
+      if (resp.error) { showToast('Erro ao salvar: ' + resp.error.message); return; }
+    }
+  }
+  await loadCorConfig();
+  _qtdConfigInitialState = JSON.parse(_getQtdConfigCurrentState());
+  _qtdConfigDirty = false;
+  showToast('Configuração salva!');
+  renderListaCoresServico();
+}
+
+function tentarFecharModalCores() {
+  _checkQtdDirty();
+  if (_qtdConfigDirty) {
+    openModal('modal-confirmar-descarte-qtd');
+  } else {
+    closeModal('modal-gerenciar-cores');
+  }
+}
+
+function descartarAlteracoesQtd() {
+  _qtdConfigDirty = false;
+  closeModal('modal-confirmar-descarte-qtd');
+  closeModal('modal-gerenciar-cores');
+}
+
+function continuarEditandoQtd() {
+  closeModal('modal-confirmar-descarte-qtd');
 }
 
 var editingCorTipo = 'base';
@@ -2218,6 +2499,7 @@ async function salvarCorCrud(e) {
   }
   closeModal('modal-crud-cor');
   await loadCores();
+  await loadCorConfig();
   renderListaCoresServico();
   renderListaServicos();
 }
