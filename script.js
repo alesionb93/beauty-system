@@ -15,7 +15,7 @@ var clients = [];
 var appointments = [];
 var editingAppointmentId = null;
 var pendingClienteFromIdentificacao = null;
-var currentUser = { nome: '', role: '', tenantId: null };
+var currentUser = { nome: '', role: '', tenantId: null, profissionalId: null, profissionalNome: null };
 var activeFilters = [];
 var pendingBaseCallback = null;
 var pendingPigmentoCallback = null;
@@ -233,7 +233,32 @@ async function loadProfissionais() {
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) { console.error('Erro profissionais:', resp.error); return; }
-  allProfissionais = resp.data || [];
+  var todos = resp.data || [];
+
+  // 🔒 REGRA: ocultar profissionais cujo usuário vinculado está inativo.
+  // Buscamos os usuários do tenant aqui mesmo (sem depender da ordem de loadUsuarios).
+  var usuariosResp = await supabaseClient
+    .from('usuarios')
+    .select('id, profissional_id, ativo, tenant_id')
+    .eq('tenant_id', tenantId || null);
+  var usuariosTenant = (usuariosResp && usuariosResp.data) ? usuariosResp.data : [];
+
+  // Mapa: profissional_id -> existe pelo menos um usuário ATIVO vinculado?
+  var profTemUsuarioAtivo = {};
+  // Mapa: profissional_id -> existe algum usuário vinculado (ativo ou não)?
+  var profTemUsuarioQualquer = {};
+  usuariosTenant.forEach(function(u) {
+    if (!u.profissional_id) return;
+    profTemUsuarioQualquer[u.profissional_id] = true;
+    if (u.ativo === true) profTemUsuarioAtivo[u.profissional_id] = true;
+  });
+
+  allProfissionais = todos.filter(function(p) {
+    // Sem usuário vinculado → mantém visível (profissional "solto", legado/admin).
+    if (!profTemUsuarioQualquer[p.id]) return true;
+    // Tem usuário vinculado → só aparece se houver pelo menos 1 ativo.
+    return !!profTemUsuarioAtivo[p.id];
+  });
 
   professionalAvatars = {};
   profColors = {};
@@ -698,12 +723,22 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   // Determinar profissional vinculado ao usuário logado
   var linkedProfName = null;
+  currentUser.profissionalId = null;
+  currentUser.profissionalNome = null;
   if (session && session.user) {
     var usuarioResp = await supabaseClient.from('usuarios').select('profissional_id').eq('id', session.user.id).maybeSingle();
     if (usuarioResp.data && usuarioResp.data.profissional_id) {
       var linkedProf = allProfissionais.find(function(p) { return p.id === usuarioResp.data.profissional_id; });
-      if (linkedProf) linkedProfName = linkedProf.nome;
+      if (linkedProf) {
+        linkedProfName = linkedProf.nome;
+        currentUser.profissionalId = linkedProf.id;
+        currentUser.profissionalNome = linkedProf.nome;
+      }
     }
+  }
+  // 🔒 REGRA: Colaborador deve ter profissional vinculado. Avisar se não tiver.
+  if (currentUser.role === 'colaborador' && !currentUser.profissionalNome) {
+    console.warn('[REGRA] Colaborador sem profissional vinculado — agendamentos ficarão bloqueados.');
   }
   activeFilters = linkedProfName ? [linkedProfName] : (allProfissionais.length > 0 ? [allProfissionais[0].nome] : []);
   await loadServicos();
@@ -1295,6 +1330,23 @@ function adicionarBlocoServicoComDados(dados) {
     profSelect.appendChild(opt);
   });
 
+  // 🔒 REGRA: Colaborador agenda apenas para si mesmo
+  if (currentUser.role === 'colaborador' && currentUser.profissionalNome) {
+    // Garantir que a opção exista (caso professionals ainda não tenha sido populado com este prof)
+    var hasOpt = Array.prototype.some.call(profSelect.options, function(o){ return o.value === currentUser.profissionalNome; });
+    if (!hasOpt) {
+      var optForced = document.createElement('option');
+      optForced.value = currentUser.profissionalNome;
+      optForced.textContent = currentUser.profissionalNome;
+      profSelect.appendChild(optForced);
+    }
+    profSelect.value = currentUser.profissionalNome;
+    profSelect.disabled = true;
+    profSelect.setAttribute('data-locked-colaborador', '1');
+    // Disparar onChange para popular serviços
+    onSvcProfChange(profSelect);
+  }
+
   if (dados) {
     profSelect.value = dados.profissional || '';
     onSvcProfChange(profSelect);
@@ -1636,6 +1688,10 @@ function collectServicos() {
   var servicos = [];
   blocks.forEach(function(block) {
     var prof = block.querySelector('.svc-profissional').value;
+    // 🔒 REGRA: Colaborador SEMPRE agenda para o profissional vinculado (anti-bypass)
+    if (currentUser.role === 'colaborador' && currentUser.profissionalNome) {
+      prof = currentUser.profissionalNome;
+    }
     var servico = block.querySelector('.svc-servico').value;
     if (!prof || !servico) return;
     var svc = { profissional: prof, servico: servico, bases: [], pigmentacoes: [], cores: [] };
@@ -1656,6 +1712,11 @@ function collectServicos() {
 /* ===== SAVE APPOINTMENT ===== */
 async function saveAppointment(e) {
   e.preventDefault();
+  // 🔒 REGRA: Colaborador precisa estar vinculado a um profissional para agendar
+  if (currentUser.role === 'colaborador' && !currentUser.profissionalNome) {
+    showToast('Seu usuário não está vinculado a um profissional. Contate o administrador.');
+    return;
+  }
   var servicos = collectServicos();
   if (servicos.length === 0) { showToast('Adicione pelo menos um serviço!'); return; }
   var apt = {
@@ -1907,16 +1968,22 @@ async function openHistorico(cliente) {
 
 /* ===== PROFESSIONALS PAGE ===== */
 function renderProfessionals() {
-  // FIX: garantir que todos os profissionais de allProfissionais estejam no dict
-  allProfissionais.forEach(function(p) {
-    if (!professionals[p.nome]) professionals[p.nome] = [];
-  });
   var container = document.getElementById('professionals-grid');
+  if (!container) return;
   container.innerHTML = '';
-  Object.keys(professionals).forEach(function(name) {
+
+  // 🔒 REGRA: só renderiza profissionais visíveis (allProfissionais já vem filtrado
+  // por loadProfissionais — exclui aqueles vinculados apenas a usuários inativos).
+  // Iteramos sobre allProfissionais (não sobre o dict `professionals`, que pode conter
+  // chaves "órfãs" de profissionais já removidos/inativados).
+  var visiveis = allProfissionais || [];
+
+  visiveis.forEach(function(p) {
+    var name = p.nome;
     var card = document.createElement('div');
     card.className = 'professional-card';
-    var services = professionals[name].map(function(s) {
+    var svcs = professionals[name] || [];
+    var services = svcs.map(function(s) {
       var dur = s.duracao ? s.duracao + 'min' : '';
       var preco = s.preco ? ' R$' + s.preco.toFixed(0) : '';
       return '<li><i class="fa-solid fa-scissors"></i>' + s.nome + (dur ? ' <span class="svc-dur">(' + dur + preco + ')</span>' : '') + '</li>';
@@ -1926,17 +1993,20 @@ function renderProfessionals() {
       editBtn = '<button class="btn-edit-prof" onclick="openModalEditarProfissional(\'' + name.replace(/'/g, "\\'") + '\')"><i class="fa-solid fa-pen"></i></button>';
     }
     var avatarHtml = getAvatarHtml(name, '');
-    // Verificar se profissional está vinculado a um usuário
-    var profObj = allProfissionais.find(function(p) { return p.nome === name; });
-    var linkedUser = profObj ? allUsuarios.find(function(u) { return u.profissional_id === profObj.id; }) : null;
+    // Badge de vínculo (apenas se houver usuário ATIVO vinculado)
+    var linkedUser = (allUsuarios || []).find(function(u) {
+      return u.profissional_id === p.id && u.ativo !== false;
+    });
     var linkedBadge = linkedUser ? '<span class="linked-badge" title="' + linkedUser.nome + '"><i class="fa-solid fa-link" style="font-size:0.55rem;opacity:0.7;"></i></span>' : '';
     card.innerHTML = '<div class="card-header">' + avatarHtml + '<div class="prof-info"><span class="name">' + name + '</span>' + linkedBadge + '</div>' + editBtn + '</div><ul class="services-list">' + services + '</ul>';
     container.appendChild(card);
   });
-  if (Object.keys(professionals).length === 0) {
+
+  if (visiveis.length === 0) {
     container.innerHTML = '<p style="color:var(--text-muted); text-align:center; padding: 40px;">Nenhum profissional cadastrado.</p>';
   }
 }
+
 
 /* ===== PROFISSIONAIS CRUD ===== */
 var novoProfFotoFile = null;
@@ -2795,27 +2865,196 @@ function renderMeuPerfil() {
   }
 }
 
+/* ===== Filtros de Usuários (Configurações) ===== */
+/* Estado de inativo agora vem do banco: usuarios.ativo (boolean). */
+function isUsuarioInactiveMock(user) {
+  if (!user) return false;
+  return user.ativo === false;
+}
+
+
+function getUsuariosFilterState() {
+  var searchEl = document.getElementById('users-filter-search-input');
+  var permEl   = document.getElementById('users-filter-permissao-select');
+  var inactEl  = document.getElementById('users-filter-show-inactive');
+  return {
+    search: searchEl ? searchEl.value.trim().toLowerCase() : '',
+    permissao: permEl ? permEl.value : 'todos',
+    showInactive: inactEl ? !!inactEl.checked : false
+  };
+}
+
+function onUsuariosFilterChange() {
+  renderUsuarios();
+}
+
 function renderUsuarios() {
   var tbody = document.getElementById('usuarios-tbody');
   var cardsContainer = document.getElementById('usuarios-cards');
-  var countEl = document.getElementById('config-users-count');
+  var badgeAtivos = document.getElementById('users-count-ativos');
+  var badgeInativos = document.getElementById('users-count-inativos');
+  if (!tbody || !cardsContainer) return;
+
   tbody.innerHTML = '';
   cardsContainer.innerHTML = '';
-  countEl.textContent = allUsuarios.length + ' usuários';
 
-  allUsuarios.forEach(function(u) {
-    var tr = document.createElement('tr');
+  // 1) Anota inativo em cada usuário (mock)
+  var enriched = (allUsuarios || []).map(function(u) {
+    return Object.assign({}, u, { _inactive: isUsuarioInactiveMock(u) });
+  });
+
+  // 2) Contagem GERAL (não filtrada)
+  var totalAtivos = 0, totalInativos = 0;
+  enriched.forEach(function(u) {
+    if (u._inactive) totalInativos++; else totalAtivos++;
+  });
+  if (badgeAtivos)   badgeAtivos.textContent   = totalAtivos + ' ativos';
+  if (badgeInativos) badgeInativos.textContent = totalInativos + ' inativos';
+
+  // 3) Aplica filtros: busca → permissão → flag inativos
+  var f = getUsuariosFilterState();
+  var filtered = enriched
+    .filter(function(u) {
+      if (!f.search) return true;
+      var nome  = (u.nome  || '').toLowerCase();
+      var email = (u.email || '').toLowerCase();
+      return nome.indexOf(f.search) !== -1 || email.indexOf(f.search) !== -1;
+    })
+    .filter(function(u) {
+      if (f.permissao === 'todos') return true;
+      return u.role === f.permissao;
+    })
+    .filter(function(u) {
+      if (f.showInactive) return true;
+      return !u._inactive;
+    });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr class="users-empty-row"><td colspan="4">Nenhum usuário encontrado.</td></tr>';
+    cardsContainer.innerHTML = '<div class="user-card" style="text-align:center;color:var(--text-muted);font-style:italic;">Nenhum usuário encontrado.</div>';
+    return;
+  }
+
+  filtered.forEach(function(u) {
     var roleBadge = '<span class="role-badge ' + u.role + '">' + u.role + '</span>';
-    var profBadge = u.profissional_id ? ' <span class="role-badge" style="background:rgba(72,187,120,0.15);color:#48bb78;font-size:0.7rem;padding:2px 6px;"><i class=\'fa-solid fa-link\' style=\'font-size:0.6rem;\'></i></span>' : '';
-    var actions = '<div class="servico-crud-actions"><button class="btn-icon" onclick="openEditarUsuario(\x27' + u.id + '\x27)"><i class="fa-solid fa-pen"></i></button></div>';
-    tr.innerHTML = '<td>' + u.nome + '</td><td>' + u.email + '</td><td>' + roleBadge + profBadge + '</td><td>' + actions + '</td>';
+    var profBadge = u.profissional_id
+      ? ' <span class="role-badge" style="background:rgba(72,187,120,0.15);color:#48bb78;font-size:0.7rem;padding:2px 6px;"><i class=\'fa-solid fa-link\' style=\'font-size:0.6rem;\'></i></span>'
+      : '';
+    var inactiveTag = u._inactive ? ' <span class="user-inactive-tag">Inativo</span>' : '';
+
+    var toggleLabel = u._inactive ? 'Ativar usuário' : 'Inativar usuário';
+    var toggleActiveClass = u._inactive ? '' : ' is-active';
+    var toggleHtml =
+      '<button type="button" class="user-toggle-switch' + toggleActiveClass + '" ' +
+        'title="' + toggleLabel + '" aria-label="' + toggleLabel + '" ' +
+        'onclick="toggleUsuarioAtivo(\x27' + u.id + '\x27)">' +
+        '<span class="track"></span><span class="thumb"></span>' +
+      '</button>';
+    var actions =
+      '<div class="servico-crud-actions">' +
+        '<button class="btn-icon" title="Editar" onclick="openEditarUsuario(\x27' + u.id + '\x27)"><i class="fa-solid fa-pen"></i></button>' +
+        toggleHtml +
+      '</div>';
+
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td>' + (u.nome || '') + inactiveTag + '</td>' +
+      '<td>' + (u.email || '') + '</td>' +
+      '<td>' + roleBadge + profBadge + '</td>' +
+      '<td>' + actions + '</td>';
     tbody.appendChild(tr);
+
     var card = document.createElement('div');
     card.className = 'user-card';
-    card.innerHTML = '<div class="user-card-header"><span class="user-card-name">' + u.nome + '</span>' + roleBadge + profBadge + '</div><div class="user-card-email">' + u.email + '</div><div class="user-card-footer">' + actions + '</div>';
+    card.innerHTML =
+      '<div class="user-card-header">' +
+        '<span class="user-card-name">' + (u.nome || '') + inactiveTag + '</span>' +
+        roleBadge + profBadge +
+      '</div>' +
+      '<div class="user-card-email">' + (u.email || '') + '</div>' +
+      '<div class="user-card-footer">' + actions + '</div>';
     cardsContainer.appendChild(card);
   });
 }
+
+/* Toggle inativar/ativar — persistência real no Supabase (usuarios.ativo) */
+var _pendingToggleUserId = null;
+var _pendingToggleAction = null; // 'ativar' | 'inativar'
+var MAX_USUARIOS_ATIVOS = 3;
+
+function toggleUsuarioAtivo(userId) {
+  var user = (allUsuarios || []).find(function(u) { return u.id === userId; });
+  if (!user) return;
+  _pendingToggleUserId = userId;
+  var isInactive = user.ativo === false;
+  _pendingToggleAction = isInactive ? 'ativar' : 'inativar';
+  var modalId = isInactive ? 'modal-confirmar-ativar-usuario' : 'modal-confirmar-inativar-usuario';
+  if (typeof openModal === 'function') {
+    openModal(modalId);
+  } else {
+    var el = document.getElementById(modalId);
+    if (el) el.classList.add('active');
+  }
+}
+
+async function confirmToggleUsuarioAtivo() {
+  var userId = _pendingToggleUserId;
+  var action = _pendingToggleAction;
+  if (!userId || !action) return;
+  var user = (allUsuarios || []).find(function(u) { return u.id === userId; });
+  if (!user) {
+    _pendingToggleUserId = null;
+    _pendingToggleAction = null;
+    return;
+  }
+
+  // 🔒 Limite: no máximo 3 usuários ativos por tenant
+  if (action === 'ativar') {
+    var usuariosAtivos = (allUsuarios || []).filter(function(u) { return u.ativo !== false; }).length;
+    if (usuariosAtivos >= MAX_USUARIOS_ATIVOS) {
+      if (typeof showToast === 'function') {
+        showToast('Limite de usuários ativos atingido (' + MAX_USUARIOS_ATIVOS + '). Inative um usuário antes de ativar outro.', 'error');
+      }
+      return; // não fecha modal nem persiste
+    }
+  }
+
+  var novoAtivo = (action === 'ativar');
+  var resp = await supabaseClient.from('usuarios').update({ ativo: novoAtivo }).eq('id', userId);
+  if (resp.error) {
+    console.error('Erro ao atualizar usuarios.ativo:', resp.error);
+    if (typeof showToast === 'function') showToast('Erro ao atualizar usuário.', 'error');
+    return;
+  }
+
+  // Atualiza estado local sem precisar recarregar tudo
+  user.ativo = novoAtivo;
+
+  if (typeof showToast === 'function') {
+    showToast(user.nome + (novoAtivo ? ' reativado.' : ' marcado como inativo.'));
+  }
+  if (typeof closeModal === 'function') {
+    closeModal(novoAtivo ? 'modal-confirmar-ativar-usuario' : 'modal-confirmar-inativar-usuario');
+  }
+
+  _pendingToggleUserId = null;
+  _pendingToggleAction = null;
+  renderUsuarios();
+
+  // 🔄 Reatividade: profissionais visíveis dependem de usuarios.ativo
+  try {
+    await loadProfissionais();
+    if (typeof renderProfessionals === 'function') renderProfessionals();
+    if (typeof renderAgenda === 'function') renderAgenda();
+  } catch (e) {
+    console.warn('Falha ao recarregar profissionais após toggle:', e);
+  }
+}
+
+// Aliases de compatibilidade (versões antigas com sufixo Mock)
+var toggleUsuarioAtivoMock = toggleUsuarioAtivo;
+var confirmToggleUsuarioAtivoMock = confirmToggleUsuarioAtivo;
+
 
 async function salvarPerfil() {
   var nome = document.getElementById('perfil-nome').value.trim();
@@ -2945,8 +3184,68 @@ function openModalCriarUsuario() {
   populateProfSelect('novo-user-profissional-id', null);
   var feedback = document.getElementById('criar-user-feedback');
   feedback.style.display = 'none';
+  // Aplica regra inicial baseada na role default (colaborador)
+  aplicarRegraVinculoPorRole('novo');
   openModal('modal-criar-usuario');
 }
+
+/* ===== REGRA: Colaborador → vínculo automático (oculto e forçado) ===== */
+function aplicarRegraVinculoPorRole(context) {
+  var prefix = context === 'novo' ? 'novo-user' : 'edit-user';
+  var roleEl = document.getElementById(prefix + '-role');
+  if (!roleEl) return;
+  var role = roleEl.value;
+  var grid = document.getElementById(prefix + '-prof-options');
+  var section = grid ? grid.closest('.config-form-section, div') : null;
+  // Localiza a seção visualmente (parent que contém o título "Vínculo com Profissional")
+  var wrapper = grid ? grid.parentElement : null;
+
+  if (role === 'colaborador') {
+    // Oculta o grid de seleção
+    if (grid) grid.style.display = 'none';
+    // Oculta sub-painel "Vincular existente"
+    var sub = document.getElementById(prefix + '-prof-select-wrapper');
+    if (sub) sub.classList.remove('visible');
+    // No modal "novo": mostra preview + permite foto opcional
+    if (context === 'novo') {
+      // Marca radio "criar" mesmo oculto
+      var radioCriar = document.querySelector('input[name="novo-user-prof-tipo"][value="criar"]');
+      if (radioCriar) radioCriar.checked = true;
+      var preview = document.getElementById('novo-user-prof-criar-preview');
+      if (preview) preview.classList.add('visible');
+      var fotoUp = document.getElementById('novo-user-prof-foto-upload');
+      if (fotoUp) fotoUp.classList.add('visible');
+      var nomeAtual = (document.getElementById('novo-user-nome').value || '').trim() || '(digite o nome acima)';
+      var nomeEl = document.getElementById('novo-user-prof-criar-nome');
+      if (nomeEl) nomeEl.textContent = nomeAtual;
+    }
+    // Mostra aviso explicativo (cria/atualiza)
+    if (wrapper) {
+      var aviso = wrapper.querySelector('.colab-auto-aviso');
+      if (!aviso) {
+        aviso = document.createElement('div');
+        aviso.className = 'colab-auto-aviso';
+        aviso.style.cssText = 'background:var(--gold-bg,rgba(108,58,237,0.08));border:1px solid var(--gold-border,rgba(108,58,237,0.20));border-radius:8px;padding:10px 12px;font-size:0.82rem;color:var(--text);margin-top:8px;display:flex;align-items:center;gap:8px;';
+        aviso.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles" style="color:var(--gold);"></i><span>Será criado um <strong>profissional automaticamente</strong> com o nome do usuário.</span>';
+        // Insere antes do grid
+        if (grid && grid.parentNode) grid.parentNode.insertBefore(aviso, grid);
+      }
+      aviso.style.display = 'flex';
+    }
+  } else {
+    // Admin: comportamento normal
+    if (grid) grid.style.display = '';
+    var aviso2 = wrapper ? wrapper.querySelector('.colab-auto-aviso') : null;
+    if (aviso2) aviso2.style.display = 'none';
+    // No edit: garante que select existente reapareça se aplicável
+  }
+}
+
+/* Listener: troca de role no modal "novo" */
+document.addEventListener('change', function(e) {
+  if (e.target && e.target.id === 'novo-user-role') aplicarRegraVinculoPorRole('novo');
+  if (e.target && e.target.id === 'edit-user-role') aplicarRegraVinculoPorRole('edit');
+});
 
 var _criarUsuarioEmAndamento = false;
 var _signupCooldownAte = 0;
@@ -2962,11 +3261,24 @@ async function salvarNovoUsuario(e) {
 
   var nome = (document.getElementById('novo-user-nome').value || '').trim();
   var email = (((emailInput ? emailInput.value : '') || '').trim()).toLowerCase();
-  var role = document.getElementById('novo-user-role').value;
+  var roleEl = document.getElementById('novo-user-role');
+  var role = roleEl ? (roleEl.value || '').trim() : '';
+  // Guarda dura: só aceita roles válidos. Sem fallback silencioso para 'admin'.
+  if (role !== 'admin' && role !== 'colaborador') {
+    role = 'colaborador';
+  }
+  console.log('[criarUsuario] role selecionada no formulário =', role);
   var profTipoEl = document.querySelector('input[name="novo-user-prof-tipo"]:checked');
   var profTipo = profTipoEl ? profTipoEl.value : 'nenhum';
   var profIdSel = document.getElementById('novo-user-profissional-id').value || '';
   var tenantId = getCurrentTenantId();
+
+  // 🔒 REGRA: Colaborador SEMPRE cria profissional automaticamente
+  if (role === 'colaborador') {
+    profTipo = 'criar';
+    profIdSel = '';
+    console.log('[criarUsuario] role=colaborador → forçando profTipo=criar');
+  }
 
   // --- Helpers internos ---
   function setFeedback(message, color) {
@@ -3127,6 +3439,32 @@ async function salvarNovoUsuario(e) {
     closeModal('modal-criar-usuario');
     showToast('Usuário criado com sucesso!');
 
+    // === GUARD ANTI-FALLBACK: garante que a role salva no banco é a que o usuário escolheu ===
+    // (Cobre bug em que a Edge Function antiga gravava sempre 'admin'.)
+    try {
+      var newUserId = payload && (payload.user_id || payload.id || (payload.user && payload.user.id));
+      if (newUserId && tenantId) {
+        var checkRole = await supabaseClient
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', newUserId)
+          .eq('tenant_id', tenantId)
+          .maybeSingle();
+
+        if (!checkRole.error && checkRole.data && checkRole.data.role !== role) {
+          console.warn('[criarUsuario] Role divergente detectada. Banco=', checkRole.data.role, 'Esperado=', role, '. Corrigindo...');
+          await supabaseClient.from('user_roles').delete().eq('user_id', newUserId).eq('tenant_id', tenantId);
+          await supabaseClient.from('user_roles').insert([{
+            user_id: newUserId,
+            role: role,
+            tenant_id: tenantId
+          }]);
+        }
+      }
+    } catch (guardErr) {
+      console.warn('[criarUsuario] Falha ao validar role pós-criação:', guardErr);
+    }
+
     var senhaInfo = (payload && payload.senha_provisoria) || '(definida no backend)';
     alert('Usuário criado!\n\nEmail: ' + email + '\nSenha: ' + senhaInfo + '\n\nAnote e entregue ao usuário.');
 
@@ -3170,6 +3508,7 @@ function openEditarUsuario(id) {
     document.getElementById('edit-user-profissional-id').value = user.profissional_id;
   }
 
+  aplicarRegraVinculoPorRole('edit');
   openModal('modal-editar-usuario');
 }
 
@@ -3186,6 +3525,27 @@ async function salvarEdicaoUsuario(e) {
   // Atualizar vínculo profissional
   var profTipo = document.querySelector('input[name="edit-user-prof-tipo"]:checked').value;
   var profIdSel = profTipo === 'existente' ? document.getElementById('edit-user-profissional-id').value : null;
+
+  // 🔒 REGRA: Colaborador SEMPRE precisa de profissional vinculado.
+  // Se já tem, mantém; se não tem, cria automaticamente (idempotente).
+  if (role === 'colaborador') {
+    var userAtual = allUsuarios.find(function(u) { return u.id === id; });
+    if (userAtual && userAtual.profissional_id) {
+      profIdSel = userAtual.profissional_id; // mantém vínculo existente
+    } else {
+      var tenantIdEdit = getCurrentTenantId();
+      var novoProfResp = await supabaseClient.from('profissionais')
+        .insert([{ nome: nome, foto_url: '', tenant_id: tenantIdEdit }])
+        .select('id').single();
+      if (novoProfResp.error || !novoProfResp.data) {
+        showToast('Erro ao criar profissional!');
+        return;
+      }
+      profIdSel = novoProfResp.data.id;
+      console.log('[edit] Colaborador sem profissional → criado automaticamente:', profIdSel);
+    }
+  }
+
   await supabaseClient.from('usuarios').update({ profissional_id: profIdSel || null }).eq('id', id);
 
   // Atualizar role em user_roles sem acumular duplicatas por tenant

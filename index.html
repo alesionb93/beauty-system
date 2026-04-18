@@ -67,7 +67,7 @@
     }
 
     async function getUserFromDb(userId) {
-      var resp = await supabaseClient.from('usuarios').select('nome, tenant_id').eq('id', userId).single();
+      var resp = await supabaseClient.from('usuarios').select('nome, tenant_id, ativo').eq('id', userId).single();
       return resp.data || null;
     }
 
@@ -75,6 +75,18 @@
       var userData = await getUserFromDb(userId);
       var roleRows = await getUserRolesFromDb(userId);
       var role = resolveUserRole(roleRows, userData && userData.tenant_id ? userData.tenant_id : null);
+
+      // Bloquear acesso de usuários inativos (master_admin nunca é bloqueado)
+      if (role !== 'master_admin' && userData && userData.ativo === false) {
+        await supabaseClient.auth.signOut();
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        var errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.textContent = 'Usuário inativo. Contate o administrador do sistema.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
 
       if (role === 'master_admin') {
         // Redirecionar para seleção de tenant

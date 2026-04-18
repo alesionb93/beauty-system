@@ -404,12 +404,47 @@
             <!-- ABA: Usuários (ADMIN ONLY) -->
             <div class="config-panel" id="config-usuarios">
               <div class="config-section-header">
-                <h3>Usuários do Sistema</h3>
+                <h3>
+                  Usuários do Sistema
+                  <span class="users-count-badge users-count-badge--ativos" id="users-count-ativos">0 ativos</span>
+                  <span class="users-count-badge users-count-badge--inativos" id="users-count-inativos">0 inativos</span>
+                </h3>
                 <button class="btn-novo" id="btn-novo-usuario" onclick="openModalCriarUsuario()">
                   <i class="fa-solid fa-plus"></i> Novo Usuário
                 </button>
               </div>
-              <div class="config-users-count" id="config-users-count"></div>
+
+              <!-- Filtros -->
+              <div class="users-filters-bar">
+                <div class="users-filter-search">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input
+                    type="text"
+                    id="users-filter-search-input"
+                    placeholder="Buscar por nome ou email"
+                    oninput="onUsuariosFilterChange()"
+                  >
+                </div>
+
+                <div class="users-filter-permissao">
+                  <label for="users-filter-permissao-select">Permissão</label>
+                  <select id="users-filter-permissao-select" onchange="onUsuariosFilterChange()">
+                    <option value="todos">Todos grupos</option>
+                    <option value="admin">Admin</option>
+                    <option value="colaborador">Colaborador</option>
+                  </select>
+                </div>
+
+                <label class="users-filter-checkbox">
+                  <input type="checkbox" id="users-filter-show-inactive" onchange="onUsuariosFilterChange()">
+                  <span>Exibir inativos</span>
+                </label>
+
+                <button type="button" class="btn-buscar-users" onclick="onUsuariosFilterChange()">
+                  BUSCAR
+                </button>
+              </div>
+
               <div class="config-users-table-wrapper">
                 <table class="config-users-table">
                   <thead>
@@ -1203,6 +1238,37 @@
       <div class="modal-actions">
         <button class="btn-cancel" onclick="closeModal('modal-confirmar-exclusao')">Não</button>
         <button class="btn-delete" onclick="excluirAgendamento()">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: Confirmar Ativar Usuário -->
+  <div class="modal-overlay" id="modal-confirmar-ativar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Ativar usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-ativar-usuario')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza de que deseja ativar este usuário? Você poderá inativá-lo posteriormente.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-ativar-usuario')">Cancelar</button>
+        <button class="btn-ativar" onclick="confirmToggleUsuarioAtivo()">Ativar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar Inativar Usuário -->
+  <div class="modal-overlay" id="modal-confirmar-inativar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Inativar usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-inativar-usuario')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza de que deseja inativar este usuário? Você poderá ativá-lo posteriormente.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-inativar-usuario')">Cancelar</button>
+        <button class="btn-delete" onclick="confirmToggleUsuarioAtivo()">Inativar</button>
       </div>
     </div>
   </div>
