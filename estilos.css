@@ -689,6 +689,17 @@ body {
 }
 .historico-lista li:last-child { border-bottom: none; }
 .historico-lista .hist-data { color: var(--gold); font-weight: 600; margin-right: 8px; }
+.hist-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.hist-item-body {
+  line-height: 1.6;
+}
 
 .hist-cor-badge {
   display: inline-flex; align-items: center; gap: 4px; background: var(--bg-card-hover);
@@ -698,6 +709,42 @@ body {
 .hist-cor-swatch {
   width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.1);
   display: inline-block;
+}
+
+/* ===== HISTÓRICO: Status Badge (Cliente desmarcado / cancelado) ===== */
+.hist-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 12px;
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin-left: 8px;
+  vertical-align: middle;
+  letter-spacing: 0.2px;
+  line-height: 1;
+}
+.hist-status-badge i { font-size: 0.7rem; }
+
+.hist-status-desmarcado {
+  background: #c62828;
+  color: #ffffff;
+  border: 1px solid #b71c1c;
+}
+
+.historico-lista li.hist-item-desmarcado {
+  opacity: 0.78;
+  background: linear-gradient(90deg, rgba(192,57,43,0.04), transparent 60%);
+  border-left: 3px solid #c0392b;
+  padding-left: 10px;
+}
+.historico-lista li.hist-item-desmarcado .hist-data {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.historico-lista li.hist-item-desmarcado .hist-item-body {
+  color: var(--text-muted);
 }
 
 /* ===== TOAST (top-center, acima de qualquer modal) ===== */

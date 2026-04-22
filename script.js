@@ -437,8 +437,11 @@ async function editarCor(id, nome, hex) {
 
 async function excluirCor(id) {
   var resp = await supabaseClient.from('cores').delete().eq('id', id);
-  if (resp.error) { console.error('Erro excluir cor:', resp.error); return false; }
-  return true;
+  if (resp.error) {
+    console.error('Erro excluir cor:', resp.error);
+    return { ok: false, error: resp.error };
+  }
+  return { ok: true };
 }
 
 /* Helpers de permissão — SEMPRE baseados na role carregada do banco */
@@ -450,7 +453,10 @@ function isMasterAdmin() {
 }
 
 function getProfServiceNames(prof) {
-  return (professionals[prof] || []).map(function(s) { return s.nome; });
+  // ✅ FIX: lista os serviços do profissional em ORDEM ALFABÉTICA (case/acento-insensible).
+  return (professionals[prof] || [])
+    .map(function(s) { return s.nome; })
+    .sort(function(a, b) { return String(a).localeCompare(String(b), 'pt-BR', { sensitivity: 'base' }); });
 }
 
 async function insertAppointment(apt) {
@@ -579,24 +585,65 @@ async function updateAppointment(id, apt) {
 async function deleteAppointment(id) {
   var tenantId = getCurrentTenantId();
   var ag = appointments.find(function(a) { return a.id === id; });
+  var histId = null;
   if (ag) {
-    var histRow = {
+    // ✅ FIX BADGE "Cliente desmarcado": INSERT defensivo com retries.
+    // Antes o INSERT podia falhar (HTTP 400 — coluna ausente, FK, etc.) e o erro
+    // era ignorado, então o histórico nunca recebia o registro com status='excluido'
+    // e o badge nunca aparecia. Agora: log + retry com payload mínimo.
+    var fullRow = {
       agendamento_id: ag.id,
       cliente_id: ag.cliente_id || null,
       cliente_nome: ag.cliente,
-      cliente_telefone: ag.telefone,
+      cliente_telefone: ag.telefone || null,
       profissional_id: ag.profissional_id || null,
-      profissional_nome: ag.profissional,
-      status: ag.status || 'agendado',
+      profissional_nome: ag.profissional || null,
+      status: 'excluido',
       data: ag.data,
       hora: ag.hora,
       observacoes: ag.observacoes || '',
       tenant_id: tenantId
     };
-    var histResp = await supabaseClient.from('historico_atendimentos').insert([histRow]).select();
+    var histResp = await supabaseClient.from('historico_atendimentos').insert([fullRow]).select();
+    if (histResp.error) {
+      console.warn('[deleteAppointment] INSERT histórico (full) falhou:', histResp.error);
+      // Retry sem agendamento_id (caso seja FK que será violada após o DELETE em cascata)
+      var minRow = {
+        cliente_id: ag.cliente_id || null,
+        cliente_nome: ag.cliente,
+        cliente_telefone: ag.telefone || null,
+        profissional_nome: ag.profissional || null,
+        status: 'excluido',
+        data: ag.data,
+        hora: ag.hora,
+        tenant_id: tenantId
+      };
+      var retry1 = await supabaseClient.from('historico_atendimentos').insert([minRow]).select();
+      if (retry1.error) {
+        console.warn('[deleteAppointment] INSERT histórico (min) falhou:', retry1.error);
+        // Retry ultra mínimo
+        var ultraMin = {
+          cliente_nome: ag.cliente,
+          status: 'excluido',
+          data: ag.data,
+          hora: ag.hora,
+          tenant_id: tenantId
+        };
+        var retry2 = await supabaseClient.from('historico_atendimentos').insert([ultraMin]).select();
+        if (retry2.error) {
+          console.error('[deleteAppointment] INSERT histórico (ultra-min) falhou — badge não aparecerá:', retry2.error);
+        } else if (retry2.data && retry2.data[0]) {
+          histId = retry2.data[0].id;
+        }
+      } else if (retry1.data && retry1.data[0]) {
+        histId = retry1.data[0].id;
+      }
+    } else if (histResp.data && histResp.data[0]) {
+      histId = histResp.data[0].id;
+    }
+
     // Save services to historico_servicos
-    if (histResp.data && histResp.data[0] && ag.servicos && ag.servicos.length > 0) {
-      var histId = histResp.data[0].id;
+    if (histId && ag.servicos && ag.servicos.length > 0) {
       var histSvcRows = ag.servicos.map(function(s) {
         // Construir cores_detalhes JSON para histórico
         var coresDetalhes = [];
@@ -629,7 +676,8 @@ async function deleteAppointment(id) {
           tenant_id: tenantId
         };
       });
-      await supabaseClient.from('historico_servicos').insert(histSvcRows);
+      var svcInsResp = await supabaseClient.from('historico_servicos').insert(histSvcRows);
+      if (svcInsResp.error) console.warn('[deleteAppointment] INSERT historico_servicos falhou:', svcInsResp.error);
     }
   }
   // Delete agendamento_servicos first (FK constraint)
@@ -1930,15 +1978,64 @@ async function openHistorico(cliente) {
   var birthFormatted = cliente.nascimento ? cliente.nascimento.split('-').reverse().join('/') : '-';
   var tenantId = getCurrentTenantId();
 
-  var query1 = supabaseClient.from('historico_atendimentos').select('*, historico_servicos(*)').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
-  if (tenantId) query1 = query1.eq('tenant_id', tenantId);
-  var resp = await query1;
-  var historico = resp.data || [];
+  function normalizeHistoricoStatus(status) {
+    return String(status || '').trim().toLowerCase();
+  }
 
-  var query2 = supabaseClient.from('agendamentos').select('*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))').eq('cliente_nome', cliente.nome).order('data', { ascending: false });
-  if (tenantId) query2 = query2.eq('tenant_id', tenantId);
-  var resp2 = await query2;
-  var agendamentos = resp2.data || [];
+  function isHistoricoDesmarcado(item, ativosMap) {
+    var statusNorm = normalizeHistoricoStatus(item && item.status);
+    if (statusNorm === 'excluido' || statusNorm === 'excluído' || statusNorm === 'cancelado' || statusNorm === 'desmarcado') {
+      return true;
+    }
+    if (item && item.agendamento_id && !ativosMap[item.agendamento_id]) {
+      return true;
+    }
+    return false;
+  }
+
+  // ✅ FIX HISTÓRICO: buscar por cliente_id (preferencial) com fallback p/ cliente_nome
+  // (registros antigos sem cliente_id ou após renomear). Itens com status='excluido'
+  // ('Cliente desmarcado') deixavam de aparecer quando o cliente era renomeado.
+  async function fetchHistorico() {
+    var results = [];
+    var seen = {};
+    if (cliente.id) {
+      var qById = supabaseClient.from('historico_atendimentos').select('*, historico_servicos(*)').eq('cliente_id', cliente.id);
+      if (tenantId) qById = qById.eq('tenant_id', tenantId);
+      var rById = await qById;
+      (rById.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
+    }
+    var qByName = supabaseClient.from('historico_atendimentos').select('*, historico_servicos(*)').eq('cliente_nome', cliente.nome);
+    if (tenantId) qByName = qByName.eq('tenant_id', tenantId);
+    var rByName = await qByName;
+    (rByName.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
+    return results;
+  }
+  async function fetchAgendamentos() {
+    var sel = '*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
+    var results = [];
+    var seen = {};
+    if (cliente.id) {
+      var qById = supabaseClient.from('agendamentos').select(sel).eq('cliente_id', cliente.id);
+      if (tenantId) qById = qById.eq('tenant_id', tenantId);
+      var rById = await qById;
+      (rById.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
+    }
+    var qByName = supabaseClient.from('agendamentos').select(sel).eq('cliente_nome', cliente.nome);
+    if (tenantId) qByName = qByName.eq('tenant_id', tenantId);
+    var rByName = await qByName;
+    (rByName.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
+    return results;
+  }
+  var pair = await Promise.all([fetchHistorico(), fetchAgendamentos()]);
+  var historico = pair[0];
+  var agendamentos = pair[1];
+  var agendamentosAtivosMap = {};
+
+  agendamentos.forEach(function(ag) {
+    ag._origem = 'agenda';
+    agendamentosAtivosMap[ag.id] = true;
+  });
 
   // Normalize agendamentos to have .servicos array like historico
   agendamentos.forEach(function(ag) {
@@ -1964,6 +2061,7 @@ async function openHistorico(cliente) {
   });
   // Normalize historico to have .servicos from historico_servicos
   historico.forEach(function(h) {
+    h._origem = 'historico';
     if (h.historico_servicos && h.historico_servicos.length > 0 && !h.servicos) {
       h.servicos = h.historico_servicos.map(function(hs) {
         var bases = [], pigmentacoes = [], coresArr = [];
@@ -1981,8 +2079,21 @@ async function openHistorico(cliente) {
       });
     }
   });
+
+  historico = historico.filter(function(h) {
+    if (h.agendamento_id && !agendamentosAtivosMap[h.agendamento_id] && !normalizeHistoricoStatus(h.status)) {
+      h.status = 'desmarcado';
+    }
+    return true;
+  });
+
   var todos = historico.concat(agendamentos);
-  todos.sort(function(a, b) { return (b.data || '').localeCompare(a.data || ''); });
+  // ✅ FIX ORDENAÇÃO: do MENOR para o MAIOR (mais antigo → mais recente), por data + hora.
+  todos.sort(function(a, b) {
+    var da = (a.data || '') + ' ' + (a.hora || '00:00');
+    var db = (b.data || '') + ' ' + (b.hora || '00:00');
+    return da.localeCompare(db);
+  });
 
   var html = '<div class="historico-info">';
   html += '<p><strong>' + cliente.nome + '</strong></p>';
@@ -2049,7 +2160,14 @@ async function openHistorico(cliente) {
         }
         svcList.push(legacyLine);
       }
-      html += '<li><span class="hist-data">' + dataF + '</span>' + svcList.join('<br>') + '</li>';
+      // ✅ FIX BADGE: estilos movidos para estilos.css (.hist-status-badge / .hist-item-desmarcado).
+      // Tolerante a variações de status: 'excluido', 'excluído', 'cancelado', 'desmarcado'.
+      var isDesmarcado = h._origem === 'historico' && isHistoricoDesmarcado(h, agendamentosAtivosMap);
+      var statusBadge = isDesmarcado
+        ? '<span class="hist-status-badge hist-status-desmarcado"><i class="fa-solid fa-ban"></i>Cliente desmarcado</span>'
+        : '';
+      var liClass = isDesmarcado ? ' class="hist-item-desmarcado"' : '';
+      html += '<li' + liClass + '><div class="hist-item-top"><span class="hist-data">' + dataF + '</span>' + statusBadge + '</div><div class="hist-item-body">' + svcList.join('<br>') + '</div></li>';
     });
     html += '</ul>';
   }
@@ -2666,22 +2784,76 @@ async function salvarCorCrud(e) {
 
 async function confirmarExcluirCor(corId) {
   if (!confirm('Excluir esta cor?')) return;
-  var ok = await excluirCor(corId);
-  if (!ok) { showToast('Erro!'); return; }
+  var resultado = await excluirCor(corId);
+  if (!resultado.ok) {
+    var err = resultado.error || {};
+    var code = err.code || '';
+    var msg = String(err.message || '').toLowerCase();
+    // 23503 = foreign_key_violation no Postgres; 409 Conflict no PostgREST
+    var ehVinculo = code === '23503'
+      || msg.indexOf('foreign key') !== -1
+      || msg.indexOf('violates foreign key') !== -1
+      || msg.indexOf('still referenced') !== -1
+      || msg.indexOf('conflict') !== -1;
+    if (ehVinculo) {
+      showToast('Esta cor está sendo usada em agendamentos e não pode ser excluída.');
+    } else {
+      showToast('Não foi possível excluir a cor. Tente novamente.');
+    }
+    return;
+  }
   showToast('Cor removida!');
   await loadCores();
   renderListaCoresServico();
   renderListaServicos();
 }
 
+function shouldCountHistoricoInDashboard(status) {
+  var normalized = String(status || '').trim().toLowerCase();
+  // Só histórico de atendimento efetivamente concluído entra no dashboard.
+  // Exclusões/cancelamentos não são faturamento real e não devem contaminar as métricas.
+  return normalized === 'concluido' || normalized === 'concluído' || normalized === 'finalizado' || normalized === 'atendido';
+}
+
+function getCalendarVisibleDateRange() {
+  var start = new Date(currentYear, currentMonth, 1);
+  var end = new Date(currentYear, currentMonth + 1, 0);
+  return {
+    start: formatDateInput(start),
+    end: formatDateInput(end)
+  };
+}
+
+function getCalendarVisibleAppointments(selectedProfId) {
+  var range = getCalendarVisibleDateRange();
+  var profNomeToId = {};
+  (allProfissionais || []).forEach(function(p) { profNomeToId[p.nome] = p.id; });
+
+  return (appointments || []).filter(function(a) {
+    if (!a || !a.data) return false;
+    if (a.data < range.start || a.data > range.end) return false;
+
+    // Regra principal: o dashboard só enxerga o que a agenda enxerga.
+    if (!appointmentMatchesFilter(a)) return false;
+
+    // Refino opcional do select do dashboard.
+    if (selectedProfId && selectedProfId !== '__all__') {
+      var profs = getAppointmentProfessionals(a);
+      return profs.some(function(nome) { return profNomeToId[nome] === selectedProfId; });
+    }
+
+    return true;
+  });
+}
+
 /* ===== DASHBOARD ===== */
 function initDashboard() {
-  var hoje = new Date();
-  var inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  document.getElementById('dash-inicio').value = formatDateInput(inicio);
-  document.getElementById('dash-fim').value = formatDateInput(hoje);
+  var range = getCalendarVisibleDateRange();
+  document.getElementById('dash-inicio').value = range.start;
+  document.getElementById('dash-fim').value = range.end;
 
-  // Popula select de profissionais respeitando o role
+  // Popula select de profissionais respeitando o role.
+  // O dashboard espelha a agenda: o select apenas refina o que já está visível nela.
   populateDashProfSelect();
 
   loadDashboard();
@@ -2729,17 +2901,20 @@ function populateDashProfSelect() {
 }
 
 async function loadDashboard() {
-  var inicio = document.getElementById('dash-inicio').value;
-  var fim = document.getElementById('dash-fim').value;
-  if (!inicio || !fim) return;
-  var tenantId = getCurrentTenantId();
+  // IMPORTANTE: os campos de data passam a refletir o mês visível da agenda.
+  // Mesmo que o usuário altere manualmente, o dashboard é recalculado com base
+  // no calendário para garantir consistência absoluta entre as duas telas.
+  var range = getCalendarVisibleDateRange();
+  var inicio = range.start;
+  var fim = range.end;
+  var dashInicio = document.getElementById('dash-inicio');
+  var dashFim = document.getElementById('dash-fim');
+  if (dashInicio) dashInicio.value = inicio;
+  if (dashFim) dashFim.value = fim;
 
-  // ===== Determina o filtro de profissional (defesa em profundidade) =====
   var selectEl = document.getElementById('dash-prof-select');
   var selectedProfId = selectEl ? selectEl.value : '__all__';
 
-  // Colaborador SEMPRE força o próprio profissional, ignorando qualquer
-  // valor que tenha sido alterado via DevTools.
   if (currentUser.role === 'colaborador') {
     if (!currentUser.profissionalId) {
       showToast('Usuário sem profissional vinculado. Acesso ao dashboard bloqueado.', 'error');
@@ -2748,30 +2923,14 @@ async function loadDashboard() {
     selectedProfId = currentUser.profissionalId;
   }
 
-  // Build profissional id->nome map
   var profIdToNome = {};
-  (allProfissionais || []).forEach(function(p) { profIdToNome[p.id] = p.nome; });
+  var profNomeToId = {};
+  (allProfissionais || []).forEach(function(p) {
+    profIdToNome[p.id] = p.nome;
+    profNomeToId[p.nome] = p.id;
+  });
 
-  // Query agendamentos WITH services joined
-  var q1 = supabaseClient.from('agendamentos')
-    .select('*, agendamento_servicos(servico_id, preco, duracao, servicos(id, nome, preco, duracao))')
-    .gte('data', inicio).lte('data', fim);
-  if (tenantId) q1 = q1.eq('tenant_id', tenantId);
-  if (selectedProfId && selectedProfId !== '__all__') {
-    q1 = q1.eq('profissional_id', selectedProfId);
-  }
-
-  // Query historico
-  var q2 = supabaseClient.from('historico_atendimentos')
-    .select('*, historico_servicos(servico_nome, preco, duracao)')
-    .gte('data', inicio).lte('data', fim);
-  if (tenantId) q2 = q2.eq('tenant_id', tenantId);
-  if (selectedProfId && selectedProfId !== '__all__') {
-    q2 = q2.eq('profissional_id', selectedProfId);
-  }
-
-  var resp1 = await q1;
-  var resp2 = await q2;
+  var appointmentsInRange = getCalendarVisibleAppointments(selectedProfId);
 
   var totalAg = 0;
   var totalFaturamento = 0;
@@ -2781,81 +2940,56 @@ async function loadDashboard() {
   var clienteCount = {};
   var profHoraFat = {};
 
-  // Para o gráfico, só inicializa "buckets" dos profissionais visíveis
   if (selectedProfId === '__all__') {
-    (allProfissionais || []).forEach(function(p) { profHoraFat[p.nome] = {}; });
+    (activeFilters || []).forEach(function(nome) { profHoraFat[nome] = {}; });
   } else {
     var nomeFiltrado = profIdToNome[selectedProfId] || '';
     if (nomeFiltrado) profHoraFat[nomeFiltrado] = {};
   }
 
-  // Process agendamentos (with joined services)
-  (resp1.data || []).forEach(function(a) {
+  appointmentsInRange.forEach(function(a) {
     totalAg++;
     var hora = (a.hora || '').substring(0, 2);
-    var clienteNomeDash = a.cliente_nome || '';
+    var clienteNomeDash = a.cliente || a.cliente_nome || '';
     clienteCount[clienteNomeDash] = (clienteCount[clienteNomeDash] || 0) + 1;
-    var profNome = profIdToNome[a.profissional_id] || '';
 
-    var svcs = a.agendamento_servicos || [];
-    if (svcs.length === 0) {
-      // Fallback: count as 1 service with no price
+    var servicos = getAppointmentServicos(a);
+    var profsDoAgendamento = getAppointmentProfessionals(a);
+    var profPrincipal = profsDoAgendamento[0] || a.profissional || '';
+
+    if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+    profData[profPrincipal].atendimentos++;
+
+    if (!servicos || servicos.length === 0) return;
+
+    servicos.forEach(function(s) {
+      var profNome = s.profissional || profPrincipal || '';
+      var svcProfId = profNomeToId[profNome] || null;
+
+      if (selectedProfId && selectedProfId !== '__all__' && svcProfId !== selectedProfId) {
+        return;
+      }
+
+      var svcNome = s.servico || '';
+      var preco = parseFloat(s.preco) || 0;
+
       if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-      profData[profNome].atendimentos++;
-    } else {
-      if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-      profData[profNome].atendimentos++;
-      svcs.forEach(function(as) {
-        var svcNome = as.servicos ? as.servicos.nome : '';
-        var preco = parseFloat(as.preco) || 0;
-        totalFaturamento += preco;
-        totalServicos++;
-        profData[profNome].servicos++;
-        profData[profNome].faturamento += preco;
-        if (profHoraFat[profNome]) {
-          if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
-          profHoraFat[profNome][hora] += preco;
-        }
-        if (svcNome) {
-          if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
-          servicoCount[svcNome].qtd++;
-          servicoCount[svcNome].valor += preco;
-        }
-      });
-    }
-  });
+      totalFaturamento += preco;
+      totalServicos++;
+      profData[profNome].servicos++;
+      profData[profNome].faturamento += preco;
 
-  // Process historico_atendimentos (with joined historico_servicos)
-  (resp2.data || []).forEach(function(h) {
-    totalAg++;
-    var hora = (h.hora || '').substring(0, 2);
-    var clienteNomeDash = h.cliente_nome || '';
-    clienteCount[clienteNomeDash] = (clienteCount[clienteNomeDash] || 0) + 1;
-    var profNome = h.profissional_nome || '';
+      if (profHoraFat[profNome]) {
+        if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
+        profHoraFat[profNome][hora] += preco;
+      }
 
-    var svcs = h.historico_servicos || [];
-    if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-    profData[profNome].atendimentos++;
-
-    if (svcs.length > 0) {
-      svcs.forEach(function(hs) {
-        var preco = parseFloat(hs.preco) || 0;
-        totalFaturamento += preco;
-        totalServicos++;
-        profData[profNome].servicos++;
-        profData[profNome].faturamento += preco;
-        if (profHoraFat[profNome]) {
-          if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
-          profHoraFat[profNome][hora] += preco;
-        }
-        var svcNome = hs.servico_nome || '';
-        if (svcNome) {
-          if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
-          servicoCount[svcNome].qtd++;
-          servicoCount[svcNome].valor += preco;
-        }
-      });
-    }
+      if (svcNome) {
+        if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
+        servicoCount[svcNome].qtd++;
+        servicoCount[svcNome].valor += preco;
+      }
+    });
   });
 
   var ticketMedio = totalAg > 0 ? totalFaturamento / totalAg : 0;
@@ -2871,6 +3005,7 @@ async function loadDashboard() {
   Object.keys(profData).forEach(function(name) {
     if (!name) return;
     var d = profData[name];
+    if ((d.atendimentos || 0) === 0 && (d.servicos || 0) === 0 && (d.faturamento || 0) === 0) return;
     profTbody.innerHTML += '<tr><td>' + name + '</td><td>' + d.atendimentos + '</td><td>' + d.servicos + '</td><td>' + formatCurrency(d.faturamento) + '</td></tr>';
   });
 
@@ -2878,12 +3013,12 @@ async function loadDashboard() {
   svcArr.sort(function(a, b) { return b.qtd - a.qtd; });
   var topSvc = document.getElementById('dash-top-servicos');
   topSvc.innerHTML = '';
-  svcArr.slice(0, 10).forEach(function(s) { topSvc.innerHTML += '<tr><td>' + s.nome + '</td><td>' + s.qtd + '</td><td>' + formatCurrency(s.valor) + '</td></tr>'; });
+  if (svcArr.length === 0) {
+    topSvc.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:16px;">Sem dados no mês visível da agenda</td></tr>';
+  } else {
+    svcArr.slice(0, 10).forEach(function(s) { topSvc.innerHTML += '<tr><td>' + s.nome + '</td><td>' + s.qtd + '</td><td>' + formatCurrency(s.valor) + '</td></tr>'; });
+  }
 
-  // ===== FIX 2: Top 10 Clientes =====
-  // O cálculo de clienteCount já existia, mas nunca era renderizado no DOM.
-  // Filtra clientes vazios/nulos, ordena por nº de atendimentos DESC e mostra os 10 maiores.
-  // Respeita automaticamente o filtro de profissional (queries q1/q2 acima já consideram).
   var topCli = document.getElementById('dash-top-clientes');
   if (topCli) {
     topCli.innerHTML = '';
@@ -2892,7 +3027,7 @@ async function loadDashboard() {
       .map(function(nome) { return { nome: nome, qtd: clienteCount[nome] }; });
     cliArr.sort(function(a, b) { return b.qtd - a.qtd; });
     if (cliArr.length === 0) {
-      topCli.innerHTML = '<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:16px;">Sem dados no período</td></tr>';
+      topCli.innerHTML = '<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:16px;">Sem dados no mês visível da agenda</td></tr>';
     } else {
       cliArr.slice(0, 10).forEach(function(c) {
         topCli.innerHTML += '<tr><td>' + c.nome + '</td><td>' + c.qtd + '</td></tr>';

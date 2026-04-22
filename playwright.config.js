@@ -1,11 +1,11 @@
-module.exports = {
-  testDir: './tests',
+  module.exports = {
+    testDir: './tests',
 
-  use: {
-    headless: false,
+    use: {
+      headless: false,
 
-    channel: 'chrome',
+      channel: 'chrome',
 
-    viewport: null
-  }
-};
+      viewport: null
+    }
+  };
