@@ -1176,41 +1176,14 @@
         <h3>Identificação do Cliente</h3>
         <button class="modal-close" onclick="closeModal('modal-identificacao')">&times;</button>
       </div>
-
-      <!-- Seletor de tipo de busca -->
-      <div class="id-search-type" role="tablist" aria-label="Tipo de busca">
-        <button type="button" class="id-search-tab active" data-search-type="telefone" role="tab" aria-selected="true">
-          <i class="fa-solid fa-phone"></i> Telefone
-        </button>
-        <button type="button" class="id-search-tab" data-search-type="nome" role="tab" aria-selected="false">
-          <i class="fa-solid fa-user"></i> Nome
-        </button>
+      <div class="form-group">
+        <label>Telefone</label>
+        <input type="tel" id="id-telefone" placeholder="(99) 99999-9999">
       </div>
-
-      <!-- Painel: Busca por telefone -->
-      <div class="id-search-panel" id="id-panel-telefone">
-        <div class="form-group">
-          <label>Telefone</label>
-          <input type="tel" id="id-telefone" placeholder="(99) 99999-9999" autocomplete="off">
-        </div>
-        <div id="id-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" onclick="closeModal('modal-identificacao')">Cancelar</button>
-          <button type="button" class="btn-submit" onclick="consultarCliente()">Consultar</button>
-        </div>
-      </div>
-
-      <!-- Painel: Busca por nome -->
-      <div class="id-search-panel" id="id-panel-nome" style="display:none;">
-        <div class="form-group">
-          <label>Nome do cliente</label>
-          <input type="text" id="id-nome" placeholder="Digite o nome (ex: Maria)" autocomplete="off">
-        </div>
-        <div id="id-nome-status" class="id-nome-status" style="display:none;"></div>
-        <div id="id-nome-results" class="id-nome-results" style="display:none;"></div>
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" onclick="closeModal('modal-identificacao')">Cancelar</button>
-        </div>
+      <div id="id-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-identificacao')">Cancelar</button>
+        <button class="btn-submit" onclick="consultarCliente()">Consultar</button>
       </div>
     </div>
   </div>

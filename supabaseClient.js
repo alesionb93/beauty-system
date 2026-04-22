@@ -1,5 +1,18 @@
-// supabaseClient.js
-var SUPABASE_URL = 'https://krmvgrfwoanzajlsvjvm.supabase.co';
-var SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtybXZncmZ3b2FuemFqbHN2anZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMzY0MDcsImV4cCI6MjA5MTcxMjQwN30.1x4_zxPzCXONYBvH7wbkLiUPr-kq_T0KCdG3EhruzVQ';
 
-var supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+(function () {
+  window.SUPABASE_KEY = window.SUPABASE_KEY || window.SUPABASE_ANON_KEY;
+  if (window.supabaseClient) return;
+  var canCreate = !!(window.supabase && typeof window.supabase.createClient === 'function');
+  var url = window.SUPABASE_URL || localStorage.getItem('SUPABASE_URL') || localStorage.getItem('beauty_supabase_url') || '';
+  var key = window.SUPABASE_ANON_KEY || localStorage.getItem('SUPABASE_ANON_KEY') || localStorage.getItem('beauty_supabase_anon_key') || '';
+
+  if (canCreate && url && key) {
+    window.supabaseClient = window.supabase.createClient(url, key);
+    return;
+  }
+
+  window.SUPABASE_KEY = window.SUPABASE_KEY || key || '';
+  window.__BEAUTY_OFFLINE_MODE = true;
+  window.supabaseClient = null;
+  console.warn('[BeautySystem] supabaseClient.js carregado em modo local. Para dados reais, defina SUPABASE_URL e SUPABASE_ANON_KEY.');
+})();

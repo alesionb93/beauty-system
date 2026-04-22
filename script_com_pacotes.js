@@ -680,37 +680,6 @@ async function deleteAppointment(id) {
       if (svcInsResp.error) console.warn('[deleteAppointment] INSERT historico_servicos falhou:', svcInsResp.error);
     }
   }
-  // ✅ FALLBACK LOCAL: garante que mesmo se TODOS os retries do INSERT falharem
-  // (esquema da tabela diferente, RLS, FK, etc.), o registro "Cliente desmarcado"
-  // ainda aparecerá no histórico do cliente. Salvo em localStorage por tenant.
-  if (!histId && ag) {
-    try {
-      var lsKey = 'bs_hist_desmarcados_' + (tenantId || 'default');
-      var arr = JSON.parse(localStorage.getItem(lsKey) || '[]');
-      arr.push({
-        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-        agendamento_id: ag.id,
-        cliente_id: ag.cliente_id || null,
-        cliente_nome: ag.cliente,
-        cliente_telefone: ag.telefone || null,
-        profissional_nome: ag.profissional || null,
-        status: 'excluido',
-        data: ag.data,
-        hora: ag.hora,
-        observacoes: ag.observacoes || '',
-        servicos: (ag.servicos || []).map(function(s) {
-          return { profissional: s.profissional || ag.profissional || '', servico: s.servico, bases: s.bases || [], pigmentacoes: s.pigmentacoes || [], cores: s.cores || [] };
-        }),
-        tenant_id: tenantId,
-        _local: true
-      });
-      localStorage.setItem(lsKey, JSON.stringify(arr));
-      console.warn('[deleteAppointment] Histórico salvo em localStorage como fallback.');
-    } catch (e) {
-      console.error('[deleteAppointment] Falha no fallback localStorage:', e);
-    }
-  }
-
   // Delete agendamento_servicos first (FK constraint)
   await supabaseClient.from('agendamento_servicos').delete().eq('agendamento_id', id);
   var resp = await supabaseClient.from('agendamentos').delete().eq('id', id);
@@ -901,7 +870,8 @@ document.addEventListener('DOMContentLoaded', async function() {
   });
 
   document.getElementById('btn-novo-agendamento').addEventListener('click', function() {
-    resetIdentificacaoModal();
+    document.getElementById('id-telefone').value = '';
+    document.getElementById('id-feedback').style.display = 'none';
     openModal('modal-identificacao');
   });
 
@@ -920,9 +890,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   maskTelefone(document.getElementById('id-telefone'));
   maskTelefone(document.getElementById('cl-telefone'));
-
-  // Novo: configurar comportamento do modal de identificação (telefone OU nome)
-  setupIdentificacaoModal();
 
   // Quantidade selects serão populados dinamicamente via populateQtdSelect()
   // Fallback: popular com valores padrão caso servico_cor_config não exista
@@ -948,222 +915,6 @@ function maskTelefone(input) {
 }
 
 /* ===== IDENTIFICAÇÃO DO CLIENTE ===== */
-
-function resetIdentificacaoModal() {
-  // Reset campos
-  var telInput = document.getElementById('id-telefone');
-  var nomeInput = document.getElementById('id-nome');
-  if (telInput) telInput.value = '';
-  if (nomeInput) nomeInput.value = '';
-
-  var fb = document.getElementById('id-feedback');
-  if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
-
-  var status = document.getElementById('id-nome-status');
-  if (status) { status.style.display = 'none'; status.textContent = ''; status.classList.remove('error'); }
-
-  var results = document.getElementById('id-nome-results');
-  if (results) { results.style.display = 'none'; results.innerHTML = ''; }
-
-  // Volta para a aba "telefone" como padrão
-  switchIdentificacaoTab('telefone');
-}
-
-function switchIdentificacaoTab(tipo) {
-  var tabs = document.querySelectorAll('.id-search-tab');
-  tabs.forEach(function(t) {
-    var isActive = t.dataset.searchType === tipo;
-    t.classList.toggle('active', isActive);
-    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-
-  var panelTel = document.getElementById('id-panel-telefone');
-  var panelNome = document.getElementById('id-panel-nome');
-  if (panelTel) panelTel.style.display = (tipo === 'telefone') ? 'block' : 'none';
-  if (panelNome) panelNome.style.display = (tipo === 'nome') ? 'block' : 'none';
-
-  // Foco no input correspondente
-  setTimeout(function() {
-    var input = document.getElementById(tipo === 'telefone' ? 'id-telefone' : 'id-nome');
-    if (input) input.focus();
-  }, 50);
-}
-
-var _idNomeDebounce = null;
-
-function setupIdentificacaoModal() {
-  // Tabs
-  var tabs = document.querySelectorAll('.id-search-tab');
-  tabs.forEach(function(t) {
-    t.addEventListener('click', function() {
-      switchIdentificacaoTab(this.dataset.searchType);
-    });
-  });
-
-  // Enter no telefone -> consultar
-  var telInput = document.getElementById('id-telefone');
-  if (telInput) {
-    telInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); consultarCliente(); }
-    });
-  }
-
-  // Autocomplete reativo no nome (debounce 300ms)
-  var nomeInput = document.getElementById('id-nome');
-  if (nomeInput) {
-    nomeInput.addEventListener('input', function() {
-      var termo = this.value.trim();
-      if (_idNomeDebounce) clearTimeout(_idNomeDebounce);
-
-      var status = document.getElementById('id-nome-status');
-      var results = document.getElementById('id-nome-results');
-
-      if (termo.length < 2) {
-        if (status) {
-          status.style.display = 'block';
-          status.classList.remove('error');
-          status.textContent = 'Digite ao menos 2 caracteres para buscar...';
-        }
-        if (results) { results.style.display = 'none'; results.innerHTML = ''; }
-        return;
-      }
-
-      if (status) {
-        status.style.display = 'block';
-        status.classList.remove('error');
-        status.textContent = 'Buscando...';
-      }
-
-      _idNomeDebounce = setTimeout(function() { buscarClientesPorNome(termo); }, 300);
-    });
-  }
-}
-
-// Busca por NOME (parcial, ILIKE) — limite 10
-async function buscarClientesPorNome(termo) {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
-
-  var resp = await supabaseClient
-    .from('clientes')
-    .select('id, nome, telefone, nascimento, updated_at, created_at')
-    .eq('tenant_id', tenantId)
-    .ilike('nome', '%' + termo + '%')
-    .order('updated_at', { ascending: false })
-    .limit(10);
-
-  if (resp.error) {
-    console.error('Erro buscar por nome:', resp.error);
-    var status = document.getElementById('id-nome-status');
-    if (status) {
-      status.style.display = 'block';
-      status.classList.add('error');
-      status.textContent = 'Erro ao buscar clientes. Tente novamente.';
-    }
-    return;
-  }
-
-  renderResultadosBuscaNome(resp.data || [], termo);
-}
-
-function renderResultadosBuscaNome(lista, termo) {
-  var status = document.getElementById('id-nome-status');
-  var results = document.getElementById('id-nome-results');
-  if (!results) return;
-
-  // Caso 1: nenhum resultado
-  if (!lista || lista.length === 0) {
-    if (status) { status.style.display = 'none'; }
-    results.style.display = 'block';
-    results.innerHTML =
-      '<div class="id-empty-state">' +
-        '<div><i class="fa-regular fa-face-frown"></i> Nenhum cliente encontrado</div>' +
-        '<button type="button" class="btn-submit" onclick="cadastrarNovoClienteDoNome()">' +
-          '<i class="fa-solid fa-user-plus"></i> Cadastrar novo cliente' +
-        '</button>' +
-      '</div>';
-    return;
-  }
-
-  // Casos 2 e 3: 1 ou múltiplos — sempre mostra como lista
-  if (status) {
-    status.style.display = 'block';
-    status.classList.remove('error');
-    status.textContent = lista.length === 1
-      ? '1 cliente encontrado'
-      : lista.length + ' clientes encontrados';
-  }
-
-  var html = '';
-  lista.forEach(function(c, idx) {
-    var telFmt = formatTelefoneDisplay(c.telefone || '');
-    html +=
-      '<div class="id-result-item" data-idx="' + idx + '">' +
-        '<div class="id-result-info">' +
-          '<div class="id-result-name">' + escapeHtml(c.nome) + '</div>' +
-          '<div class="id-result-meta">' +
-            '<span><i class="fa-solid fa-phone"></i> ' + escapeHtml(telFmt) + '</span>' +
-          '</div>' +
-        '</div>' +
-        '<button type="button" class="id-result-select">Selecionar</button>' +
-      '</div>';
-  });
-
-  // Opção fixa de cadastro
-  html +=
-    '<div class="id-result-newclient" onclick="cadastrarNovoClienteDoNome()">' +
-      '<i class="fa-solid fa-user-plus"></i> Nenhum desses? Cadastrar novo cliente' +
-    '</div>';
-
-  results.style.display = 'block';
-  results.innerHTML = html;
-
-  // Bind clique nos itens — NUNCA auto-seleciona
-  results.querySelectorAll('.id-result-item').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var idx = parseInt(this.dataset.idx, 10);
-      var c = lista[idx];
-      if (!c) return;
-      // Garante que está no cache local
-      if (!clients.some(function(x) { return x.id === c.id; })) {
-        clients.push({ id: c.id, nome: c.nome, telefone: c.telefone, nascimento: c.nascimento || '' });
-      }
-      closeModal('modal-identificacao');
-      openAgendamentoModal(null, c.nome, c.telefone);
-    });
-  });
-}
-
-function cadastrarNovoClienteDoNome() {
-  var termo = (document.getElementById('id-nome').value || '').trim();
-  pendingClienteFromIdentificacao = true;
-  closeModal('modal-identificacao');
-  document.getElementById('form-cliente').reset();
-  // Pré-preenche o nome com o termo digitado
-  if (termo) document.getElementById('cl-nome').value = termo;
-  openModal('modal-cliente');
-}
-
-// Util: formata telefone para exibição (ex: (11) 99999-9999)
-function formatTelefoneDisplay(tel) {
-  var d = (tel || '').replace(/\D/g, '');
-  if (d.length === 11) return '(' + d.substring(0,2) + ') ' + d.substring(2,7) + '-' + d.substring(7);
-  if (d.length === 10) return '(' + d.substring(0,2) + ') ' + d.substring(2,6) + '-' + d.substring(6);
-  return tel || '';
-}
-
-// Util: escape simples
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-// === Busca por TELEFONE (mantém comportamento atual) ===
 async function consultarCliente() {
   var tel = document.getElementById('id-telefone').value.trim();
   var feedback = document.getElementById('id-feedback');
@@ -2258,17 +2009,6 @@ async function openHistorico(cliente) {
     if (tenantId) qByName = qByName.eq('tenant_id', tenantId);
     var rByName = await qByName;
     (rByName.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
-
-    // ✅ MERGE LOCAL: registros "Cliente desmarcado" salvos em localStorage como fallback
-    try {
-      var lsKey = 'bs_hist_desmarcados_' + (tenantId || 'default');
-      var locais = JSON.parse(localStorage.getItem(lsKey) || '[]');
-      locais.forEach(function(r) {
-        var match = (cliente.id && r.cliente_id === cliente.id) || (r.cliente_nome === cliente.nome);
-        if (match && !seen[r.id]) { seen[r.id] = 1; results.push(r); }
-      });
-    } catch (e) { console.warn('[fetchHistorico] merge local falhou:', e); }
-
     return results;
   }
   async function fetchAgendamentos() {
@@ -2361,13 +2101,6 @@ async function openHistorico(cliente) {
   html += '<p><i class="fa-solid fa-cake-candles" style="margin-right:6px"></i>' + birthFormatted + '</p>';
   html += '</div>';
 
-  // ✅ NOVO: Abas Histórico / Pacotes
-  html += '<div class="hist-tabs">' +
-    '<button type="button" class="hist-tab-btn active" data-hist-tab="historico" onclick="switchHistTab(this,\'historico\')"><i class="fa-solid fa-clock-rotate-left"></i> Histórico</button>' +
-    '<button type="button" class="hist-tab-btn" data-hist-tab="pacotes" onclick="switchHistTab(this,\'pacotes\')"><i class="fa-solid fa-box"></i> Pacotes</button>' +
-    '</div>';
-
-  html += '<div class="hist-tab-pane" data-hist-pane="historico">';
   if (todos.length === 0) {
     html += '<p style="color:var(--text-muted)">Nenhum atendimento registrado.</p>';
   } else {
@@ -2438,104 +2171,7 @@ async function openHistorico(cliente) {
     });
     html += '</ul>';
   }
-  html += '</div>'; // fecha pane historico
-
-  // Pane Pacotes (carregado sob demanda)
-  html += '<div class="hist-tab-pane" data-hist-pane="pacotes" style="display:none">' +
-    '<div id="pacotes-cliente-conteudo"><p style="color:var(--text-muted)">Carregando pacotes...</p></div>' +
-    '</div>';
-
   conteudo.innerHTML = html;
-
-  // Carrega pacotes do cliente
-  try {
-    var pacotes = await listarPacotesCliente(cliente.id);
-    var box = document.getElementById('pacotes-cliente-conteudo');
-    if (box) box.innerHTML = renderPacotesCliente(pacotes);
-  } catch (e) {
-    console.warn('[openHistorico] Erro carregando pacotes:', e);
-    var box2 = document.getElementById('pacotes-cliente-conteudo');
-    if (box2) box2.innerHTML = '<p style="color:var(--text-muted)">Não foi possível carregar os pacotes.</p>';
-  }
-}
-
-/* ====== ABAS HISTÓRICO / PACOTES ====== */
-function switchHistTab(btn, tab) {
-  var modal = document.getElementById('modal-historico');
-  if (!modal) return;
-  var btns = modal.querySelectorAll('.hist-tab-btn');
-  btns.forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-hist-tab') === tab); });
-  var panes = modal.querySelectorAll('.hist-tab-pane');
-  panes.forEach(function(p) { p.style.display = (p.getAttribute('data-hist-pane') === tab) ? '' : 'none'; });
-}
-
-/* ====== PACOTES DO CLIENTE (aba no histórico) ====== */
-async function listarPacotesCliente(clienteId) {
-  if (!clienteId) return [];
-  var tenantId = (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
-  var q = supabaseClient
-    .from('cliente_pacotes')
-    .select('id, quantidade_total, quantidade_restante, preco_unitario, preco_total, data_inicio, data_expiracao, status, pacote_id, pacotes(nome, servico_id, servicos(nome))')
-    .eq('cliente_id', clienteId)
-    .order('data_expiracao', { ascending: true });
-  if (tenantId) q = q.eq('tenant_id', tenantId);
-  var resp = await q;
-  if (resp.error) {
-    console.warn('[listarPacotesCliente] erro:', resp.error);
-    return [];
-  }
-  return resp.data || [];
-}
-
-function getStatusPacote(cp) {
-  var hoje = pacoteTodayISO();
-  var statusDb = String(cp.status || '').toLowerCase();
-  var restante = Number(cp.quantidade_restante || 0);
-  var total = Number(cp.quantidade_total || 0);
-  if (statusDb === 'expirado' || (cp.data_expiracao && cp.data_expiracao < hoje)) {
-    return { key: 'expirado', label: 'EXPIRADO', cls: 'status-expirado' };
-  }
-  if (statusDb === 'concluido' || restante <= 0) {
-    return { key: 'concluido', label: 'CONCLUÍDO', cls: 'status-concluido' };
-  }
-  // Alerta: expira em < 5 dias
-  if (cp.data_expiracao) {
-    try {
-      var d1 = new Date(cp.data_expiracao + 'T00:00:00');
-      var d0 = new Date(hoje + 'T00:00:00');
-      var diff = Math.ceil((d1 - d0) / (1000 * 60 * 60 * 24));
-      if (diff >= 0 && diff <= 5) {
-        return { key: 'alerta', label: 'EXPIRA EM BREVE', cls: 'status-alerta' };
-      }
-    } catch (e) {}
-  }
-  return { key: 'ativo', label: 'ATIVO', cls: 'status-ativo' };
-}
-
-function renderPacotesCliente(pacotes) {
-  if (!pacotes || pacotes.length === 0) {
-    return '<p style="color:var(--text-muted)">Este cliente ainda não possui pacotes.</p>';
-  }
-  // ✅ Render em estilo TEXTO (mesmo padrão do histórico — <ul class="historico-lista">)
-  var html = '<ul class="historico-lista">';
-  pacotes.forEach(function(cp) {
-    var status = getStatusPacote(cp);
-    var nomePacote = (cp.pacotes && cp.pacotes.nome) || 'Pacote';
-    var nomeServico = (cp.pacotes && cp.pacotes.servicos && cp.pacotes.servicos.nome) || '-';
-    var total = Number(cp.quantidade_total || 0);
-    var restante = Number(cp.quantidade_restante || 0);
-    var usados = Math.max(0, total - restante);
-    var dataExp = cp.data_expiracao ? pacoteFormatDate(cp.data_expiracao) : '-';
-    var badge = '<span class="hist-status-badge hist-pacote-badge ' + status.cls + '">' + status.label + '</span>';
-    var linha = '<strong>' + pacoteEscapeHtml(nomePacote) + '</strong>'
-      + ' — Serviço: ' + pacoteEscapeHtml(nomeServico)
-      + '<br>Utilizados: <strong>' + usados + '/' + total + '</strong> (restam ' + restante + ')'
-      + ' — Expira em: <strong>' + dataExp + '</strong>';
-    html += '<li><div class="hist-item-top"><span class="hist-data"><i class="fa-solid fa-box"></i> Pacote</span>' + badge + '</div>'
-         + '<div class="hist-item-body">' + linha + '</div></li>';
-  });
-  html += '</ul>';
-  return html;
 }
 
 /* ===== PROFESSIONALS PAGE ===== */
@@ -4835,13 +4471,13 @@ function renderPacotes(rows) {
   }
   tbody.innerHTML = rows.map(function(p) {
     return '<tr>' +
-      '<td data-label="Nome">' + pacoteEscapeHtml(p.nome) + '</td>' +
-      '<td data-label="Serviço">' + pacoteEscapeHtml((p.servicos && p.servicos.nome) || '-') + '</td>' +
-      '<td data-label="Qtd.">' + p.quantidade_total + '</td>' +
-      '<td data-label="Total">' + pacoteMoney(p.preco_total) + '</td>' +
-      '<td data-label="Validade">' + p.validade_dias + ' dias</td>' +
-      '<td data-label="Status"><span class="status-badge ' + (p.ativo ? 'ativo' : 'inativo') + '">' + (p.ativo ? 'Ativo' : 'Inativo') + '</span></td>' +
-      '<td data-label="Ações" class="pacote-acoes">' +
+      '<td>' + pacoteEscapeHtml(p.nome) + '</td>' +
+      '<td>' + pacoteEscapeHtml((p.servicos && p.servicos.nome) || '-') + '</td>' +
+      '<td>' + p.quantidade_total + '</td>' +
+      '<td>' + pacoteMoney(p.preco_total) + '</td>' +
+      '<td>' + p.validade_dias + ' dias</td>' +
+      '<td><span class="status-badge ' + (p.ativo ? 'ativo' : 'inativo') + '">' + (p.ativo ? 'Ativo' : 'Inativo') + '</span></td>' +
+      '<td class="pacote-acoes">' +
         '<button class="pacote-icon-btn" type="button" title="Editar" onclick="editarPacote(\'' + p.id + '\')"><i class="fa-solid fa-pen"></i></button>' +
         '<button class="pacote-toggle-switch ' + (p.ativo ? 'is-active' : '') + '" type="button" title="Ativar/Inativar" onclick="togglePacoteAtivo(\'' + p.id + '\', ' + (!p.ativo) + ')"><span class="track"></span><span class="thumb"></span></button>' +
       '</td>' +
