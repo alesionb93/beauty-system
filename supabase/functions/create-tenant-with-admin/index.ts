@@ -1,5 +1,8 @@
 // Edge Function: create-tenant-with-admin
 // Deploy em: supabase functions deploy create-tenant-with-admin --no-verify-jwt
+//
+// 🔄 ATUALIZAÇÃO: agora envia e-mail de convite (definir senha)
+// em vez de criar usuário com senha temporária.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
@@ -17,6 +20,20 @@ function jsonResponse(body: Record<string, unknown>, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+function resolveRequestOrigin(req: Request) {
+  const origin = (req.headers.get('origin') ?? '').trim().replace(/\/+$/, '')
+  if (origin) return origin
+
+  const referer = (req.headers.get('referer') ?? '').trim()
+  if (referer) {
+    try {
+      return new URL(referer).origin.replace(/\/+$/, '')
+    } catch (_) {}
+  }
+
+  return ''
 }
 
 serve(async (req: Request) => {
@@ -108,7 +125,7 @@ serve(async (req: Request) => {
       logo_url,
       admin_nome,
       admin_email,
-      admin_senha
+      // admin_senha foi REMOVIDO (agora vai por e-mail)
     } = body
 
     // Validações
@@ -124,12 +141,21 @@ serve(async (req: Request) => {
       return jsonResponse({ error: 'Email do admin é obrigatório' }, 400)
     }
 
-    const senha = admin_senha?.trim()
-      ? admin_senha.trim()
-      : 'Beauty@' + Math.random().toString(36).substring(2, 8)
-
     // O nome do tenant será o nome_fantasia se fornecido, senão tenant_nome
     const finalTenantNome = (nome_fantasia?.trim() || tenant_nome?.trim())
+
+    // ===============================
+    // 🌐 URL DA APLICAÇÃO (para link do e-mail)
+    // ===============================
+    const requestOrigin = resolveRequestOrigin(req)
+    const appPublicUrl = (Deno.env.get('APP_PUBLIC_URL') ?? requestOrigin).replace(/\/+$/, '')
+    if (!appPublicUrl) {
+      return jsonResponse({
+        error: 'Configuração ausente: APP_PUBLIC_URL não está definida nos Secrets.',
+        details: { request_origin: requestOrigin || null },
+      }, 500)
+    }
+    const redirectTo = `${appPublicUrl}/definir-senha.html`
 
     // ===============================
     // 🏢 STEP 1: TENANT
@@ -160,21 +186,41 @@ serve(async (req: Request) => {
     const tenantId = tenantData.id
 
     // ===============================
-    // 👤 STEP 2: AUTH USER
+    // 👤 STEP 2: AUTH USER (via INVITE)
     // ===============================
-    const { data: authData, error: createUserError } =
-      await supabaseAdmin.auth.admin.createUser({
-        email: admin_email.trim().toLowerCase(),
-        password: senha,
-        email_confirm: true,
+    // 🔄 ALTERAÇÃO PRINCIPAL: usamos inviteUserByEmail em vez de createUser.
+    //    - Não cria senha
+    //    - Dispara e-mail de convite
+    //    - Usuário define a senha clicando no link
+    const adminEmailNorm = admin_email.trim().toLowerCase()
+
+    console.log('Criando admin do tenant com redirectTo:', redirectTo)
+
+    const { data: inviteData, error: inviteError } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(adminEmailNorm, {
+        redirectTo,
+        data: {
+          nome: admin_nome.trim(),
+          tenant_id: tenantId,
+          tenant_nome: finalTenantNome,
+        },
       })
 
-    if (createUserError) {
+    if (inviteError || !inviteData?.user) {
+      console.error('Erro ao convidar usuário:', inviteError)
+      // Rollback do tenant
       await supabaseAdmin.from('tenants').delete().eq('id', tenantId)
-      return jsonResponse({ error: 'Erro ao criar usuário: ' + createUserError.message }, 500)
+      return jsonResponse({
+        error: 'Erro ao enviar convite: ' + (inviteError?.message ?? 'desconhecido'),
+        details: {
+          redirectTo,
+          code: (inviteError as any)?.code ?? null,
+          status: (inviteError as any)?.status ?? null,
+        },
+      }, 500)
     }
 
-    const newUserId = authData.user.id
+    const newUserId = inviteData.user.id
 
     // ===============================
     // 👤 STEP 3: TABELA USUARIOS
@@ -184,7 +230,7 @@ serve(async (req: Request) => {
       .insert([{
         id: newUserId,
         nome: admin_nome.trim(),
-        email: admin_email.trim().toLowerCase(),
+        email: adminEmailNorm,
         tenant_id: tenantId,
       }])
 
@@ -231,13 +277,14 @@ serve(async (req: Request) => {
       }], { onConflict: 'user_id,role' })
     }
 
-    console.log('Tenant criado com sucesso. Tenant:', tenantId, 'User:', newUserId, 'Role verificada:', !!roleVerify)
+    console.log('Tenant criado com sucesso. Tenant:', tenantId, 'User:', newUserId, 'Convite enviado para:', adminEmailNorm)
 
     // ===============================
     // ✅ SUCESSO
     // ===============================
     return jsonResponse({
       success: true,
+      invited: true,
       tenant: {
         id: tenantId,
         nome: finalTenantNome,
@@ -251,9 +298,9 @@ serve(async (req: Request) => {
       admin: {
         id: newUserId,
         nome: admin_nome.trim(),
-        email: admin_email.trim().toLowerCase(),
-        senha_temporaria: senha,
+        email: adminEmailNorm,
       },
+      message: 'Convite enviado por e-mail. O administrador deverá definir a senha pelo link recebido.',
     })
 
   } catch (err) {

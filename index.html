@@ -8,6 +8,27 @@
   <link rel="stylesheet" href="estilos.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* Toast de sucesso após criar senha via convite */
+    .toast-success {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #27ae60;
+      color: #fff;
+      padding: 14px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 500;
+      max-width: 90%;
+      text-align: center;
+      transition: opacity 0.4s ease;
+    }
+  </style>
 </head>
 <body>
   <div class="login-wrapper">
@@ -29,6 +50,31 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="supabaseClient.js"></script>
   <script>
+    // ============================================================
+    // Detecta se o usuário acabou de criar a senha via convite
+    // ============================================================
+    var urlParams = new URLSearchParams(window.location.search);
+    var senhaCriada = urlParams.get('senha_criada') === '1';
+
+    if (senhaCriada) {
+      // Mostra toast de sucesso
+      var toast = document.createElement('div');
+      toast.className = 'toast-success';
+      toast.textContent = '✓ Senha criada com sucesso! Faça login para continuar.';
+      document.body.appendChild(toast);
+
+      // Remove o parâmetro da URL (sem recarregar)
+      var cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('senha_criada');
+      window.history.replaceState({}, '', cleanUrl);
+
+      // Remove o toast após 5 segundos
+      setTimeout(function() {
+        toast.style.opacity = '0';
+        setTimeout(function() { toast.remove(); }, 400);
+      }, 5000);
+    }
+
     // Buscar roles SEMPRE do banco — sem sessionStorage
     async function getUserRolesFromDb(userId) {
       var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
@@ -100,8 +146,21 @@
       }
     }
 
+    // ============================================================
     // Verificar sessão existente
+    // IMPORTANTE: Se o usuário acabou de criar a senha (senha_criada=1),
+    // NÃO faz auto-login. Força ele a digitar email + senha manualmente.
+    // Isso garante que ele memorizou a senha e evita o bug de sessão
+    // herdada de outro usuário no mesmo navegador.
+    // ============================================================
     (async function() {
+      if (senhaCriada) {
+        // Garante que não há sessão residual
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        return; // Não faz auto-login
+      }
+
       var { data: { session } } = await supabaseClient.auth.getSession();
       if (session) {
         await handlePostLogin(session.user.id);

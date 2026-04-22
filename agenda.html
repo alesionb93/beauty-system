@@ -194,7 +194,7 @@
         <button class="nav-btn active" data-page="agendamentos"><i class="fa-regular fa-calendar"></i> Agendamentos</button>
         <button class="nav-btn" data-page="clientes"><i class="fa-regular fa-address-book"></i> Clientes</button>
         <button class="nav-btn" data-page="profissionais"><i class="fa-solid fa-scissors"></i> Profissionais</button>
-        <button class="nav-btn nav-admin-only" data-page="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+        <button class="nav-btn" data-page="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
         <button class="nav-btn" data-page="configuracoes"><i class="fa-solid fa-gear"></i> Configurações</button>
       </nav>
       <div class="sidebar-footer">
@@ -269,8 +269,8 @@
         <div class="professionals-grid" id="professionals-grid"></div>
       </div>
 
-      <!-- DASHBOARD (admin only) -->
-      <div class="page admin-only" id="page-dashboard">
+      <!-- DASHBOARD -->
+      <div class="page" id="page-dashboard">
         <div class="page-header">
           <h2>Dashboard</h2>
         </div>
@@ -282,6 +282,12 @@
           <div class="form-group">
             <label>Data Fim</label>
             <input type="date" id="dash-fim">
+          </div>
+          <div class="form-group" id="dash-prof-wrapper">
+            <label>Profissional</label>
+            <select id="dash-prof-select">
+              <option value="__all__">Todos os profissionais</option>
+            </select>
           </div>
           <button class="btn-submit btn-dash-apply" onclick="loadDashboard()">Aplicar</button>
         </div>

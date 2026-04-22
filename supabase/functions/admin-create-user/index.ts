@@ -29,6 +29,20 @@ function isEmail(value: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)
 }
 
+function resolveRequestOrigin(req: Request) {
+  const origin = (req.headers.get('origin') ?? '').trim().replace(/\/+$/, '')
+  if (origin) return origin
+
+  const referer = (req.headers.get('referer') ?? '').trim()
+  if (referer) {
+    try {
+      return new URL(referer).origin.replace(/\/+$/, '')
+    } catch (_) {}
+  }
+
+  return ''
+}
+
 async function rollbackUser(
   supabaseAdmin: ReturnType<typeof createClient>,
   userId: string | null,
@@ -84,10 +98,22 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
     const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const requestOrigin = resolveRequestOrigin(req)
+    // 🆕 URL pública do front (ex: https://app.beautysystem.com.br)
+    // Se não existir secret, usamos o origin da própria requisição (útil no STG/local).
+    const appPublicUrl = (Deno.env.get('APP_PUBLIC_URL') ?? requestOrigin).replace(/\/+$/, '')
 
     if (!supabaseUrl || !anonKey || !serviceRoleKey) {
       console.error('Variáveis de ambiente ausentes na função admin-create-user')
       return jsonResponse({ message: 'Configuração do servidor incompleta.' }, 500)
+    }
+
+    if (!appPublicUrl) {
+      console.error('APP_PUBLIC_URL não configurada e origin ausente — convite por e-mail não pode ser enviado.')
+      return jsonResponse({
+        message: 'Configuração do servidor incompleta (APP_PUBLIC_URL).',
+        details: { request_origin: requestOrigin || null },
+      }, 500)
     }
 
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
@@ -163,27 +189,53 @@ serve(async (req: Request) => {
       return jsonResponse({ message: 'Já existe um usuário com esse e-mail.' }, 409)
     }
 
-    const senhaProvisoria = 'Beauty@' + Math.random().toString(36).substring(2, 8)
+    // 🆕 Buscar nome do tenant (estabelecimento) para incluir no e-mail
+    const { data: tenantRow } = await supabaseAdmin
+      .from('tenants')
+      .select('nome, nome_fantasia')
+      .eq('id', tenantId)
+      .maybeSingle()
+    const tenantNome = (tenantRow?.nome_fantasia as string) || (tenantRow?.nome as string) || 'Beauty System'
 
-    const { data: authData, error: createAuthUserError } = await supabaseAdmin.auth.admin.createUser({
-      email, password: senhaProvisoria, email_confirm: true,
+    // ============================================================
+    // 🆕 NOVO FLUXO — inviteUserByEmail (sem senha, e-mail automático)
+    // ============================================================
+    const redirectTo = `${appPublicUrl}/definir-senha.html`
+
+    console.log('admin-create-user redirectTo:', redirectTo)
+
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: {
+        nome,
+        tenant_id: tenantId,
+        tenant_nome: tenantNome,
+      },
     })
 
-    if (createAuthUserError) {
-      const message = createAuthUserError.message?.toLowerCase() || ''
-      if (message.includes('already') || message.includes('duplicate') || message.includes('registered')) {
+    if (inviteError) {
+      const msg = (inviteError.message || '').toLowerCase()
+      if (msg.includes('already') || msg.includes('duplicate') || msg.includes('registered')) {
         return jsonResponse({ message: 'Já existe uma conta com esse e-mail no Auth.' }, 409)
       }
-      console.error('Erro no auth.admin.createUser:', createAuthUserError)
-      return jsonResponse({ message: 'Erro ao criar usuário no Auth: ' + createAuthUserError.message }, 500)
+      console.error('Erro no auth.admin.inviteUserByEmail:', inviteError)
+      return jsonResponse({
+        message: 'Erro ao enviar convite por e-mail: ' + inviteError.message,
+        details: {
+          redirectTo,
+          request_origin: requestOrigin || null,
+          code: (inviteError as any)?.code ?? null,
+          status: (inviteError as any)?.status ?? null,
+        },
+      }, 500)
     }
 
-    const newUserId = authData.user?.id ?? null
+    const newUserId = inviteData.user?.id ?? null
     if (!newUserId) {
       return jsonResponse({ message: 'Erro interno: user_id não retornado pelo Auth.' }, 500)
     }
 
-    // ✅ FIX FINAL #1 — Limpar IMEDIATAMENTE qualquer role criada por trigger em auth.users
+    // ✅ Limpar IMEDIATAMENTE qualquer role criada por trigger em auth.users
     await supabaseAdmin.from('user_roles').delete().eq('user_id', newUserId)
 
     let createdProfessionalId: string | null = null
@@ -200,8 +252,6 @@ serve(async (req: Request) => {
     }
 
     let profissionalTipo = asString(profissional.tipo) || 'nenhum'
-    // 🔒 REGRA DE NEGÓCIO: Colaborador SEMPRE tem profissional criado automaticamente.
-    // Ignora qualquer escolha manual (nenhum / existente) vinda do frontend.
     if (role === 'colaborador') {
       if (profissionalTipo !== 'criar') {
         console.log('🔄 Colaborador detectado — forçando tipo=criar (recebido:', profissionalTipo, ')')
@@ -254,7 +304,6 @@ serve(async (req: Request) => {
       }
     }
 
-    // ✅ FIX FINAL #2 — Apaga TODAS as roles do user (qualquer tenant) e insere a role correta
     await supabaseAdmin.from('user_roles').delete().eq('user_id', newUserId)
 
     const { error: roleInsertError } = await supabaseAdmin.from('user_roles').insert([
@@ -267,7 +316,6 @@ serve(async (req: Request) => {
       return jsonResponse({ message: 'Erro ao salvar role: ' + roleInsertError.message }, 500)
     }
 
-    // ✅ FIX FINAL #3 — Verificação pós-criação: se algo divergiu, força correção
     const { data: roleVerify } = await supabaseAdmin
       .from('user_roles')
       .select('id, role, tenant_id')
@@ -285,16 +333,17 @@ serve(async (req: Request) => {
       await supabaseAdmin.from('user_roles').update({ role }).eq('id', roleVerify.id)
     }
 
-    console.log('✅ Usuário criado. User:', newUserId, 'Role final:', role, 'Tenant:', tenantId)
+    console.log('✅ Usuário convidado por e-mail. User:', newUserId, 'Role final:', role, 'Tenant:', tenantId)
 
     return jsonResponse({
       success: true,
-      message: 'Usuário criado com sucesso.',
+      // 🆕 Mensagem alinhada à nova UX
+      message: 'Enviamos um email para o usuário cadastrar a sua senha',
       user_id: newUserId,
       email,
-      senha_provisoria: senhaProvisoria,
       profissional_id: profissionalIdFinal,
       role_aplicada: role,
+      // 🚫 senha_provisoria não é mais retornada (segurança)
     })
   } catch (error) {
     console.error('Erro interno admin-create-user:', error)

@@ -47,6 +47,32 @@
   @media (max-width: 640px) {
     .brand-sidebar { display: none; }
   }
+
+  /* === Toast (top-center) === */
+  .bs-toast {
+    position: fixed;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-20px);
+    background: #16A34A;
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity .25s ease, transform .25s ease;
+    max-width: calc(100vw - 32px);
+  }
+  .bs-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .bs-toast.error { background: #DC2626; }
+  .bs-toast.warning { background: #E67E22; }
+  .bs-toast i { font-size: 1.1rem; }
 </style>
 
 
@@ -164,14 +190,14 @@
           <label>Email do Admin *</label>
           <input type="email" id="new-tenant-admin-email" required placeholder="admin@email.com">
         </div>
-        <div class="form-group">
-          <label>Senha temporária (opcional)</label>
-          <div style="position:relative;">
-            <input type="password" id="new-tenant-admin-senha" placeholder="Gerada automaticamente se vazio">
-            <button type="button" onclick="toggleSenhaVisibility(this)" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1rem;">
-              <i class="fa-solid fa-eye"></i>
-            </button>
-          </div>
+
+        <!-- 🔄 Campo de senha temporária REMOVIDO.
+             Agora o admin recebe um e-mail de convite para definir a própria senha. -->
+        <div class="form-group" style="background: rgba(212, 175, 55, 0.08); border: 1px solid rgba(212, 175, 55, 0.3); border-radius: 8px; padding: 12px 14px;">
+          <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem; line-height: 1.5;">
+            <i class="fa-solid fa-envelope" style="color: var(--gold); margin-right: 6px;"></i>
+            Um e-mail será enviado ao administrador com um link seguro para que ele defina a própria senha.
+          </p>
         </div>
 
         <div id="criar-tenant-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
@@ -192,6 +218,28 @@
     var selectedTenantNome = '';
     var currentUserId = null;
     var tenantLogoFile = null;
+
+    /* === Toast top-center (verde sucesso, vermelho erro) === */
+    function showToast(msg, type) {
+      type = type || 'success';
+      var existing = document.querySelector('.bs-toast');
+      if (existing) existing.remove();
+      var icons = {
+        success: 'fa-circle-check',
+        error: 'fa-circle-xmark',
+        warning: 'fa-triangle-exclamation',
+        info: 'fa-circle-info'
+      };
+      var div = document.createElement('div');
+      div.className = 'bs-toast ' + type;
+      div.innerHTML = '<i class="fa-solid ' + (icons[type] || icons.success) + '"></i><span>' + msg + '</span>';
+      document.body.appendChild(div);
+      requestAnimationFrame(function() { div.classList.add('show'); });
+      setTimeout(function() {
+        div.classList.remove('show');
+        setTimeout(function() { div.remove(); }, 300);
+      }, 3000);
+    }
 
     async function getUserRoles(userId) {
       var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
@@ -345,7 +393,7 @@
       document.getElementById('new-tenant-email').value = '';
       document.getElementById('new-tenant-admin-nome').value = '';
       document.getElementById('new-tenant-admin-email').value = '';
-      document.getElementById('new-tenant-admin-senha').value = '';
+      // 🔄 Campo de senha removido — não há mais reset
       document.getElementById('new-tenant-logo-preview').innerHTML = '<i class="fa-solid fa-image"></i>';
       document.getElementById('btn-remover-tenant-logo').style.display = 'none';
       tenantLogoFile = null;
@@ -404,16 +452,7 @@
       document.getElementById('new-tenant-logo-input').value = '';
     }
 
-    function toggleSenhaVisibility(btn) {
-      var input = btn.parentElement.querySelector('input');
-      if (input.type === 'password') {
-        input.type = 'text';
-        btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-      } else {
-        input.type = 'password';
-        btn.innerHTML = '<i class="fa-solid fa-eye"></i>';
-      }
-    }
+    // Função toggleSenhaVisibility removida (não há mais campo de senha)
 
     async function uploadTenantLogo(file, tenantId) {
       var fileExt = file.name.split('.').pop();
@@ -439,7 +478,7 @@
       var email = document.getElementById('new-tenant-email').value.trim();
       var adminNome = document.getElementById('new-tenant-admin-nome').value.trim();
       var adminEmail = document.getElementById('new-tenant-admin-email').value.trim();
-      var adminSenha = document.getElementById('new-tenant-admin-senha').value.trim();
+      // 🔄 adminSenha removido — agora vai por e-mail
 
       if (!razaoSocial || !nomeFantasia || !cpfCnpj || !adminNome || !adminEmail) {
         feedback.style.display = 'block';
@@ -450,7 +489,7 @@
 
       feedback.style.display = 'block';
       feedback.style.color = 'var(--text-muted)';
-      feedback.textContent = 'Criando tenant...';
+      feedback.textContent = 'Criando tenant e enviando convite...';
 
       try {
         var { data: { session } } = await supabaseClient.auth.getSession();
@@ -471,16 +510,17 @@
             telefone: telefone || null,
             logo_url: null,
             admin_nome: adminNome,
-            admin_email: adminEmail,
-            admin_senha: adminSenha || null
+            admin_email: adminEmail
+            // 🔄 admin_senha removido
           })
         });
 
         var result = await resp.json();
 
         if (!resp.ok) {
+          console.error('[create-tenant-with-admin] HTTP', resp.status, 'payload=', result);
           feedback.style.color = '#DC2626';
-          feedback.textContent = result.error || 'Erro ao criar tenant.';
+          feedback.textContent = result.error || result.message || ('Erro ao criar tenant. HTTP ' + resp.status);
           return;
         }
 
@@ -496,14 +536,8 @@
         feedback.style.display = 'none';
         closeModal('modal-criar-tenant');
 
-        alert(
-          'Tenant criado com sucesso!\n\n' +
-          'Tenant: ' + result.tenant.nome + '\n' +
-          'Admin: ' + result.admin.nome + '\n' +
-          'Email: ' + result.admin.email + '\n' +
-          'Senha: ' + result.admin.senha_temporaria + '\n\n' +
-          'Anote estas informações!'
-        );
+        var emailDestino = (result.admin && result.admin.email) ? result.admin.email : adminEmail;
+        showToast('Tenant criado com sucesso! Convite enviado para ' + emailDestino + '.', 'success');
 
         await loadTenants();
         renderAll();

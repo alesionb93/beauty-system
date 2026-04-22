@@ -700,15 +700,48 @@ body {
   display: inline-block;
 }
 
-/* ===== TOAST ===== */
+/* ===== TOAST (top-center, acima de qualquer modal) ===== */
 .toast {
-  position: fixed; bottom: 24px; right: 24px; background: var(--surface-card);
-  border: 1px solid var(--border); border-radius: 10px; padding: 14px 24px;
-  display: flex; align-items: center; gap: 10px; color: var(--text); font-size: 0.95rem;
-  z-index: 300; animation: slideUp 0.3s ease; box-shadow: 0 8px 30px rgba(0,0,0,0.1);
+  position: fixed !important;
+  top: 24px !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: translateX(-50%) translateY(-20px) !important;
+  background: #16a34a !important;
+  background-color: #16a34a !important;
+  background-image: none !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 14px 22px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  font-size: 0.95rem !important;
+  font-weight: 500 !important;
+  z-index: 99999 !important;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18) !important;
+  max-width: calc(100vw - 32px);
 }
-.toast i { color: var(--gold); font-size: 1.2rem; }
-.toast.hide { animation: fadeOut 0.3s ease forwards; }
+.toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) !important;
+  pointer-events: auto;
+}
+.toast i { color: #ffffff !important; font-size: 1.2rem; }
+.toast.hide { opacity: 0; transform: translateX(-50%) translateY(-20px) !important; }
+.toast.toast-success { background: #16a34a !important; background-color: #16a34a !important; color: #fff !important; }
+.toast.toast-success i { color: #ffffff !important; }
+.toast.toast-error { background: #dc2626 !important; background-color: #dc2626 !important; color: #fff !important; }
+.toast.toast-error i { color: #ffffff !important; }
+.toast.toast-warning { background: #d97706 !important; background-color: #d97706 !important; color: #fff !important; }
+.toast.toast-warning i { color: #ffffff !important; }
+.toast.toast-info { background: #2563eb !important; background-color: #2563eb !important; color: #fff !important; }
+.toast.toast-info i { color: #ffffff !important; }
 
 /* ===== HAMBURGER ===== */
 .hamburger {
@@ -1172,18 +1205,7 @@ body {
 .dados-cadastrais-logo-preview img { width: 100%; height: 100%; object-fit: cover; border-radius: 14px; }
 .dados-cadastrais-logo-preview i { font-size: 2.5rem; color: var(--text-muted); }
 
-/* ===== TOAST TYPES ===== */
-.toast-success { background: #16a34a; color: #fff; }
-.toast-success i { color: #bbf7d0; }
-
-.toast-error { background: #dc2626; color: #fff; }
-.toast-error i { color: #fecaca; }
-
-.toast-warning { background: #d97706; color: #fff; }
-.toast-warning i { color: #fef3c7; }
-
-.toast-info { background: #2563eb; color: #fff; }
-.toast-info i { color: #bfdbfe; }
+/* ===== TOAST TYPES (legado removido — substituído por .toast.toast-* no bloco TOAST principal) ===== */
 
 /* ===== CONFIG QUANTIDADES — PREMIUM LAYOUT ===== */
 
