@@ -877,6 +877,9 @@ document.addEventListener('DOMContentLoaded', async function() {
       document.querySelectorAll('.config-panel').forEach(function(p) { p.classList.remove('active'); });
       this.classList.add('active');
       document.getElementById('config-' + tabName).classList.add('active');
+      if (tabName === 'geral' && typeof carregarConfigGeral === 'function') {
+        carregarConfigGeral();
+      }
     });
   });
 
@@ -4950,4 +4953,118 @@ document.addEventListener('DOMContentLoaded', function() {
     formPacote.dataset.bound = '1';
     formPacote.addEventListener('submit', salvarPacoteCrud);
   }
+  // Carrega Geral assim que entra em Configurações
+  if (typeof carregarConfigGeral === 'function') {
+    setTimeout(carregarConfigGeral, 300);
+  }
 });
+
+/* ============================================================
+   AGENDAMENTO PELO CLIENTE — Feature flag + Link público
+   Tabela: public.tenant_settings (uma linha por tenant)
+   ============================================================ */
+async function carregarConfigGeral() {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+  try {
+    // Caminho preferido: RPC (ignora RLS via SECURITY DEFINER)
+    var rpc = await supabaseClient.rpc('get_tenant_settings', { p_tenant: tenantId });
+    var on = false;
+    if (!rpc.error && rpc.data && rpc.data.length) {
+      on = !!rpc.data[0].permitir_agendamento_cliente;
+    } else {
+      // Fallback: leitura direta (caso a RPC ainda não exista)
+      var resp = await supabaseClient
+        .from('tenant_settings')
+        .select('permitir_agendamento_cliente')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      on = !!(resp.data && resp.data.permitir_agendamento_cliente);
+    }
+    var chk = document.getElementById('cfg-permitir-agendamento-cliente');
+    if (chk) chk.checked = on;
+    atualizarLinkAgendamentoCliente(on);
+  } catch (e) {
+    console.error('Erro ao carregar config geral:', e);
+  }
+}
+
+async function onTogglePermitirAgendamentoCliente(el) {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+  var on = !!el.checked;
+  var fb = document.getElementById('cfg-geral-feedback');
+  el.disabled = true;
+  try {
+    // Usa RPC SECURITY DEFINER (não esbarra em RLS) e valida permissão internamente
+    var rpc = await supabaseClient.rpc('set_permitir_agendamento_cliente', {
+      p_tenant: tenantId,
+      p_value: on
+    });
+    if (rpc.error) {
+      // Fallback para upsert direto se a RPC ainda não existir
+      var resp = await supabaseClient
+        .from('tenant_settings')
+        .upsert(
+          { tenant_id: tenantId, permitir_agendamento_cliente: on },
+          { onConflict: 'tenant_id' }
+        );
+      if (resp.error) throw resp.error;
+    }
+    atualizarLinkAgendamentoCliente(on);
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback ok';
+      fb.textContent = on
+        ? '✓ Agendamento online ativado.'
+        : '✓ Agendamento online desativado.';
+      setTimeout(function () { fb.style.display = 'none'; }, 3000);
+    }
+  } catch (err) {
+    console.error('Erro ao salvar feature flag:', err);
+    el.checked = !on;
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback err';
+      var msg = (err && err.message) ? err.message : '';
+      if (msg.toLowerCase().indexOf('permiss') >= 0 || (err && err.code === '42501')) {
+        fb.textContent = 'Você não tem permissão para alterar essa configuração.';
+      } else {
+        fb.textContent = 'Não foi possível salvar. Tente novamente.';
+      }
+    }
+  } finally {
+    el.disabled = false;
+  }
+}
+
+function atualizarLinkAgendamentoCliente(on) {
+  var box = document.getElementById('link-cliente-box');
+  var input = document.getElementById('link-cliente-input');
+  if (!box || !input) return;
+  if (on) {
+    var tenantId = getCurrentTenantId();
+    var base = window.location.origin;
+    input.value = base + '/agendamento-cliente.html?tenantId=' + tenantId;
+    box.style.display = '';
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+function copiarLinkAgendamentoCliente() {
+  var input = document.getElementById('link-cliente-input');
+  if (!input || !input.value) return;
+  var fb = document.getElementById('cfg-geral-feedback');
+  navigator.clipboard.writeText(input.value).then(function () {
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback ok';
+      fb.textContent = '✓ Link copiado para a área de transferência.';
+      setTimeout(function () { fb.style.display = 'none'; }, 2500);
+    }
+  }).catch(function () {
+    input.select();
+    document.execCommand('copy');
+  });
+}

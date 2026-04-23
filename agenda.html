@@ -169,6 +169,62 @@
       background: var(--gold, #6c63ff);
       color: #fff;
     }
+
+    /* ===== AGENDAMENTO CLIENTE — Toggle + Link box ===== */
+    .ac-toggle-row {
+      display: flex; align-items: center; gap: 12px; cursor: pointer;
+      user-select: none; padding: 4px 0;
+    }
+    .ac-toggle-row input { position: absolute; opacity: 0; pointer-events: none; }
+    .ac-toggle-track {
+      position: relative; width: 44px; height: 24px; flex-shrink: 0;
+      background: #E5E7EB; border-radius: 999px; transition: background .2s;
+    }
+    .ac-toggle-thumb {
+      position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+      background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform .2s;
+    }
+    .ac-toggle-row input:checked + .ac-toggle-track { background: var(--gold, #6C3AED); }
+    .ac-toggle-row input:checked + .ac-toggle-track .ac-toggle-thumb { transform: translateX(20px); }
+    .ac-toggle-label { font-size: 0.92rem; color: var(--text); font-weight: 500; }
+
+    .ac-link-box {
+      margin-top: 18px; padding: 16px;
+      background: var(--gold-bg, rgba(108,58,237,0.08));
+      border: 1px solid var(--gold-border, rgba(108,58,237,0.20));
+      border-radius: 12px;
+    }
+    .ac-link-label {
+      display: block; font-size: 0.85rem; font-weight: 600;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .ac-link-row {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+    }
+    .ac-link-row input {
+      flex: 1; height: 40px; padding: 0 12px;
+      border: 1px solid var(--border); border-radius: 8px;
+      background: var(--bg-card); color: var(--text); font-size: 0.88rem;
+      font-family: 'Inter', monospace; outline: none;
+    }
+    .ac-link-row .btn-secondary {
+      height: 40px; padding: 0 14px; border-radius: 8px;
+      background: var(--bg-card); border: 1px solid var(--border);
+      color: var(--text); cursor: pointer; font-weight: 600; font-size: 0.85rem;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: all .15s;
+    }
+    .ac-link-row .btn-secondary:hover {
+      background: var(--gold); color: #fff; border-color: var(--gold);
+    }
+    .ac-feedback { margin-top: 10px; font-size: 0.85rem; }
+    .ac-feedback.ok { color: #10B981; }
+    .ac-feedback.err { color: #EF4444; }
+    @media (max-width: 600px) {
+      .ac-link-row { flex-direction: column; align-items: stretch; }
+      .ac-link-row .btn-secondary { justify-content: center; }
+    }
   </style>
 </head>
 <body>
@@ -385,7 +441,10 @@
         <div class="config-layout">
           <!-- Menu lateral interno -->
           <div class="config-sidebar">
-            <button class="config-tab active" data-config-tab="meu-perfil">
+            <button class="config-tab active" data-config-tab="geral">
+              <i class="fa-solid fa-sliders"></i> Geral
+            </button>
+            <button class="config-tab" data-config-tab="meu-perfil">
               <i class="fa-regular fa-user"></i> Meu Perfil
             </button>
             <button class="config-tab admin-only-tab" data-config-tab="usuarios" id="tab-usuarios">
@@ -402,8 +461,44 @@
           <!-- Conteúdo das abas -->
           <div class="config-content">
 
+            <!-- ABA: Geral (Agendamento Cliente) -->
+            <div class="config-panel active" id="config-geral">
+              <div class="config-section">
+                <div class="config-section-left">
+                  <h3>Agendamento pelo cliente</h3>
+                  <p class="config-help-text">
+                    Quando ativado, seus clientes poderão acessar um link externo e realizar
+                    agendamentos diretamente na agenda dos profissionais do salão.
+                  </p>
+                </div>
+                <div class="config-section-right">
+                  <label class="ac-toggle-row" for="cfg-permitir-agendamento-cliente">
+                    <input type="checkbox" id="cfg-permitir-agendamento-cliente"
+                           onchange="onTogglePermitirAgendamentoCliente(this)">
+                    <span class="ac-toggle-track"><span class="ac-toggle-thumb"></span></span>
+                    <span class="ac-toggle-label">Permitir que os clientes realizem agendamento</span>
+                  </label>
+
+                  <div class="ac-link-box" id="link-cliente-box" style="display:none;">
+                    <label class="ac-link-label">Link de agendamento do cliente</label>
+                    <div class="ac-link-row">
+                      <input type="text" id="link-cliente-input" readonly>
+                      <button type="button" class="btn-secondary" onclick="copiarLinkAgendamentoCliente()">
+                        <i class="fa-regular fa-copy"></i> Copiar link
+                      </button>
+                    </div>
+                    <small class="config-help-text">
+                      Compartilhe esse link com seus clientes. Eles verão apenas seus serviços e profissionais.
+                    </small>
+                  </div>
+
+                  <p class="ac-feedback" id="cfg-geral-feedback" style="display:none;"></p>
+                </div>
+              </div>
+            </div>
+
             <!-- ABA: Meu Perfil -->
-            <div class="config-panel active" id="config-meu-perfil">
+            <div class="config-panel" id="config-meu-perfil">
               <div class="config-section">
                 <div class="config-section-left">
                   <h3>Informações pessoais</h3>
