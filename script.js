@@ -14,6 +14,7 @@ var professionalAvatars = {};
 var clients = [];
 var appointments = [];
 var editingAppointmentId = null;
+var editingClientId = null;
 var pendingClienteFromIdentificacao = null;
 var currentUser = { nome: '', role: '', tenantId: null, profissionalId: null, profissionalNome: null };
 var activeFilters = [];
@@ -872,6 +873,96 @@ async function buscarClientePorTelefone(telefone, tenantId) {
   return found || null;
 }
 
+
+/* ===== EDIÇÃO DE CLIENTE: getClientById + updateClient ===== */
+async function getClientById(id) {
+  if (!id) return null;
+  var tenantId = getCurrentTenantId();
+  var query = supabaseClient.from('clientes').select('*').eq('id', id);
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  var resp = await query.maybeSingle();
+  if (resp.error) {
+    console.error('Erro ao buscar cliente por id:', resp.error);
+    return null;
+  }
+  return resp.data || null;
+}
+
+async function updateClient(id, clientObj) {
+  if (!id) return null;
+  var tenantId = getCurrentTenantId();
+  var telefoneFormatado = formatTelefoneDisplay(clientObj.telefone);
+
+  // Verifica se outro cliente do mesmo tenant já usa este telefone (compara por dígitos)
+  var existente = await buscarClientePorTelefone(telefoneFormatado, tenantId);
+  if (existente && existente.id !== id) {
+    return { error: 'duplicate', existente: existente };
+  }
+
+  var row = {
+    nome: clientObj.nome,
+    telefone: telefoneFormatado,
+    nascimento: clientObj.nascimento || null,
+    updated_at: new Date().toISOString()
+  };
+
+  var query = supabaseClient.from('clientes').update(row).eq('id', id);
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  var resp = await query.select();
+  if (resp.error) {
+    console.error('Erro ao atualizar cliente:', resp.error);
+    return { error: resp.error };
+  }
+  return { data: (resp.data && resp.data[0]) || null };
+}
+
+/* Abrir modal de edição já preenchido */
+async function openEditClienteModal(clienteId) {
+  if (!clienteId) return;
+  editingClientId = clienteId;
+  pendingClienteFromIdentificacao = null;
+
+  // Reset visual
+  var form = document.getElementById('form-cliente');
+  if (form) form.reset();
+
+  // Tenta usar o cache local; se não tiver, busca no banco
+  var cliente = clients.find(function(c) { return c.id === clienteId; });
+  if (!cliente) cliente = await getClientById(clienteId);
+  if (!cliente) {
+    showToast('Não foi possível carregar os dados do cliente.', 'error');
+    editingClientId = null;
+    return;
+  }
+
+  // Atualiza UI do modal para modo edição
+  var title = document.getElementById('modal-cliente-title');
+  if (title) title.textContent = 'Editar Cliente';
+  var btn = document.getElementById('btn-cliente-submit');
+  if (btn) { btn.textContent = 'Salvar'; btn.classList.remove('is-loading'); }
+
+  // Preenche campos
+  var nomeEl = document.getElementById('cl-nome');
+  var telEl  = document.getElementById('cl-telefone');
+  var nascEl = document.getElementById('cl-nascimento');
+  if (nomeEl) nomeEl.value = cliente.nome || '';
+  if (telEl)  telEl.value  = cliente.telefone || '';
+  if (nascEl) nascEl.value = cliente.nascimento || '';
+
+  openModal('modal-cliente');
+}
+window.openEditClienteModal = openEditClienteModal;
+
+/* Reseta o modal para modo "Novo Cliente" */
+function resetClienteModalToCreate() {
+  editingClientId = null;
+  var title = document.getElementById('modal-cliente-title');
+  if (title) title.textContent = 'Novo Cliente';
+  var btn = document.getElementById('btn-cliente-submit');
+  if (btn) { btn.textContent = 'Cadastrar'; btn.classList.remove('is-loading'); }
+}
+window.resetClienteModalToCreate = resetClienteModalToCreate;
+
 /* ===== CRUD DE SERVIÇOS (com tenant_id) ===== */
 async function criarServico(nome, preco, duracao, usa_cores) {
   var tenantId = getCurrentTenantId();
@@ -1047,7 +1138,9 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   document.getElementById('btn-novo-cliente').addEventListener('click', function() {
     pendingClienteFromIdentificacao = null;
+    editingClientId = null;
     document.getElementById('form-cliente').reset();
+    resetClienteModalToCreate();
     openModal('modal-cliente');
   });
 
@@ -2348,7 +2441,26 @@ function renderClients() {
       if (isBirthday) birthdayNames.push(c.nome);
     }
     var bIcon = isBirthday ? ' <i class="fa-solid fa-cake-candles birthday-icon"></i>' : '';
-    tr.innerHTML = '<td>' + c.nome + bIcon + '</td><td>' + formatTelefoneDisplay(c.telefone) + '</td><td>' + birthFormatted + '</td>';
+    var safeName = String(c.nome || '').replace(/"/g, '&quot;');
+    tr.innerHTML =
+      '<td>' + c.nome + bIcon + '</td>' +
+      '<td>' + formatTelefoneDisplay(c.telefone) + '</td>' +
+      '<td>' + birthFormatted + '</td>' +
+      '<td class="col-acoes">' +
+        '<button type="button" class="btn-edit-client" ' +
+          'data-client-id="' + c.id + '" ' +
+          'title="Editar cliente" aria-label="Editar ' + safeName + '">' +
+          '<i class="fa-solid fa-pen"></i>' +
+        '</button>' +
+      '</td>';
+    // Listener do botão editar (impede abrir o histórico)
+    var editBtn = tr.querySelector('.btn-edit-client');
+    if (editBtn) {
+      editBtn.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        openEditClienteModal(c.id);
+      });
+    }
     tbody.appendChild(tr);
   });
   var banner = document.getElementById('birthday-banner');
@@ -2372,7 +2484,35 @@ async function saveClient(e) {
     return;
   }
   var telefone = formatTelefoneDisplay(telefoneRaw);
+  var submitBtn = document.getElementById('btn-cliente-submit');
 
+  /* ============ MODO EDIÇÃO ============ */
+  if (editingClientId) {
+    if (submitBtn) submitBtn.classList.add('is-loading');
+    var upd = await updateClient(editingClientId, {
+      nome: nome, telefone: telefone, nascimento: nascimento
+    });
+    if (submitBtn) submitBtn.classList.remove('is-loading');
+
+    if (upd && upd.error === 'duplicate') {
+      showToast('Já existe outro cliente com este telefone: ' + (upd.existente && upd.existente.nome), 'error');
+      return;
+    }
+    if (!upd || upd.error) {
+      showToast('Erro ao atualizar cliente!', 'error');
+      return;
+    }
+    showToast('Cliente atualizado!');
+    var idEditado = editingClientId;
+    editingClientId = null;
+    closeModal('modal-cliente');
+    resetClienteModalToCreate();
+    await loadClients();
+    renderClients();
+    return;
+  }
+
+  /* ============ MODO CRIAÇÃO ============ */
   // Verificar duplicidade antes de tentar inserir
   var tenantId = getCurrentTenantId();
   var existente = await buscarClientePorTelefone(telefone, tenantId);
@@ -2388,7 +2528,9 @@ async function saveClient(e) {
     return;
   }
 
+  if (submitBtn) submitBtn.classList.add('is-loading');
   var result = await insertClient({ nome: nome, telefone: telefone, nascimento: nascimento });
+  if (submitBtn) submitBtn.classList.remove('is-loading');
   if (!result) { showToast('Erro ao cadastrar cliente!'); return; }
   showToast('Cliente cadastrado!');
   closeModal('modal-cliente');

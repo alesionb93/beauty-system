@@ -248,7 +248,7 @@
         <div class="birthday-banner" id="birthday-banner" style="display:none;"></div>
         <div class="clients-table-wrapper">
           <table class="clients-table">
-            <thead><tr><th>Nome</th><th>Telefone</th><th>Nascimento</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Telefone</th><th>Nascimento</th><th class="col-acoes">Ações</th></tr></thead>
             <tbody id="clients-tbody"></tbody>
           </table>
         </div>
@@ -1421,7 +1421,7 @@
   <div class="modal-overlay" id="modal-cliente">
     <div class="modal">
       <div class="modal-header">
-        <h3>Novo Cliente</h3>
+        <h3 id="modal-cliente-title">Novo Cliente</h3>
         <button class="modal-close" onclick="closeModal('modal-cliente')">&times;</button>
       </div>
       <form id="form-cliente" onsubmit="saveClient(event)">
@@ -1439,7 +1439,7 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn-cancel" onclick="closeModal('modal-cliente')">Cancelar</button>
-          <button type="submit" class="btn-submit">Cadastrar</button>
+          <button type="submit" class="btn-submit" id="btn-cliente-submit">Cadastrar</button>
         </div>
       </form>
     </div>

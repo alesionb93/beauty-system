@@ -1,15 +1,25 @@
-<!DOCTYPE html>
+<!DOCTYPE html> # Com PWA
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Beauty System - Login</title>
   <meta name="description" content="Beauty System - Sistema de agendamento para salões de beleza">
+
+  <!-- PWA CONFIG -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#6C3AED">
+  <link rel="icon" href="/icons/icon.png">
+  <link rel="apple-touch-icon" href="/icons/icon.png">
+
+  <!-- CSS -->
   <link rel="stylesheet" href="estilos.css">
+
+  <!-- FONT -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
   <style>
-    /* Toast de sucesso após criar senha via convite */
     .toast-success {
       position: fixed;
       top: 20px;
@@ -30,53 +40,55 @@
     }
   </style>
 </head>
+
 <body>
   <div class="login-wrapper">
     <div class="login-card">
       <img src="beautySystemLogo.png" alt="Beauty System" class="logo-img">
       <h1>BEAUTY SYSTEM</h1>
       <p class="subtitle">Sistema de Agendamento</p>
+
       <div class="form-group">
         <input type="email" id="login-email" placeholder="Email" autocomplete="email">
       </div>
+
       <div class="form-group">
         <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password">
       </div>
+
       <button class="btn-login" id="btn-login">Entrar</button>
       <p class="login-error" id="login-error"></p>
     </div>
   </div>
 
+  <!-- SCRIPTS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
   <script src="supabaseClient.js"></script>
+
+  <!-- PWA SCRIPT -->
+  <script src="/pwa.js"></script>
+
   <script>
-    // ============================================================
-    // Detecta se o usuário acabou de criar a senha via convite
-    // ============================================================
     var urlParams = new URLSearchParams(window.location.search);
     var senhaCriada = urlParams.get('senha_criada') === '1';
 
     if (senhaCriada) {
-      // Mostra toast de sucesso
       var toast = document.createElement('div');
       toast.className = 'toast-success';
       toast.textContent = '✓ Senha criada com sucesso! Faça login para continuar.';
       document.body.appendChild(toast);
 
-      // Remove o parâmetro da URL (sem recarregar)
       var cleanUrl = new URL(window.location.href);
       cleanUrl.searchParams.delete('senha_criada');
       window.history.replaceState({}, '', cleanUrl);
 
-      // Remove o toast após 5 segundos
       setTimeout(function() {
         toast.style.opacity = '0';
         setTimeout(function() { toast.remove(); }, 400);
       }, 5000);
     }
 
-    // Buscar roles SEMPRE do banco — sem sessionStorage
     async function getUserRolesFromDb(userId) {
       var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
       if (resp.error) {
@@ -123,7 +135,6 @@
       var roleRows = await getUserRolesFromDb(userId);
       var role = resolveUserRole(roleRows, userData && userData.tenant_id ? userData.tenant_id : null);
 
-      // Bloquear acesso de usuários inativos (master_admin nunca é bloqueado)
       if (role !== 'master_admin' && userData && userData.ativo === false) {
         await supabaseClient.auth.signOut();
         try { localStorage.removeItem('currentTenantId'); } catch (e) {}
@@ -136,10 +147,8 @@
       }
 
       if (role === 'master_admin') {
-        // Redirecionar para seleção de tenant
         window.location.href = 'select-tenant.html';
       } else {
-        // Carregar tenant automaticamente
         if (userData && userData.tenant_id) {
           localStorage.setItem('currentTenantId', userData.tenant_id);
         }
@@ -147,19 +156,11 @@
       }
     }
 
-    // ============================================================
-    // Verificar sessão existente
-    // IMPORTANTE: Se o usuário acabou de criar a senha (senha_criada=1),
-    // NÃO faz auto-login. Força ele a digitar email + senha manualmente.
-    // Isso garante que ele memorizou a senha e evita o bug de sessão
-    // herdada de outro usuário no mesmo navegador.
-    // ============================================================
     (async function() {
       if (senhaCriada) {
-        // Garante que não há sessão residual
         try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
         try { localStorage.removeItem('currentTenantId'); } catch (e) {}
-        return; // Não faz auto-login
+        return;
       }
 
       var { data: { session } } = await supabaseClient.auth.getSession();

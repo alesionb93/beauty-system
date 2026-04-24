@@ -3294,3 +3294,58 @@ body {
     gap: 6px;
   }
 }
+
+/* ===== CLIENTS TABLE - Coluna de Ações (Editar) ===== */
+.clients-table th.col-acoes,
+.clients-table td.col-acoes {
+  width: 64px;
+  text-align: center;
+  padding-right: 16px;
+}
+.clients-table .btn-edit-client {
+  background: var(--gold-bg);
+  color: var(--gold);
+  border: 1px solid var(--gold-border);
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-size: 0.85rem;
+}
+.clients-table .btn-edit-client:hover {
+  background: var(--gold);
+  color: #fff;
+  border-color: var(--gold);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(108,58,237,0.25);
+}
+.clients-table .btn-edit-client:active { transform: translateY(0); }
+.clients-table .btn-edit-client:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* botão Salvar em estado de loading */
+.btn-submit.is-loading {
+  opacity: 0.75;
+  pointer-events: none;
+  position: relative;
+}
+.btn-submit.is-loading::after {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  border: 2px solid rgba(255,255,255,0.5);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
+

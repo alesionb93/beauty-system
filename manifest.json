@@ -1,0 +1,34 @@
+{
+  "name": "Beauty System",
+  "short_name": "Beauty",
+  "description": "Sistema de gestão para salões de beleza — agenda, clientes e pacotes.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#7a1f5c",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "lifestyle"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
