@@ -164,7 +164,8 @@ async function loadClients() {
 async function loadAppointments() {
   var tenantId = getCurrentTenantId();
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
-  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, servico_id, profissional_id, preco, duracao, cor_id, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+  // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
+  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) { console.error('Erro agendamentos:', resp.error); return; }
@@ -175,7 +176,14 @@ async function loadAppointments() {
 
   appointments = resp.data.map(function(a) {
     var profPrincipalNome = profIdToNome[a.profissional_id] || '';
-    var svcs = (a.agendamento_servicos || []).map(function(as) {
+    // ✅ FIX ORDEM SERVIÇOS (v10): garantir ordem por created_at (fallback id)
+    var svcsOrdenados = (a.agendamento_servicos || []).slice().sort(function(x, y) {
+      var cx = x && x.created_at ? String(x.created_at) : '';
+      var cy = y && y.created_at ? String(y.created_at) : '';
+      if (cx && cy && cx !== cy) return cx < cy ? -1 : 1;
+      return String(x && x.id || '').localeCompare(String(y && y.id || ''), undefined, { numeric: true, sensitivity: 'base' });
+    });
+    var svcs = svcsOrdenados.map(function(as) {
       var bases = [];
       var pigmentacoes = [];
       var coresArr = [];
@@ -285,6 +293,110 @@ async function loadServicos() {
   servicePrices = {};
   allServicos.forEach(function(s) {
     servicePrices[s.nome] = { preco: parseFloat(s.preco), duracao: s.duracao };
+  });
+  await loadServiceRecommendations();
+}
+
+/* ===== RECOMENDAÇÕES DE SERVIÇOS (Upsell) ===== */
+// recommendationsByService[service_id] = [recommended_service_id, ...]
+var recommendationsByService = {};
+
+async function loadServiceRecommendations() {
+  recommendationsByService = {};
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+  try {
+    var resp = await supabaseClient
+      .from('service_recommendations')
+      .select('service_id, recommended_service_id')
+      .eq('tenant_id', tenantId);
+    if (resp.error) { console.warn('service_recommendations indisponível:', resp.error.message); return; }
+    (resp.data || []).forEach(function(r) {
+      if (!recommendationsByService[r.service_id]) recommendationsByService[r.service_id] = [];
+      recommendationsByService[r.service_id].push(r.recommended_service_id);
+    });
+  } catch (e) { console.warn('loadServiceRecommendations falhou:', e); }
+}
+
+function getRecommendedServicesFor(servicoId) {
+  var ids = recommendationsByService[servicoId] || [];
+  return ids
+    .map(function(id) { return allServicos.find(function(s) { return s.id === id; }); })
+    .filter(function(s) { return s && s.ativo !== false; });
+}
+
+async function saveServiceRecommendations(servicoId, recommendedIds) {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId || !servicoId) {
+    return { ok: false, error: 'Não foi possível identificar o tenant ou o serviço.' };
+  }
+
+  var desired = Array.from(new Set((recommendedIds || []).filter(function(id) {
+    return id && id !== servicoId;
+  })));
+
+  try {
+    var rpcResp = await supabaseClient.rpc('save_service_recommendations', {
+      p_service_id: servicoId,
+      p_recommended_ids: desired
+    });
+
+    if (rpcResp.error) {
+      console.error('Erro salvando recomendações via RPC:', rpcResp.error);
+
+      var msg = 'Erro ao salvar recomendações de serviços. Tente novamente.';
+      var rawMessage = String(rpcResp.error.message || '').toLowerCase();
+
+      if (rpcResp.error.code === 'PGRST202' || rawMessage.indexOf('save_service_recommendations') >= 0) {
+        msg = 'A função de salvamento das recomendações não foi encontrada. Execute o script SQL e tente novamente.';
+      } else if (rpcResp.error.code === '42501') {
+        msg = 'Você não tem permissão para salvar recomendações deste serviço.';
+      }
+
+      return { ok: false, error: msg, details: rpcResp.error };
+    }
+
+    recommendationsByService[servicoId] = desired.slice();
+    return { ok: true, data: rpcResp.data || null };
+  } catch (err) {
+    console.error('Erro inesperado ao salvar recomendações:', err);
+    return {
+      ok: false,
+      error: 'Erro ao salvar recomendações de serviços. Tente novamente.',
+      details: err
+    };
+  }
+}
+
+function renderRecommendationsPicker(servicoId) {
+  var container = document.getElementById('svc-rec-list');
+  if (!container) return;
+  var others = allServicos.filter(function(s) { return s.id !== servicoId; });
+  if (others.length === 0) {
+    container.innerHTML = '<div class="svc-rec-empty">Nenhum outro serviço cadastrado.</div>';
+    return;
+  }
+  var selected = servicoId ? (recommendationsByService[servicoId] || []) : [];
+  container.innerHTML = others.map(function(s) {
+    var checked = selected.indexOf(s.id) >= 0 ? 'checked' : '';
+    var preco = formatCurrency(parseFloat(s.preco || 0));
+    var duracao = (s.duracao || 0) + ' min';
+    return '<label class="svc-rec-item">' +
+      '<input type="checkbox" class="svc-rec-checkbox" value="' + s.id + '" ' + checked + '>' +
+      '<span class="svc-rec-item-name">' + escapeHtmlSafe(s.nome) + '</span>' +
+      '<span class="svc-rec-item-meta">' + escapeHtmlSafe(preco) + ' - ' + escapeHtmlSafe(duracao) + '</span>' +
+    '</label>';
+  }).join('');
+}
+
+function getSelectedRecommendationIds() {
+  var nodes = document.querySelectorAll('#svc-rec-list .svc-rec-checkbox:checked');
+  return Array.prototype.map.call(nodes, function(n) { return n.value; });
+}
+
+function escapeHtmlSafe(str) {
+  return String(str || '').replace(/[&<>"']/g, function(c) {
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
 }
 
@@ -721,14 +833,17 @@ async function deleteAppointment(id) {
 async function insertClient(clientObj) {
   var tenantId = getCurrentTenantId();
 
-  // Verificar se já existe cliente com mesmo telefone no tenant
-  var existente = await buscarClientePorTelefone(clientObj.telefone, tenantId);
+  // Normaliza o telefone para sempre persistir com máscara (XX) XXXXX-XXXX
+  var telefoneFormatado = formatTelefoneDisplay(clientObj.telefone);
+
+  // Verificar se já existe cliente com mesmo telefone no tenant (compara por dígitos)
+  var existente = await buscarClientePorTelefone(telefoneFormatado, tenantId);
   if (existente) {
     console.log('Cliente já existe com este telefone, retornando existente:', existente.id);
     return existente;
   }
 
-  var row = { nome: clientObj.nome, telefone: clientObj.telefone, tenant_id: tenantId };
+  var row = { nome: clientObj.nome, telefone: telefoneFormatado, tenant_id: tenantId };
   if (clientObj.nascimento) row.nascimento = clientObj.nascimento;
   var resp = await supabaseClient.from('clientes').insert([row]).select();
 
@@ -736,7 +851,7 @@ async function insertClient(clientObj) {
   if (resp.error) {
     if (resp.error.code === '23505' || (resp.error.message && resp.error.message.indexOf('unique') !== -1)) {
       console.warn('Duplicidade detectada, buscando cliente existente...');
-      var existente2 = await buscarClientePorTelefone(clientObj.telefone, tenantId);
+      var existente2 = await buscarClientePorTelefone(telefoneFormatado, tenantId);
       if (existente2) return existente2;
     }
     console.error('Erro inserir cliente:', resp.error);
@@ -761,8 +876,30 @@ async function buscarClientePorTelefone(telefone, tenantId) {
 async function criarServico(nome, preco, duracao, usa_cores) {
   var tenantId = getCurrentTenantId();
   var resp = await supabaseClient.from('servicos').insert([{ nome: nome, preco: preco, duracao: duracao, usa_cores: usa_cores || false, tenant_id: tenantId }]).select();
-  if (resp.error) { console.error('Erro criar serviço:', resp.error); return null; }
-  return resp.data[0];
+  if (resp.error) {
+    console.error('Erro criar serviço:', resp.error);
+    // 23505 = unique_violation. A constraint servicos_nome_tenant_id_unique
+    // impede dois serviços com o mesmo nome no mesmo tenant. Em vez de falhar
+    // (e impedir o vínculo de recomendações), recuperamos o serviço existente
+    // e devolvemos como se fosse um sucesso "reaproveitado", para que o fluxo
+    // de salvar recomendações continue funcionando.
+    if (resp.error.code === '23505') {
+      try {
+        var existing = await supabaseClient
+          .from('servicos')
+          .select('*')
+          .eq('tenant_id', tenantId)
+          .ilike('nome', nome)
+          .limit(1);
+        if (!existing.error && existing.data && existing.data[0]) {
+          return { data: [existing.data[0]], duplicated: true };
+        }
+      } catch (e) { console.warn('Falha ao recuperar serviço duplicado:', e); }
+      return { error: resp.error, duplicated: true };
+    }
+    return null;
+  }
+  return { data: resp.data };
 }
 
 async function editarServico(id, nome, preco, duracao, usa_cores) {
@@ -1398,6 +1535,22 @@ function expandToServiceEvents(apps) {
 
 function eventDuration(ev) { return ev.duracao || 30; }
 
+function getEventStartMinutes(ev) {
+  var parts = String(ev.hora || '00:00').split(':');
+  return parseInt(parts[0] || 0, 10) * 60 + parseInt(parts[1] || 0, 10);
+}
+
+function compareTimelineEvents(a, b) {
+  var diff = getEventStartMinutes(a) - getEventStartMinutes(b);
+  if (diff !== 0) return diff;
+
+  var agA = a && a.agendamento ? String(a.agendamento.id || '') : '';
+  var agB = b && b.agendamento ? String(b.agendamento.id || '') : '';
+  if (agA === agB) return (a.idx || 0) - (b.idx || 0);
+
+  return String(a.id || '').localeCompare(String(b.id || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
+}
+
 
 /* ===== CALENDAR ===== */
 function renderCalendar() {
@@ -1455,7 +1608,7 @@ function renderDayDetail() {
     // respeita o filtro: cada evento só aparece se SEU profissional está no filtro
     return activeFilters.indexOf(ev.profissional) >= 0;
   });
-  dayEvents.sort(function(a, b) { return a.hora.localeCompare(b.hora); });
+  dayEvents.sort(compareTimelineEvents);
 
   var showMultiAgenda = isAdmin() && activeFilters.length > 1;
 
@@ -1478,7 +1631,7 @@ function computeEndTime(hora, durationMin) {
 
 // Agrupa EVENTOS que se sobrepõem no tempo (mesmo profissional ou mesma coluna)
 function computeOverlapGroups(events) {
-  var sorted = events.slice().sort(function(a, b) { return a.hora.localeCompare(b.hora); });
+  var sorted = events.slice().sort(compareTimelineEvents);
   var groups = [];
   sorted.forEach(function(a) {
     var aParts = a.hora.split(':');
@@ -1502,7 +1655,7 @@ function computeOverlapGroups(events) {
 }
 
 function assignColumns(group) {
-  var sorted = group.slice().sort(function(a, b) { return a.hora.localeCompare(b.hora); });
+  var sorted = group.slice().sort(compareTimelineEvents);
   var columns = [];
   var result = {};
   sorted.forEach(function(a) {
@@ -1554,9 +1707,10 @@ function renderMultiAgenda(container, dayEvents, dateStr) {
     activeFilters.forEach(function(name) { html += '<div class="multi-agenda-cell" data-prof="' + name + '" data-hour="' + h + '"></div>'; });
     html += '</div>';
   }
-  html += '</div>';
+  // ✅ FIX 1: blocos DENTRO do body para alinhar top:0 com início das rows (sem offset do header)
   activeFilters.forEach(function(name) { html += '<div class="multi-agenda-blocks" data-prof-col="' + name + '"></div>'; });
-  html += '</div>';
+  html += '</div>'; // fecha .multi-agenda-body
+  html += '</div>'; // fecha .multi-agenda
   container.innerHTML = html;
 
   // ✅ Cada coluna recebe SOMENTE os eventos do seu profissional
@@ -1582,7 +1736,7 @@ function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, tota
   var startMinutes = (hourNum - 7) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
-  var heightPx = Math.max(duration, 20);
+  var heightPx = Math.max(duration, 1);
 
   var endTime = computeEndTime(ev.hora, duration);
 
@@ -1613,7 +1767,7 @@ function renderTimelineBlock(container, ev, colIdx, totalCols) {
   var startMinutes = (hourNum - 7) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
-  var heightPx = Math.max(duration, 20);
+  var heightPx = Math.max(duration, 1);
 
   var endTime = computeEndTime(ev.hora, duration);
 
@@ -1646,7 +1800,12 @@ function buildBlockContent(block, ev, heightPx, endTime, serviceNames) {
   block.style.display = 'flex';
   block.style.flexDirection = 'column';
   block.style.justifyContent = 'center';
-  if (heightPx <= 38) {
+  // ✅ FIX 2: Boxes muito curtos (ex: 10min) — exibe apenas horário inicial em fonte mínima
+  if (heightPx <= 22) {
+    block.classList.add('tb-tiny');
+    block.title = timeRange + ' — ' + ev.cliente + (serviceNames ? ' (' + serviceNames + ')' : '');
+    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time">' + ev.hora + '</span> <span class="tb-client tb-truncate">' + ev.cliente + '</span></div>';
+  } else if (heightPx <= 38) {
     block.innerHTML = '<div class="tb-row-compact">' +
       '<span class="tb-time">' + timeRange + '</span> <span class="tb-client">' + ev.cliente + '</span><span class="tb-service">' + serviceText + '</span>' + partTag + '</div>';
   } else if (heightPx <= 55) {
@@ -1794,6 +1953,7 @@ function onSvcProfChange(selectEl) {
   var prof = selectEl.value;
   var block = selectEl.closest('.servico-block');
   var svcSelect = block.querySelector('.svc-servico');
+  var prevServico = svcSelect.value; // ✅ Preserva o serviço já selecionado (ex: vindo do upsell)
   svcSelect.innerHTML = '<option value="">Selecione...</option>';
   var services = getProfServiceNames(prof);
   services.forEach(function(s) {
@@ -1801,6 +1961,10 @@ function onSvcProfChange(selectEl) {
     opt.value = s; opt.textContent = s;
     svcSelect.appendChild(opt);
   });
+  // ✅ Se o serviço anterior continua disponível para o novo profissional, mantém a seleção
+  if (prevServico && services.indexOf(prevServico) >= 0) {
+    svcSelect.value = prevServico;
+  }
   onSvcServicoChange(svcSelect);
 }
 
@@ -1812,6 +1976,14 @@ function onSvcServicoChange(selectEl) {
 
   // Encontrar o serviço pelo nome e verificar usa_cores (database-driven)
   var svcObj = allServicos.find(function(s) { return s.nome === servico; });
+
+  // ✨ Upsell: sugerir serviços recomendados (não-intrusivo, só se houver)
+  // ⚠️ NUNCA exibir em modo edição — apenas durante CRIAÇÃO de novo agendamento
+  var isEditMode = !!editingAppointmentId || !!window._isEditingAppointment || !!window._suppressUpsell;
+  if (!isEditMode && svcObj && typeof showUpsellSuggestions === 'function') {
+    try { showUpsellSuggestions(svcObj.id); } catch (e) { console.warn('upsell falhou:', e); }
+  }
+
   if (!svcObj || !svcObj.usa_cores) return;
 
   var servicoId = svcObj.id;
@@ -2176,7 +2348,7 @@ function renderClients() {
       if (isBirthday) birthdayNames.push(c.nome);
     }
     var bIcon = isBirthday ? ' <i class="fa-solid fa-cake-candles birthday-icon"></i>' : '';
-    tr.innerHTML = '<td>' + c.nome + bIcon + '</td><td>' + c.telefone + '</td><td>' + birthFormatted + '</td>';
+    tr.innerHTML = '<td>' + c.nome + bIcon + '</td><td>' + formatTelefoneDisplay(c.telefone) + '</td><td>' + birthFormatted + '</td>';
     tbody.appendChild(tr);
   });
   var banner = document.getElementById('birthday-banner');
@@ -2191,9 +2363,15 @@ function renderClients() {
 async function saveClient(e) {
   e.preventDefault();
   var nome = document.getElementById('cl-nome').value.trim();
-  var telefone = document.getElementById('cl-telefone').value.trim();
+  var telefoneRaw = document.getElementById('cl-telefone').value.trim();
   var nascimento = document.getElementById('cl-nascimento').value;
-  if (!nome || !telefone) return;
+  if (!nome || !telefoneRaw) return;
+  var telDigits = telefoneRaw.replace(/\D/g, '');
+  if (telDigits.length < 10 || telDigits.length > 11) {
+    showToast('Telefone inválido. Use 10 ou 11 dígitos.', 'error');
+    return;
+  }
+  var telefone = formatTelefoneDisplay(telefoneRaw);
 
   // Verificar duplicidade antes de tentar inserir
   var tenantId = getCurrentTenantId();
@@ -2275,7 +2453,8 @@ async function openHistorico(cliente) {
     return results;
   }
   async function fetchAgendamentos() {
-    var sel = '*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
+    // ✅ FIX ORDEM SERVIÇOS (v10): incluir id+created_at p/ ordenar serviços conforme cadastro
+    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
     var results = [];
     var seen = {};
     if (cliente.id) {
@@ -2306,7 +2485,14 @@ async function openHistorico(cliente) {
       var profNomeMap = {};
       allProfissionais.forEach(function(p) { profNomeMap[p.id] = p.nome; });
       ag.profissional = profNomeMap[ag.profissional_id] || '';
-      ag.servicos = ag.agendamento_servicos.map(function(as) {
+      // ✅ FIX ORDEM SERVIÇOS (v10): ordenar por created_at (fallback id)
+      var svcsOrdenados = ag.agendamento_servicos.slice().sort(function(x, y) {
+        var cx = x && x.created_at ? String(x.created_at) : '';
+        var cy = y && y.created_at ? String(y.created_at) : '';
+        if (cx && cy && cx !== cy) return cx < cy ? -1 : 1;
+        return String(x && x.id || '').localeCompare(String(y && y.id || ''), undefined, { numeric: true, sensitivity: 'base' });
+      });
+      ag.servicos = svcsOrdenados.map(function(as) {
         var bases = [], pigmentacoes = [], coresArr = [];
         if (as.agendamento_servico_cores && as.agendamento_servico_cores.length > 0) {
           as.agendamento_servico_cores.forEach(function(asc) {
@@ -2360,7 +2546,7 @@ async function openHistorico(cliente) {
 
   var html = '<div class="historico-info">';
   html += '<p><strong>' + cliente.nome + '</strong></p>';
-  html += '<p><i class="fa-solid fa-phone" style="margin-right:6px"></i>' + cliente.telefone + '</p>';
+  html += '<p><i class="fa-solid fa-phone" style="margin-right:6px"></i>' + formatTelefoneDisplay(cliente.telefone) + '</p>';
   html += '<p><i class="fa-solid fa-cake-candles" style="margin-right:6px"></i>' + birthFormatted + '</p>';
   html += '</div>';
 
@@ -2799,6 +2985,7 @@ function openCriarServico() {
   document.getElementById('svc-crud-duracao').value = '';
   document.getElementById('svc-crud-usa-cores').checked = false;
   document.getElementById('modal-crud-servico-titulo').textContent = 'Novo Serviço';
+  renderRecommendationsPicker(null); // Sem service_id ainda → mostra todos para futura associação após salvar
   openModal('modal-crud-servico');
 }
 
@@ -2811,31 +2998,87 @@ function openEditarServico(id) {
   document.getElementById('svc-crud-duracao').value = svc.duracao;
   document.getElementById('svc-crud-usa-cores').checked = svc.usa_cores || false;
   document.getElementById('modal-crud-servico-titulo').textContent = 'Editar Serviço';
+  renderRecommendationsPicker(svc.id);
   openModal('modal-crud-servico');
 }
 
 async function salvarServicoCrud(e) {
   e.preventDefault();
+  // 🔒 Trava contra duplo clique (que poderia gerar dois inserts simultâneos
+  // e disparar a constraint de unicidade no banco).
+  var submitBtn = (e.submitter) ? e.submitter
+    : (e.target ? e.target.querySelector('button[type="submit"]') : null);
+  if (submitBtn) {
+    if (submitBtn.dataset.saving === '1') return;
+    submitBtn.dataset.saving = '1';
+    submitBtn.disabled = true;
+  }
+  var releaseBtn = function() {
+    if (submitBtn) { submitBtn.dataset.saving = ''; submitBtn.disabled = false; }
+  };
+
   var id = document.getElementById('svc-crud-id').value;
   var nome = document.getElementById('svc-crud-nome').value.trim();
   var preco = parseFloat(document.getElementById('svc-crud-preco').value);
   var duracao = parseInt(document.getElementById('svc-crud-duracao').value);
   var usa_cores = document.getElementById('svc-crud-usa-cores').checked;
-  if (!nome || isNaN(preco) || isNaN(duracao)) { showToast('Preencha todos os campos!'); return; }
+  var recommendedIds = getSelectedRecommendationIds();
+  if (!nome || isNaN(preco) || isNaN(duracao)) { showToast('Preencha todos os campos!', 'error'); releaseBtn(); return; }
+  var savedId = id;
+  var acao = id ? 'atualizar' : 'criar';
+  var reusedExisting = false;
+
   if (id) {
     var ok = await editarServico(id, nome, preco, duracao, usa_cores);
-    if (!ok) { showToast('Erro ao atualizar!'); return; }
-    showToast('Serviço atualizado!');
+    if (!ok) { showToast('Erro ao atualizar o serviço.', 'error'); releaseBtn(); return; }
   } else {
     var result = await criarServico(nome, preco, duracao, usa_cores);
-    if (!result) { showToast('Erro ao criar!'); return; }
-    showToast('Serviço criado!');
+    if (!result) { showToast('Erro ao criar o serviço.', 'error'); releaseBtn(); return; }
+    if (result.error && !(result.data && result.data[0])) {
+      showToast('Erro ao criar o serviço.', 'error'); releaseBtn(); return;
+    }
+    if (result.duplicated) {
+      reusedExisting = true;
+      showToast('Já existia um serviço com este nome — atualizando o serviço existente.', 'info');
+    }
+    // result.data é o array do .select(); pegar id do primeiro
+    if (result && result.data && result.data[0]) savedId = result.data[0].id;
+    if (!savedId) {
+      showToast('Serviço salvo, mas não foi possível identificar o ID para vincular recomendações.', 'error');
+      releaseBtn();
+      return;
+    }
+    document.getElementById('svc-crud-id').value = savedId;
   }
+
+  // Salvar recomendações vinculadas (após termos um id válido)
+  if (savedId) {
+    var recResult = await saveServiceRecommendations(savedId, recommendedIds);
+    if (!recResult || !recResult.ok) {
+      var fallbackMsg = acao === 'criar'
+        ? 'Serviço criado, mas houve erro ao salvar as recomendações. Tente novamente.'
+        : 'Erro ao salvar recomendações de serviços. Tente novamente.';
+      showToast((recResult && recResult.error) ? recResult.error : fallbackMsg, 'error');
+      releaseBtn();
+      return;
+    }
+  }
+
+  var successMsg;
+  if (id) {
+    successMsg = 'Serviço e recomendações atualizados com sucesso!';
+  } else if (reusedExisting) {
+    successMsg = 'Serviço já existente reutilizado e recomendações atualizadas!';
+  } else {
+    successMsg = 'Serviço e recomendações salvos com sucesso!';
+  }
+  showToast(successMsg, 'success');
   closeModal('modal-crud-servico');
   await loadServicos();
   await loadProfissionalServicos();
   renderListaServicos();
   renderProfessionals();
+  releaseBtn();
 }
 
 async function confirmarExcluirServico(id) {
@@ -3528,8 +3771,10 @@ function showToast(msg, type) {
     'max-width:calc(100vw - 32px)'
   ].join(';') + ';';
 
+  div.setAttribute('role', 'status');
+  div.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   div.innerHTML = '<i class="fa-solid ' + conf.icon + '" style="color:#ffffff;font-size:1.2rem;"></i>' +
-                  '<span style="color:#ffffff;">' + msg + '</span>';
+                  '<span style="color:#ffffff;">' + escapeHtmlSafe(msg) + '</span>';
 
   document.body.appendChild(div);
   requestAnimationFrame(function() {
@@ -5068,3 +5313,475 @@ function copiarLinkAgendamentoCliente() {
     document.execCommand('copy');
   });
 }
+
+/* ============================================================
+   UPSELL: Sugestão de serviços recomendados (Agendamento interno)
+   ============================================================ */
+function showUpsellSuggestions(servicoId) {
+  if (!servicoId) return;
+  var modal = document.getElementById('modal-upsell-suggest');
+  if (!modal) return;
+  var recs = (typeof getRecommendedServicesFor === 'function') ? getRecommendedServicesFor(servicoId) : [];
+  if (!recs || recs.length === 0) return;
+
+  // Filtrar serviços que já estão no agendamento atual
+  var jaSelecionados = [];
+  document.querySelectorAll('.servico-block .svc-servico').forEach(function(sel) {
+    if (sel.value) jaSelecionados.push(sel.value);
+  });
+  var pendentes = recs.filter(function(s) { return jaSelecionados.indexOf(s.nome) < 0; });
+  if (pendentes.length === 0) return;
+
+  var list = document.getElementById('upsell-list');
+  list.innerHTML = pendentes.map(function(s) {
+    var preco = parseFloat(s.preco || 0).toFixed(0);
+    return '<div class="upsell-item" data-svc-id="' + s.id + '" data-svc-nome="' + escapeHtmlSafe(s.nome) + '">' +
+      '<div class="upsell-item-info">' +
+        '<p class="upsell-item-name">' + escapeHtmlSafe(s.nome) + '</p>' +
+        '<div class="upsell-item-meta">R$' + preco + ' · ' + s.duracao + 'min</div>' +
+      '</div>' +
+      '<button type="button" class="upsell-item-add" onclick="acceptUpsell(this)">Adicionar</button>' +
+    '</div>';
+  }).join('');
+  modal.classList.add('active');
+}
+
+function dismissUpsell() {
+  var modal = document.getElementById('modal-upsell-suggest');
+  if (modal) modal.classList.remove('active');
+}
+
+function acceptUpsell(btn) {
+  var item = btn.closest('.upsell-item');
+  if (!item || item.classList.contains('added')) return;
+  var nome = item.getAttribute('data-svc-nome');
+  if (!nome) return;
+
+  // Reaproveitar o fluxo existente: criar novo bloco e selecionar
+  if (typeof adicionarBlocoServico !== 'function') {
+    console.warn('adicionarBlocoServico não disponível');
+    return;
+  }
+  // ✅ Capturar profissional do bloco anterior (serviço principal) ANTES de criar novo bloco
+  var prevBlocks = document.querySelectorAll('.servico-block');
+  var profAnterior = '';
+  if (prevBlocks.length > 0) {
+    var profSelAnt = prevBlocks[prevBlocks.length - 1].querySelector('.svc-profissional');
+    if (profSelAnt) profAnterior = profSelAnt.value || '';
+  }
+  adicionarBlocoServico();
+  var blocks = document.querySelectorAll('.servico-block');
+  var novo = blocks[blocks.length - 1];
+  if (!novo) return;
+
+  var profSelect = novo.querySelector('.svc-profissional');
+  var svcSelect = novo.querySelector('.svc-servico');
+
+  // Procurar profissionais que atendem este serviço
+  var profsQueAtendem = [];
+  Object.keys(professionals || {}).forEach(function(profNome) {
+    var lista = professionals[profNome] || [];
+    if (lista.some(function(s) { return s.nome === nome; })) profsQueAtendem.push(profNome);
+  });
+
+  // ✅ Estratégia:
+  // 1) Se o profissional do serviço principal também atende → usa ele (continuidade)
+  // 2) Senão, se houver apenas 1 profissional que atende → usa ele
+  var profEscolhido = '';
+  if (profAnterior && profsQueAtendem.indexOf(profAnterior) >= 0) {
+    profEscolhido = profAnterior;
+  } else if (profsQueAtendem.length === 1) {
+    profEscolhido = profsQueAtendem[0];
+  }
+  if (profEscolhido && profSelect) {
+    profSelect.value = profEscolhido;
+    if (typeof onSvcProfChange === 'function') onSvcProfChange(profSelect);
+  }
+  if (svcSelect) {
+    // Garantir que o serviço apareça no select (popula por profissional)
+    var hasOpt = Array.prototype.some.call(svcSelect.options, function(o) { return o.value === nome; });
+    if (!hasOpt) {
+      var opt = document.createElement('option');
+      opt.value = nome; opt.textContent = nome;
+      svcSelect.appendChild(opt);
+    }
+    svcSelect.value = nome;
+    if (typeof onSvcServicoChange === 'function') onSvcServicoChange(svcSelect);
+  }
+
+  item.classList.add('added');
+  btn.textContent = '✓ Adicionado';
+  btn.disabled = true;
+
+  // ✅ FIX (v10): NÃO fechar modal automaticamente. O usuário deve clicar em
+  // "Salvar" / "Concluir" para confirmar — mesmo após marcar todos os serviços.
+}
+
+/* ============================================================
+   TENANT IMAGES — Carrossel do agendamento-cliente
+   - Tabela: public.tenant_images (id, tenant_id, image_url, storage_path, "order")
+   - Storage bucket: 'tenant-images'  (público)
+   - Limites: 1..10 imagens, JPG/PNG, ≤10MB
+   - Cropper: cropperjs (carregado via CDN no agenda.html)
+   ============================================================ */
+(function () {
+  'use strict';
+
+  var BUCKET   = 'tenant-images';
+  var MAX_IMGS = 10;
+  var MAX_MB   = 10;
+  var ASPECT   = 16 / 9; // banner horizontal — combina com o header
+
+  // ===== State =====
+  var state = {
+    serverImages: [],   // imagens já salvas no banco
+    pendingNew:   [],   // novas (ainda como blob/dataURL) aguardando confirm
+    pendingDel:   [],   // ids de imagens a remover ao confirmar
+    cropper:      null,
+    cropTargetUrl:null
+  };
+
+  function tenantId() {
+    if (typeof getCurrentTenantId === 'function') return getCurrentTenantId();
+    return localStorage.getItem('currentTenantId') || null;
+  }
+
+  function fb(msg, kind) {
+    var el = document.getElementById('ti-feedback');
+    if (!el) return;
+    el.style.display = '';
+    el.className = 'ac-feedback ' + (kind === 'err' ? 'err' : 'ok');
+    el.textContent = msg;
+    if (kind !== 'err') setTimeout(function () { el.style.display = 'none'; }, 3000);
+  }
+
+  function uuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  // ============================================================
+  //  LOAD existing images
+  // ============================================================
+  async function loadExisting() {
+    var tid = tenantId();
+    if (!tid || typeof supabaseClient === 'undefined') return [];
+    var resp = await supabaseClient
+      .from('tenant_images')
+      .select('id, image_url, storage_path, "order"')
+      .eq('tenant_id', tid)
+      .order('order', { ascending: true });
+    if (resp.error) {
+      console.warn('[tenant_images] load erro:', resp.error.message);
+      return [];
+    }
+    return resp.data || [];
+  }
+
+  // Lista compacta dentro da página de configurações (logo abaixo do botão)
+  async function refreshSummary() {
+    var box = document.getElementById('ti-current-thumbs');
+    if (!box) return;
+    var imgs = await loadExisting();
+    state.serverImages = imgs;
+    if (!imgs.length) {
+      box.innerHTML = '<div class="ti-empty">Nenhuma imagem cadastrada ainda.</div>';
+      return;
+    }
+    box.innerHTML = imgs.map(function (im, i) {
+      return '<div class="ti-thumb">' +
+        '<img src="' + im.image_url + '" alt="">' +
+        '<span class="ti-thumb-order">#' + (i + 1) + '</span>' +
+      '</div>';
+    }).join('');
+  }
+  // Expõe pra ser chamado depois de carregarConfigGeral
+  window.refreshTenantImagesSummary = refreshSummary;
+
+  // ============================================================
+  //  MODAL: Galeria
+  // ============================================================
+  async function openModal() {
+    var modal = document.getElementById('modal-tenant-images');
+    if (!modal) return;
+    state.pendingNew = [];
+    state.pendingDel = [];
+    var imgs = await loadExisting();
+    state.serverImages = imgs;
+    renderGrid();
+    modal.classList.add('active');
+  }
+  function closeModal() {
+    var modal = document.getElementById('modal-tenant-images');
+    if (modal) modal.classList.remove('active');
+    // Limpa o input para permitir re-selecionar a mesma foto
+    var inp = document.getElementById('ti-file-input');
+    if (inp) inp.value = '';
+  }
+
+  function renderGrid() {
+    var grid = document.getElementById('ti-grid');
+    if (!grid) return;
+
+    // Lista combinada para exibir: salvas (não-deletadas) + novas pendentes
+    var items = [];
+    state.serverImages.forEach(function (im) {
+      if (state.pendingDel.indexOf(im.id) >= 0) return;
+      items.push({ kind: 'server', id: im.id, url: im.image_url });
+    });
+    state.pendingNew.forEach(function (np, i) {
+      items.push({ kind: 'pending', id: 'p' + i, url: np.dataUrl });
+    });
+
+    if (!items.length) {
+      grid.innerHTML = '<div class="ti-empty">Adicione de 1 a ' + MAX_IMGS + ' imagens para o carrossel.</div>';
+    } else {
+      grid.innerHTML = items.map(function (it, i) {
+        return '<div class="ti-thumb" data-kind="' + it.kind + '" data-id="' + it.id + '">' +
+          '<img src="' + it.url + '" alt="">' +
+          '<span class="ti-thumb-order">#' + (i + 1) + '</span>' +
+          '<button type="button" class="ti-thumb-remove" aria-label="Remover" data-remove="' + it.kind + ':' + it.id + '">' +
+            '<i class="fa-solid fa-trash"></i>' +
+          '</button>' +
+        '</div>';
+      }).join('');
+    }
+
+    // Bind remove
+    grid.querySelectorAll('[data-remove]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var parts = btn.getAttribute('data-remove').split(':');
+        var kind = parts[0], id = parts[1];
+        if (kind === 'server') {
+          state.pendingDel.push(id);
+        } else if (kind === 'pending') {
+          var idx = parseInt(id.slice(1), 10);
+          state.pendingNew.splice(idx, 1);
+        }
+        renderGrid();
+        updateAddState();
+      });
+    });
+
+    updateAddState();
+  }
+
+  function totalCount() {
+    var serverKept = state.serverImages.filter(function (im) {
+      return state.pendingDel.indexOf(im.id) < 0;
+    }).length;
+    return serverKept + state.pendingNew.length;
+  }
+
+  function updateAddState() {
+    var btn = document.getElementById('ti-btn-select');
+    if (!btn) return;
+    var atMax = totalCount() >= MAX_IMGS;
+    btn.disabled = atMax;
+    btn.style.opacity = atMax ? '0.5' : '';
+    btn.title = atMax ? 'Máximo de ' + MAX_IMGS + ' imagens' : '';
+  }
+
+  // ============================================================
+  //  FILE PICKER → CROPPER
+  // ============================================================
+  function onFilePicked(e) {
+    var file = e.target && e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!/^image\/(jpe?g|png)$/i.test(file.type)) {
+      fb('Formato inválido. Use JPG ou PNG.', 'err');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > MAX_MB * 1024 * 1024) {
+      fb('Imagem muito grande (máx. ' + MAX_MB + 'MB).', 'err');
+      e.target.value = '';
+      return;
+    }
+    if (totalCount() >= MAX_IMGS) {
+      fb('Você já atingiu o limite de ' + MAX_IMGS + ' imagens.', 'err');
+      e.target.value = '';
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function () { openCropper(reader.result); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  // ============================================================
+  //  CROPPER
+  // ============================================================
+  function openCropper(dataUrl) {
+    state.cropTargetUrl = dataUrl;
+    var modal = document.getElementById('modal-tenant-image-crop');
+    var img = document.getElementById('ti-cropper-img');
+    if (!modal || !img) return;
+    img.src = dataUrl;
+    modal.classList.add('active');
+
+    // Cropper precisa da imagem visível — espera 1 frame
+    setTimeout(function () {
+      if (state.cropper) { try { state.cropper.destroy(); } catch (e) {} state.cropper = null; }
+      if (typeof Cropper === 'undefined') {
+        fb('Editor de imagem não carregado. Recarregue a página.', 'err');
+        return;
+      }
+      state.cropper = new Cropper(img, {
+        aspectRatio: ASPECT,
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 1,
+        background: false,
+        movable: true,
+        zoomable: true,
+        rotatable: false,
+        scalable: false,
+        responsive: true,
+        modal: true,
+        // ✅ WYSIWYG: trava a caixa de crop para que o usuário só
+        // movimente/zoom a IMAGEM dentro de uma área fixa 16:9.
+        // Garante que o que ele vê é exatamente o que o carrossel mostrará.
+        cropBoxMovable:   false,
+        cropBoxResizable: false,
+        toggleDragModeOnDblclick: false,
+        guides: false,
+        center: true
+      });
+    }, 50);
+  }
+
+  function closeCropper() {
+    var modal = document.getElementById('modal-tenant-image-crop');
+    if (modal) modal.classList.remove('active');
+    if (state.cropper) { try { state.cropper.destroy(); } catch (e) {} state.cropper = null; }
+    state.cropTargetUrl = null;
+  }
+
+  function cropperZoom(delta) { if (state.cropper) state.cropper.zoom(delta); }
+  function cropperReset()      { if (state.cropper) state.cropper.reset(); }
+
+  function confirmCropper() {
+    if (!state.cropper) return closeCropper();
+    var canvas = state.cropper.getCroppedCanvas({
+      width: 1600,
+      height: Math.round(1600 / ASPECT),
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high',
+      fillColor: '#000'
+    });
+    if (!canvas) { fb('Não foi possível recortar a imagem.', 'err'); return; }
+    canvas.toBlob(function (blob) {
+      if (!blob) { fb('Falha ao gerar imagem.', 'err'); return; }
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      state.pendingNew.push({ blob: blob, dataUrl: dataUrl });
+      closeCropper();
+      renderGrid();
+    }, 'image/jpeg', 0.9);
+  }
+
+  // ============================================================
+  //  CONFIRMAR (upload + persist)
+  // ============================================================
+  async function confirm() {
+    var tid = tenantId();
+    if (!tid) { fb('Tenant não identificado.', 'err'); return; }
+    if (typeof supabaseClient === 'undefined') { fb('Cliente Supabase não disponível.', 'err'); return; }
+
+    var btn = document.getElementById('ti-btn-confirm');
+    if (btn) { btn.disabled = true; btn.dataset._html = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; }
+
+    try {
+      // 1) DELETE marcadas
+      for (var i = 0; i < state.pendingDel.length; i++) {
+        var delId = state.pendingDel[i];
+        var row = state.serverImages.find(function (im) { return im.id === delId; });
+        if (row && row.storage_path) {
+          try { await supabaseClient.storage.from(BUCKET).remove([row.storage_path]); }
+          catch (e) { console.warn('[tenant_images] remove storage falhou:', e); }
+        }
+        var dr = await supabaseClient.from('tenant_images').delete().eq('id', delId);
+        if (dr.error) throw dr.error;
+      }
+
+      // 2) UPLOAD novos + INSERT
+      var startOrder = state.serverImages.filter(function (im) {
+        return state.pendingDel.indexOf(im.id) < 0;
+      }).length;
+
+      for (var j = 0; j < state.pendingNew.length; j++) {
+        var item = state.pendingNew[j];
+        var path = tid + '/' + uuid() + '.jpg';
+        var up = await supabaseClient.storage.from(BUCKET).upload(path, item.blob, {
+          contentType: 'image/jpeg',
+          upsert: false
+        });
+        if (up.error) throw up.error;
+
+        var pub = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
+        var publicUrl = (pub && pub.data && pub.data.publicUrl) || '';
+
+        var ins = await supabaseClient.from('tenant_images').insert({
+          tenant_id:    tid,
+          image_url:    publicUrl,
+          storage_path: path,
+          order:        startOrder + j
+        });
+        if (ins.error) throw ins.error;
+      }
+
+      fb('✓ Imagens salvas com sucesso.', 'ok');
+      // Atualiza UI
+      await refreshSummary();
+      setTimeout(closeModal, 700);
+    } catch (err) {
+      console.error('[tenant_images] confirm erro:', err);
+      var msg = (err && err.message) || 'Falha ao salvar imagens.';
+      if (msg.toLowerCase().indexOf('máximo de 10') >= 0 || msg.indexOf('Maximo de 10') >= 0) {
+        msg = 'Limite de 10 imagens atingido para este estabelecimento.';
+      } else if (err && err.code === '42501') {
+        msg = 'Você não tem permissão para alterar as imagens.';
+      }
+      fb(msg, 'err');
+    } finally {
+      if (btn) { btn.disabled = false; if (btn.dataset._html) btn.innerHTML = btn.dataset._html; }
+    }
+  }
+
+  // ============================================================
+  //  WIRING
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', function () {
+    var inp = document.getElementById('ti-file-input');
+    if (inp && !inp.dataset.bound) {
+      inp.dataset.bound = '1';
+      inp.addEventListener('change', onFilePicked);
+    }
+    // Recarrega thumbs sempre que entrar em Configurações > Geral
+    setTimeout(refreshSummary, 800);
+  });
+
+  // Funções globais usadas no HTML
+  window.openModalTenantImages  = openModal;
+  window.closeModalTenantImages = closeModal;
+  window.confirmTenantImages    = confirm;
+  window.closeCropper           = closeCropper;
+  window.confirmCropper         = confirmCropper;
+  window.cropperZoom            = cropperZoom;
+  window.cropperReset           = cropperReset;
+})();
+
+// Hook: depois de atualizar o link (toggle ON/OFF), também recarrega a galeria-resumo
+(function () {
+  if (typeof atualizarLinkAgendamentoCliente === 'function') {
+    var _orig = atualizarLinkAgendamentoCliente;
+    atualizarLinkAgendamentoCliente = function (on) {
+      _orig(on);
+      try { if (typeof refreshTenantImagesSummary === 'function') refreshTenantImagesSummary(); } catch (e) {}
+    };
+    window.atualizarLinkAgendamentoCliente = atualizarLinkAgendamentoCliente;
+  }
+})();

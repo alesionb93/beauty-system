@@ -11,6 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+  <!-- Cropper.js (carrossel de imagens do agendamento) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css">
   <style>
     .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
     .pcr-app { z-index: 99999 !important; position: fixed !important; }
@@ -172,8 +174,15 @@
 
     /* ===== AGENDAMENTO CLIENTE — Toggle + Link box ===== */
     .ac-toggle-row {
-      display: flex; align-items: center; gap: 12px; cursor: pointer;
-      user-select: none; padding: 4px 0;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+      padding: 4px 0;
+      flex-wrap: wrap;
+      width: 100%;
+      max-width: 100%;
     }
     .ac-toggle-row input { position: absolute; opacity: 0; pointer-events: none; }
     .ac-toggle-track {
@@ -187,26 +196,47 @@
     }
     .ac-toggle-row input:checked + .ac-toggle-track { background: var(--gold, #6C3AED); }
     .ac-toggle-row input:checked + .ac-toggle-track .ac-toggle-thumb { transform: translateX(20px); }
-    .ac-toggle-label { font-size: 0.92rem; color: var(--text); font-weight: 500; }
+    .ac-toggle-label {
+      flex: 1 1 260px;
+      min-width: 0;
+      font-size: 0.92rem;
+      line-height: 1.45;
+      color: var(--text);
+      font-weight: 500;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
 
     .ac-link-box {
       margin-top: 18px; padding: 16px;
       background: var(--gold-bg, rgba(108,58,237,0.08));
       border: 1px solid var(--gold-border, rgba(108,58,237,0.20));
       border-radius: 12px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .ac-link-label {
       display: block; font-size: 0.85rem; font-weight: 600;
       color: var(--text); margin-bottom: 8px;
     }
     .ac-link-row {
-      display: flex; gap: 8px; align-items: center; margin-bottom: 8px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+      width: 100%;
+      max-width: 100%;
     }
     .ac-link-row input {
-      flex: 1; height: 40px; padding: 0 12px;
+      flex: 1 1 240px; height: 40px; padding: 0 12px;
+      min-width: 0; max-width: 100%;
       border: 1px solid var(--border); border-radius: 8px;
       background: var(--bg-card); color: var(--text); font-size: 0.88rem;
       font-family: 'Inter', monospace; outline: none;
+      box-sizing: border-box;
     }
     .ac-link-row .btn-secondary {
       height: 40px; padding: 0 14px; border-radius: 8px;
@@ -214,16 +244,38 @@
       color: var(--text); cursor: pointer; font-weight: 600; font-size: 0.85rem;
       display: inline-flex; align-items: center; gap: 6px;
       transition: all .15s;
+      flex: 0 0 auto;
+      max-width: 100%;
+      box-sizing: border-box;
     }
     .ac-link-row .btn-secondary:hover {
       background: var(--gold); color: #fff; border-color: var(--gold);
+    }
+    #config-geral .config-section,
+    #config-geral .config-section-right {
+      min-width: 0;
+    }
+    @media (max-width: 1120px) {
+      #config-geral .config-section {
+        flex-direction: column;
+        gap: 18px;
+      }
+      #config-geral .config-section-left,
+      #config-geral .config-section-right {
+        width: 100%;
+        min-width: 0;
+      }
     }
     .ac-feedback { margin-top: 10px; font-size: 0.85rem; }
     .ac-feedback.ok { color: #10B981; }
     .ac-feedback.err { color: #EF4444; }
     @media (max-width: 600px) {
       .ac-link-row { flex-direction: column; align-items: stretch; }
-      .ac-link-row .btn-secondary { justify-content: center; }
+      /* Quando o row vira coluna, flex-basis vira ALTURA. Precisamos resetar
+         para evitar que o input (flex: 1 1 240px) fique com 240px de altura. */
+      .ac-link-row > * { flex: 0 0 auto; width: 100%; }
+      .ac-link-row input { height: 40px; }
+      .ac-link-row .btn-secondary { justify-content: center; height: 40px; }
     }
   </style>
 </head>
@@ -481,7 +533,7 @@
 
                   <div class="ac-link-box" id="link-cliente-box" style="display:none;">
                     <label class="ac-link-label">Link de agendamento do cliente</label>
-                    <div class="ac-link-row">
+                    <div class="ac-link-row ti-link-row">
                       <input type="text" id="link-cliente-input" readonly>
                       <button type="button" class="btn-secondary" onclick="copiarLinkAgendamentoCliente()">
                         <i class="fa-regular fa-copy"></i> Copiar link
@@ -490,6 +542,23 @@
                     <small class="config-help-text">
                       Compartilhe esse link com seus clientes. Eles verão apenas seus serviços e profissionais.
                     </small>
+
+                    <!-- ===== Imagens do header do agendamento ===== -->
+                    <div class="ti-images-block" id="ti-images-block">
+                      <div class="ti-images-header">
+                        <h4>Imagens do agendamento</h4>
+                        <button type="button" class="ti-btn-primary ti-btn-add-images" id="ti-open-gallery-btn"
+                                onclick="openModalTenantImages()"
+                                title="Adicionar imagens do agendamento"
+                                aria-label="Adicionar imagens do agendamento">
+                          <i class="fa-regular fa-images" aria-hidden="true"></i>
+                          <span class="ti-btn-label">Adicionar imagens</span>
+                        </button>
+                      </div>
+                      <p class="ti-images-desc">
+                        Essas imagens serão exibidas no topo da tela de agendamento do cliente, ajudando a apresentar seu estabelecimento. (Mín. 1, máx. 10)
+                      </p>
+                    </div>
                   </div>
 
                   <p class="ac-feedback" id="cfg-geral-feedback" style="display:none;"></p>
@@ -1623,6 +1692,17 @@
             <span style="flex: 1; min-width: 0;">🎨 Este serviço utiliza sistema de cores</span>
           </label>
         </div>
+        <!-- ===== Recomendação de serviços (Upsell) ===== -->
+        <div class="form-group" style="margin-top: 12px;">
+          <label style="display:flex; align-items:center; gap:6px;">
+            ✨ Recomendação de serviços
+            <span class="svc-rec-help" title="Sugestões exibidas ao cliente quando este serviço for escolhido em um agendamento.">?</span>
+          </label>
+          <p class="svc-rec-hint">Selecione 0 ou mais serviços para sugerir como complemento.</p>
+          <div id="svc-rec-list" class="svc-rec-list" role="listbox" aria-multiselectable="true">
+            <!-- preenchido dinamicamente -->
+          </div>
+        </div>
         <div class="modal-actions">
           <button type="button" class="btn-cancel" onclick="closeModal('modal-crud-servico')">Cancelar</button>
           <button type="submit" class="btn-submit">Salvar</button>
@@ -1965,6 +2045,7 @@
   <script src="config.js"></script>
   <script src="supabaseClient.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.js"></script>
   <script src="tema-agenda-script.js"></script>
   <script src="script.js"></script>
 
@@ -1980,6 +2061,98 @@
       <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;padding:16px 28px 28px;border-top:none">
         <button type="button" class="btn-secondary" style="border-radius:8px;padding:10px 20px;font-size:0.88rem" onclick="continuarEditandoQtd()">Continuar editando</button>
         <button type="button" class="btn-danger-fill" onclick="descartarAlteracoesQtd()">Descartar alterações</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- MODAL: Sugestão de serviços (Upsell) -->
+  <div class="modal-overlay" id="modal-upsell-suggest">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>✨ Deseja adicionar também?</h3>
+        <button class="modal-close" onclick="dismissUpsell()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="upsell-intro" id="upsell-intro">Sugestões para complementar seu agendamento:</p>
+        <div id="upsell-list" class="upsell-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="dismissUpsell()">Agora não</button>
+        <button type="button" class="btn-submit" onclick="dismissUpsell()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: Galeria de imagens do agendamento (até 10)
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-tenant-images">
+    <div class="modal" style="max-width:720px">
+      <div class="modal-header">
+        <h3>Imagens do agendamento</h3>
+        <button class="modal-close" onclick="closeModalTenantImages()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-help-text" style="margin-bottom:14px">
+          Essas imagens serão exibidas no topo da tela de agendamento do cliente.
+          Você pode adicionar de 1 a 10 imagens (JPG/PNG, até 10MB cada).
+        </p>
+
+        <div class="ti-grid" id="ti-grid">
+          <!-- thumbs renderizadas via JS -->
+        </div>
+
+        <input type="file" id="ti-file-input" accept="image/jpeg,image/png" hidden>
+        <button type="button" class="ti-btn-primary ti-add-btn" id="ti-btn-select" onclick="document.getElementById('ti-file-input').click()">
+          <i class="fa-solid fa-cloud-arrow-up"></i>
+          <span>Selecionar uma foto</span>
+        </button>
+
+        <p class="ac-feedback" id="ti-feedback" style="display:none;"></p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeModalTenantImages()">Cancelar</button>
+        <button type="button" class="btn-submit" id="ti-btn-confirm" onclick="confirmTenantImages()">
+          <i class="fa-solid fa-check"></i> Confirmar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: Cropper (recorte horizontal banner)
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-tenant-image-crop">
+    <div class="modal" style="max-width:780px">
+      <div class="modal-header">
+        <h3>Ajustar imagem</h3>
+        <button class="modal-close" onclick="closeCropper()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-help-text" style="margin-bottom:10px">
+          Arraste e use o zoom para escolher exatamente qual parte da imagem aparecerá no topo do agendamento.
+        </p>
+        <div class="ti-cropper-wrap">
+          <img id="ti-cropper-img" alt="Recortar">
+        </div>
+        <div class="ti-cropper-tools">
+          <button type="button" class="btn-secondary" onclick="cropperZoom(0.1)" aria-label="Zoom +">
+            <i class="fa-solid fa-magnifying-glass-plus"></i>
+          </button>
+          <button type="button" class="btn-secondary" onclick="cropperZoom(-0.1)" aria-label="Zoom -">
+            <i class="fa-solid fa-magnifying-glass-minus"></i>
+          </button>
+          <button type="button" class="btn-secondary" onclick="cropperReset()" aria-label="Resetar">
+            <i class="fa-solid fa-rotate"></i> Reset
+          </button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeCropper()">Cancelar</button>
+        <button type="button" class="btn-submit" onclick="confirmCropper()">
+          <i class="fa-solid fa-check"></i> Usar este recorte
+        </button>
       </div>
     </div>
   </div>

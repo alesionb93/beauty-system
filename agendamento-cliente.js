@@ -10,6 +10,15 @@
 (function () {
   'use strict';
 
+  /* Normaliza nome para comparação: trim, colapsa espaços, lower, remove acentos */
+  function normalizeName(n) {
+    return String(n || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
   /* ============================================================
      0. UTILS
      ============================================================ */
@@ -246,6 +255,41 @@
       }
     },
 
+    /* ============================================================
+       IMAGENS DO CARROSSEL (tabela public.tenant_images)
+       Retorna [] em qualquer falha (fallback gracioso = gradiente).
+       ============================================================ */
+    async getTenantImages(tenantId) {
+      if (this.usingMock) {
+        return [
+          { id: 'm1', image_url: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&q=80', order: 0 },
+          { id: 'm2', image_url: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=1200&q=80', order: 1 },
+          { id: 'm3', image_url: 'https://images.unsplash.com/photo-1580618672591-eb180b1a973f?w=1200&q=80', order: 2 }
+        ];
+      }
+      var sb = initSupabase();
+      if (!sb || !tenantId) return [];
+      try {
+        var resp = await withTimeout(
+          sb.from('tenant_images')
+            .select('id, image_url, "order"')
+            .eq('tenant_id', tenantId)
+            .order('order', { ascending: true })
+            .limit(10),
+          REQ_TIMEOUT,
+          'tenant_images'
+        );
+        if (resp.error) {
+          console.warn('[ac] getTenantImages erro:', resp.error.message);
+          return [];
+        }
+        return (resp.data || []).filter(function (r) { return !!r.image_url; });
+      } catch (e) {
+        console.warn('[ac] getTenantImages falhou:', e && e.message);
+        return [];
+      }
+    },
+
     async listarServicos() {
       if (this.usingMock) return MOCK.servicos.slice();
       var sb = initSupabase();
@@ -393,6 +437,43 @@
       }
     },
 
+    async listarRecomendacoes(servicoId) {
+      if (this.usingMock) return [];
+      var sb = initSupabase();
+      if (!sb || !servicoId) return [];
+      try {
+        // RPC pública (preferida)
+        var rpcResp = await withTimeout(
+          sb.rpc('get_public_service_recommendations', { _tenant_id: this.tenantId, _servico_id: servicoId }),
+          REQ_TIMEOUT, 'rpc:get_public_service_recommendations'
+        );
+        if (!rpcResp.error && Array.isArray(rpcResp.data)) {
+          return rpcResp.data.map(function (r) {
+            return { id: r.id, nome: r.nome, preco: Number(r.preco || 0), duracao: Number(r.duracao || 30) };
+          });
+        }
+        console.warn('[ac] RPC recomendações indisponível, tentando fallback', rpcResp.error && rpcResp.error.message);
+      } catch (e) {
+        console.warn('[ac] listarRecomendacoes timeout/erro', e && e.message);
+      }
+      // Fallback (pode falhar se RLS não permitir leitura anônima)
+      try {
+        var sb2 = initSupabase();
+        var r = await withTimeout(
+          sb2.from('service_recommendations')
+            .select('recommended_service_id, servicos!service_recommendations_rec_service_fkey(id, nome, preco, duracao, ativo)')
+            .eq('tenant_id', this.tenantId)
+            .eq('service_id', servicoId),
+          REQ_TIMEOUT, 'service_recommendations'
+        );
+        if (r.error) return [];
+        return (r.data || [])
+          .map(function (row) { return row.servicos; })
+          .filter(function (s) { return s && s.ativo !== false; })
+          .map(function (s) { return { id: s.id, nome: s.nome, preco: Number(s.preco || 0), duracao: Number(s.duracao || 30) }; });
+      } catch (e) { return []; }
+    },
+
     async criarAgendamento(payload) {
       if (this.usingMock) {
         MOCK.agendamentos.push({
@@ -420,9 +501,44 @@
           'rpc:create_public_booking'
         );
         if (!rpcResp.error && rpcResp.data) {
-          return Array.isArray(rpcResp.data) ? rpcResp.data[0] : rpcResp.data;
+          var agId = Array.isArray(rpcResp.data) ? rpcResp.data[0] : rpcResp.data;
+          // Inserir serviços extras (recomendados aceitos) — RPC só cria o principal
+          if (agId && Array.isArray(payload.servicos_extras) && payload.servicos_extras.length > 0) {
+            try {
+              var extraRows = payload.servicos_extras.map(function (ex) {
+                return {
+                  tenant_id: this.tenantId,
+                  agendamento_id: agId,
+                  servico_id: ex.id,
+                  profissional_id: payload.profissional_id,
+                  preco: ex.preco,
+                  duracao: ex.duracao
+                };
+              }.bind(this));
+              await sb.from('agendamento_servicos').insert(extraRows);
+            } catch (exErr) {
+              console.warn('[ac] falha ao inserir serviços extras (upsell):', exErr && exErr.message);
+            }
+          }
+          return agId;
+        }
+        // Se a RPC retornou um erro de regra de negócio, NÃO tentar fallback (evita bypass)
+        if (rpcResp.error) {
+          var msg = String(rpcResp.error.message || '');
+          if (msg.indexOf('CLIENTE_NOME_DIVERGENTE') >= 0) {
+            // Formato esperado: "CLIENTE_NOME_DIVERGENTE:Nome Existente"
+            var nomeExistente = msg.split('CLIENTE_NOME_DIVERGENTE:')[1] || '';
+            nomeExistente = nomeExistente.split('\n')[0].trim();
+            throw new Error('Cliente já cadastrado com este telefone' + (nomeExistente ? ': ' + nomeExistente : '.'));
+          }
+          // Outros erros da RPC: tenta fallback abaixo
+          console.warn('[ac] create_public_booking RPC erro; tentando fallback por tabelas', msg);
         }
       } catch (rpcErr) {
+        // Repropaga erros de regra de negócio
+        if (rpcErr && /Cliente já cadastrado com este telefone/.test(rpcErr.message || '')) {
+          throw rpcErr;
+        }
         console.warn('[ac] create_public_booking RPC indisponível; tentando fallback por tabelas', rpcErr && rpcErr.message);
       }
 
@@ -430,13 +546,18 @@
       try {
         var rExist = await withTimeout(
           sb.from('clientes')
-            .select('id')
+            .select('id, nome')
             .eq('tenant_id', this.tenantId)
             .eq('telefone', payload.cliente_telefone)
             .maybeSingle(),
           REQ_TIMEOUT, 'clientes-find'
         );
         if (rExist.data && rExist.data.id) {
+          // Telefone já existe: validar nome SEM sobrescrever em hipótese alguma
+          var nomeExistente = rExist.data.nome || '';
+          if (normalizeName(nomeExistente) !== normalizeName(payload.cliente_nome)) {
+            throw new Error('Cliente já cadastrado com este telefone: ' + nomeExistente);
+          }
           clienteId = rExist.data.id;
         } else {
           var rIns = await withTimeout(
@@ -451,6 +572,10 @@
           clienteId = rIns.data.id;
         }
       } catch (e) {
+        // Preservar mensagem amigável da regra de unicidade
+        if (e && /Cliente já cadastrado com este telefone/.test(e.message || '')) {
+          throw e;
+        }
         throw new Error('Falha ao registrar cliente: ' + (e.message || e));
       }
 
@@ -469,15 +594,28 @@
       );
       if (rAg.error) throw rAg.error;
 
+      var asRows = [{
+        tenant_id: this.tenantId,
+        agendamento_id: rAg.data.id,
+        servico_id: payload.servico_id,
+        profissional_id: payload.profissional_id,
+        preco: payload.preco,
+        duracao: payload.duracao
+      }];
+      if (Array.isArray(payload.servicos_extras)) {
+        payload.servicos_extras.forEach(function (ex) {
+          asRows.push({
+            tenant_id: this.tenantId,
+            agendamento_id: rAg.data.id,
+            servico_id: ex.id,
+            profissional_id: payload.profissional_id,
+            preco: ex.preco,
+            duracao: ex.duracao
+          });
+        }.bind(this));
+      }
       var rAS = await withTimeout(
-        sb.from('agendamento_servicos').insert({
-          tenant_id: this.tenantId,
-          agendamento_id: rAg.data.id,
-          servico_id: payload.servico_id,
-          profissional_id: payload.profissional_id,
-          preco: payload.preco,
-          duracao: payload.duracao
-        }),
+        sb.from('agendamento_servicos').insert(asRows),
         REQ_TIMEOUT, 'agendamento_servicos-insert'
       );
       if (rAS.error) throw rAS.error;
@@ -523,7 +661,9 @@
     autoChosenProf: null,
     calMonth: new Date().getMonth(),
     calYear: new Date().getFullYear(),
-    ocupacoesCache: []
+    ocupacoesCache: [],
+    recomendacoes: [],      // serviços sugeridos para o serviço atual
+    acceptedUpsells: []     // serviços extras aceitos pelo cliente
   };
 
   /* ============================================================
@@ -583,7 +723,169 @@
     } else if (!coverEl) {
       console.warn('[ac] renderTenant: #ac-cover ausente (ok, ignorando)');
     }
+
+    // Carrossel de imagens (tenant_images). Não bloqueia o restante.
+    initCarousel();
+
     console.log('[ac] renderTenant: fim');
+  }
+
+  /* ============================================================
+     7.b CARROSSEL DO HEADER
+     - Auto-play 4s
+     - Prev/Next + dots
+     - Swipe touch (mobile)
+     - Pausa ao interagir; retoma após 8s
+     - Fallback: vazio = gradiente padrão (oculta o carrossel)
+     ============================================================ */
+  var Carousel = (function () {
+    var images = [];
+    var idx = 0;
+    var timer = null;
+    var resumeTimer = null;
+    var AUTOPLAY_MS = 4000;
+    var RESUME_MS = 8000;
+
+    function el(id) { return document.getElementById(id); }
+
+    function render() {
+      var root  = el('ac-carousel');
+      var track = el('ac-carousel-track');
+      var dots  = el('ac-carousel-dots');
+      var prev  = el('ac-carousel-prev');
+      var next  = el('ac-carousel-next');
+      var legacyCover = el('ac-cover');
+      if (!root || !track || !dots) return;
+
+      if (!images.length) {
+        root.setAttribute('data-empty', 'true');
+        track.innerHTML = '';
+        dots.innerHTML = '';
+        if (prev) prev.hidden = true;
+        if (next) next.hidden = true;
+        return;
+      }
+      root.setAttribute('data-empty', 'false');
+      // Quando há imagens novas, esconde a img legada de cover
+      if (legacyCover) { legacyCover.removeAttribute('src'); legacyCover.style.display = 'none'; }
+
+      track.innerHTML = images.map(function (im) {
+        return '<li><img src="' + escapeHtml(im.image_url) + '" alt="" loading="lazy" /></li>';
+      }).join('');
+
+      dots.innerHTML = images.map(function (_, i) {
+        return '<button type="button" class="ac-carousel-dot' + (i === 0 ? ' active' : '') + '" data-i="' + i + '" aria-label="Imagem ' + (i + 1) + '"></button>';
+      }).join('');
+
+      var multi = images.length > 1;
+      if (prev) prev.hidden = !multi;
+      if (next) next.hidden = !multi;
+
+      idx = 0;
+      apply(false);
+    }
+
+    function apply(animate) {
+      var track = el('ac-carousel-track');
+      var dots  = el('ac-carousel-dots');
+      if (!track) return;
+      track.style.transition = animate === false ? 'none' : '';
+      track.style.transform = 'translateX(' + (-idx * 100) + '%)';
+      if (dots) {
+        Array.prototype.forEach.call(dots.children, function (d, i) {
+          d.classList.toggle('active', i === idx);
+        });
+      }
+      if (animate === false) {
+        // força reflow para re-habilitar transição
+        void track.offsetWidth;
+        track.style.transition = '';
+      }
+    }
+
+    function go(delta) {
+      if (images.length < 2) return;
+      idx = (idx + delta + images.length) % images.length;
+      apply(true);
+    }
+    function goTo(i) {
+      if (images.length < 2) return;
+      idx = ((i % images.length) + images.length) % images.length;
+      apply(true);
+    }
+
+    function startAuto() {
+      stopAuto();
+      if (images.length < 2) return;
+      timer = setInterval(function () { go(1); }, AUTOPLAY_MS);
+    }
+    function stopAuto() {
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+    function pauseAndResume() {
+      stopAuto();
+      if (resumeTimer) clearTimeout(resumeTimer);
+      resumeTimer = setTimeout(startAuto, RESUME_MS);
+    }
+
+    function bind() {
+      var root = el('ac-carousel');
+      var prev = el('ac-carousel-prev');
+      var next = el('ac-carousel-next');
+      var dots = el('ac-carousel-dots');
+      if (!root || root.dataset.bound === '1') return;
+      root.dataset.bound = '1';
+
+      if (prev) prev.addEventListener('click', function () { go(-1); pauseAndResume(); });
+      if (next) next.addEventListener('click', function () { go(1);  pauseAndResume(); });
+      if (dots) dots.addEventListener('click', function (e) {
+        var b = e.target.closest('.ac-carousel-dot'); if (!b) return;
+        goTo(parseInt(b.getAttribute('data-i'), 10) || 0);
+        pauseAndResume();
+      });
+
+      // Swipe touch
+      var startX = null, dx = 0;
+      root.addEventListener('touchstart', function (e) {
+        if (!e.touches || !e.touches[0]) return;
+        startX = e.touches[0].clientX; dx = 0; stopAuto();
+      }, { passive: true });
+      root.addEventListener('touchmove', function (e) {
+        if (startX == null) return;
+        dx = e.touches[0].clientX - startX;
+      }, { passive: true });
+      root.addEventListener('touchend', function () {
+        if (startX == null) return;
+        if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+        startX = null; dx = 0;
+        pauseAndResume();
+      });
+
+      // Pausa quando aba fica oculta
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) stopAuto(); else startAuto();
+      });
+    }
+
+    function setImages(list) {
+      images = Array.isArray(list) ? list.slice(0, 10) : [];
+      bind();
+      render();
+      startAuto();
+    }
+
+    return { setImages: setImages };
+  })();
+
+  function initCarousel() {
+    var tid = state.tenant && state.tenant.tenant_id;
+    TenantDataService.getTenantImages(tid).then(function (imgs) {
+      console.log('[ac] carrossel: imagens =', imgs.length);
+      Carousel.setImages(imgs || []);
+    }).catch(function (e) {
+      console.warn('[ac] carrossel falhou:', e);
+      Carousel.setImages([]);
+    });
   }
 
   function renderServicos(filter) {
@@ -774,12 +1076,22 @@
       profExibido = { id: escolhido.id, nome: escolhido.nome + ' (atribuído automaticamente)' };
     }
 
-    $('#ac-r-servico').textContent = servico.nome;
+    var extras = state.acceptedUpsells || [];
+    var nomeServico = servico.nome;
+    var totalDuracao = servico.duracao;
+    var totalPreco   = Number(servico.preco || 0);
+    extras.forEach(function (e) {
+      nomeServico += ' + ' + e.nome;
+      totalDuracao += Number(e.duracao || 0);
+      totalPreco   += Number(e.preco || 0);
+    });
+
+    $('#ac-r-servico').textContent = nomeServico;
     $('#ac-r-prof').textContent    = profExibido.nome;
     $('#ac-r-data').textContent    = formatDateBR(state.selectedDate);
     $('#ac-r-hora').textContent    = slot;
-    $('#ac-r-duracao').textContent = formatDuracao(servico.duracao);
-    $('#ac-r-valor').textContent   = brl(servico.preco);
+    $('#ac-r-duracao').textContent = formatDuracao(totalDuracao);
+    $('#ac-r-valor').textContent   = brl(totalPreco);
     $('#ac-feedback').hidden = true;
     $('#ac-input-nome').value = '';
     $('#ac-input-tel').value = '';
@@ -824,7 +1136,10 @@
         data: state.selectedDate,
         hora: state.selectedSlot,
         duracao: servico.duracao,
-        preco: servico.preco
+        preco: servico.preco,
+        servicos_extras: (state.acceptedUpsells || []).map(function (e) {
+          return { id: e.id, preco: e.preco, duracao: e.duracao };
+        })
       });
       $('#ac-modal-confirm').hidden = true;
       $('#ac-success-msg').textContent =
@@ -846,6 +1161,8 @@
     state.selectedDate = null;
     state.selectedSlot = null;
     state.autoChosenProf = null;
+    state.recomendacoes = [];
+    state.acceptedUpsells = [];
     closeModals();
     goToStep(1);
   }
@@ -874,15 +1191,82 @@
     state.selectedProfissional = null;
     state.selectedDate = null;
     state.selectedSlot = null;
-    TenantDataService.listarProfissionais(srv.id).then(function (rows) {
-      state.profissionais = rows || [];
+    state.acceptedUpsells = [];
+    state.recomendacoes = [];
+
+    // Carregar profissionais e recomendações em paralelo
+    Promise.all([
+      TenantDataService.listarProfissionais(srv.id),
+      TenantDataService.listarRecomendacoes(srv.id)
+    ]).then(function (results) {
+      state.profissionais = results[0] || [];
+      state.recomendacoes = (results[1] || []).filter(function (r) { return r.id !== srv.id; });
       if (state.profissionais.length === 0) {
         showToast('Nenhum profissional cadastrado para este serviço.', 'error');
         return;
       }
       renderProfissionais();
-      goToStep(2);
+      // Se houver recomendações, mostrar modal antes de avançar (não-intrusivo: continua mesmo se ignorado)
+      if (state.recomendacoes.length > 0) {
+        openUpsellModal();
+      } else {
+        goToStep(2);
+      }
     });
+  }
+
+  /* ============================================================
+     UPSELL: modal de recomendação de serviços (fluxo cliente)
+     ============================================================ */
+  function openUpsellModal() {
+    var modal = $('#ac-modal-upsell');
+    var list  = $('#ac-upsell-list');
+    if (!modal || !list) { goToStep(2); return; }
+
+    list.innerHTML = state.recomendacoes.map(function (r) {
+      var aceito = state.acceptedUpsells.some(function (a) { return a.id === r.id; });
+      return '<div class="ac-upsell-item ' + (aceito ? 'added' : '') + '" data-rec-id="' + escapeHtml(r.id) + '">' +
+        '<div class="ac-upsell-item-info">' +
+          '<p class="ac-upsell-item-name">' + escapeHtml(r.nome) + '</p>' +
+          '<div class="ac-upsell-item-meta">' +
+            '<span class="price">' + brl(r.preco) + '</span>' +
+            '<span><i class="far fa-clock"></i> ' + formatDuracao(r.duracao) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="ac-upsell-item-add">' + (aceito ? '✓ Adicionado' : 'Adicionar') + '</button>' +
+      '</div>';
+    }).join('');
+
+    $$('.ac-upsell-item-add', list).forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var item = btn.closest('.ac-upsell-item');
+        var recId = item && item.getAttribute('data-rec-id');
+        var rec = state.recomendacoes.filter(function (r) { return r.id === recId; })[0];
+        if (!rec) return;
+        var jaAceito = state.acceptedUpsells.some(function (a) { return a.id === rec.id; });
+        if (jaAceito) return;
+        // Não duplicar com o serviço principal
+        if (state.selectedServico && state.selectedServico.id === rec.id) return;
+        state.acceptedUpsells.push(rec);
+        item.classList.add('added');
+        btn.textContent = '✓ Adicionado';
+      });
+    });
+
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeUpsellModalAndContinue() {
+    var modal = $('#ac-modal-upsell');
+    if (modal) modal.hidden = true;
+    document.body.style.overflow = '';
+    goToStep(2);
+  }
+
+  function dismissUpsell() {
+    state.acceptedUpsells = [];
+    closeUpsellModalAndContinue();
   }
 
   function showDisabled(msg) {
@@ -1009,6 +1393,9 @@
     });
 
     $$('[data-close-modal]').forEach(function (el) { el.addEventListener('click', closeModals); });
+    $$('[data-close-upsell]').forEach(function (el) { el.addEventListener('click', dismissUpsell); });
+    var btnUpsellCont = $('#ac-btn-upsell-continue');
+    if (btnUpsellCont) btnUpsellCont.addEventListener('click', closeUpsellModalAndContinue);
     var btnConf = $('#ac-btn-confirmar');
     if (btnConf) btnConf.addEventListener('click', confirmarAgendamento);
     else console.warn('[ac] bindEvents: #ac-btn-confirmar ausente');
@@ -1024,7 +1411,13 @@
       else                   tel.value = v;
     });
 
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModals(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') {
+        var upsellModal = $('#ac-modal-upsell');
+        if (upsellModal && !upsellModal.hidden) { dismissUpsell(); return; }
+        closeModals();
+      }
+    });
     console.log('[ac] bindEvents: fim');
   }
 

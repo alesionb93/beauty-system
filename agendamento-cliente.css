@@ -55,12 +55,19 @@ html, body {
   font-family: var(--ac-font);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  /* ✅ Fix overflow horizontal no desktop */
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100%;
 }
+
+img, video, svg { max-width: 100%; }
 
 /* ============================================================
    APP SHELL
    ============================================================ */
 .ac-app {
+  width: 100%;
   max-width: 720px;
   margin: 0 auto;
   padding-bottom: 48px;
@@ -79,7 +86,9 @@ html, body {
 .ac-header-cover {
   position: relative;
   width: 100%;
-  height: 160px;
+  /* ✅ WYSIWYG: mesma proporção 16:9 usada no cropper */
+  aspect-ratio: 16 / 9;
+  max-height: 280px;
   overflow: hidden;
   background: linear-gradient(135deg, #1B1340 0%, #291D58 50%, #6C3AED 100%);
 }
@@ -93,6 +102,96 @@ html, body {
 .ac-header-overlay {
   position: absolute; inset: 0;
   background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.65) 100%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ============================================================
+   CARROSSEL no header
+   - Fica em cima do gradiente do .ac-header-cover
+   - Quando vazio (data-empty="true"), some e mostra o gradiente
+   ============================================================ */
+.ac-carousel {
+  position: absolute; inset: 0;
+  z-index: 1;
+  overflow: hidden;
+}
+.ac-carousel[data-empty="true"] { display: none; }
+
+.ac-carousel-track {
+  list-style: none;
+  margin: 0; padding: 0;
+  width: 100%; height: 100%;
+  display: flex;
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+.ac-carousel-track li {
+  flex: 0 0 100%;
+  width: 100%; height: 100%;
+  position: relative;
+  background: #1B1340;
+}
+.ac-carousel-track li img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Botões prev/next */
+.ac-carousel-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background var(--ac-transition), transform var(--ac-transition);
+}
+.ac-carousel-nav:hover { background: rgba(0,0,0,0.7); }
+.ac-carousel-nav:active { transform: translateY(-50%) scale(0.92); }
+.ac-carousel-nav.prev { left: 10px; }
+.ac-carousel-nav.next { right: 10px; }
+
+/* Dots */
+.ac-carousel-dots {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  z-index: 3;
+}
+.ac-carousel-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.5);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: width var(--ac-transition), background var(--ac-transition);
+}
+.ac-carousel-dot.active {
+  width: 18px;
+  border-radius: 3px;
+  background: #fff;
+}
+
+@media (max-width: 480px) {
+  .ac-carousel-nav { width: 32px; height: 32px; }
 }
 .ac-header-info {
   display: flex;
@@ -791,7 +890,8 @@ html, body {
     border: 1px solid var(--ac-border);
     min-height: auto;
   }
-  .ac-header-cover { height: 200px; }
+  /* mantém aspect-ratio 16:9; max-height impede ficar exagerado */
+  .ac-header-cover { max-height: 320px; }
   .ac-main { padding: 24px 28px 36px; }
 }
 
@@ -850,4 +950,56 @@ html, body {
   box-shadow: var(--ac-shadow);
   overflow: hidden;
   flex-shrink: 0;
+}
+
+/* ============================================================
+   FEATURE: Recomendação de serviços (Upsell) — fluxo cliente
+   ============================================================ */
+.ac-upsell-list {
+  display: flex; flex-direction: column; gap: 10px;
+  margin: 8px 0 18px;
+  max-height: 280px; overflow-y: auto;
+  padding: 4px;
+}
+.ac-upsell-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: 10px;
+  border: 1px solid var(--ac-border, #e5e7eb);
+  background: var(--ac-card-bg, #fff);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ac-upsell-item:hover {
+  border-color: var(--ac-primary, #6c3aed);
+  box-shadow: 0 2px 10px rgba(108,58,237,0.08);
+}
+.ac-upsell-item-info { flex: 1; min-width: 0; text-align: left; }
+.ac-upsell-item-name {
+  margin: 0 0 4px; font-size: 0.95rem; font-weight: 600;
+  color: var(--ac-text, #1a1a2e); word-break: break-word;
+}
+.ac-upsell-item-meta {
+  font-size: 0.8rem; color: var(--ac-text-muted, #6b7280);
+}
+.ac-upsell-item-meta .price {
+  font-weight: 600; color: var(--ac-primary, #6c3aed); margin-right: 8px;
+}
+.ac-upsell-item-add {
+  flex-shrink: 0; padding: 8px 14px; border-radius: 8px;
+  background: var(--ac-primary, #6c3aed); color: #fff; border: none;
+  font-weight: 600; font-size: 0.85rem; cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.ac-upsell-item-add:hover { opacity: 0.92; transform: translateY(-1px); }
+.ac-upsell-item.added {
+  border-color: var(--ac-primary, #6c3aed);
+  background: rgba(108,58,237,0.05);
+}
+.ac-upsell-item.added .ac-upsell-item-add {
+  background: #10b981; cursor: default;
+}
+
+@media (max-width: 600px) {
+  .ac-upsell-item { flex-direction: column; align-items: stretch; gap: 8px; }
+  .ac-upsell-item-info { text-align: center; }
+  .ac-upsell-item-add { width: 100%; }
 }

@@ -51,8 +51,28 @@
 
     <!-- HEADER do estabelecimento -->
     <header class="ac-header">
-      <div class="ac-header-cover">
+      <!-- ============================================================
+           CARROSSEL DO HEADER (até 10 imagens do tenant)
+           Fallback: se não houver imagens, .ac-carousel fica vazio e
+           o gradiente padrão do .ac-header-cover é exibido.
+           ============================================================ -->
+      <div class="ac-header-cover" id="ac-header-cover">
+        <!-- Mantido por compat: se algum tenant ainda usa cover_url única -->
         <img id="ac-cover" src="" alt="Capa do estabelecimento" />
+
+        <div class="ac-carousel" id="ac-carousel" data-empty="true">
+          <ul class="ac-carousel-track" id="ac-carousel-track" aria-live="polite"></ul>
+
+          <button type="button" class="ac-carousel-nav prev" id="ac-carousel-prev" aria-label="Imagem anterior" hidden>
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <button type="button" class="ac-carousel-nav next" id="ac-carousel-next" aria-label="Próxima imagem" hidden>
+            <i class="fas fa-chevron-right"></i>
+          </button>
+
+          <div class="ac-carousel-dots" id="ac-carousel-dots" role="tablist" aria-label="Selecionar imagem"></div>
+        </div>
+
         <div class="ac-header-overlay"></div>
       </div>
       <div class="ac-header-info">
@@ -242,5 +262,32 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js" onerror="window.__noConfig=true"></script>
   <script src="agendamento-cliente.js"></script>
+
+  <!-- ============================================================
+       MODAL: Sugestão de serviços (Upsell)
+       ============================================================ -->
+  <div class="ac-modal" id="ac-modal-upsell" hidden>
+    <div class="ac-modal-backdrop" data-close-upsell></div>
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-labelledby="ac-upsell-title">
+      <button type="button" class="ac-modal-close" data-close-upsell aria-label="Fechar">
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="ac-modal-icon">
+        <i class="fas fa-magic-sparkles"></i>
+      </div>
+      <h3 id="ac-upsell-title">Deseja adicionar também?</h3>
+      <p class="ac-modal-sub">Aproveite e complete seu atendimento com:</p>
+
+      <div class="ac-upsell-list" id="ac-upsell-list"></div>
+
+      <div class="ac-modal-actions">
+        <button type="button" class="ac-btn ac-btn-ghost" data-close-upsell>Agora não</button>
+        <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-upsell-continue">
+          Continuar
+        </button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>

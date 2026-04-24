@@ -256,7 +256,7 @@ body {
   position: absolute; left: 4px; right: 4px; background: linear-gradient(135deg, var(--gold-bg), rgba(108,58,237,0.12));
   border: 1px solid var(--gold-border); border-left: 3px solid var(--gold);
   border-radius: 8px; padding: 6px 10px; cursor: pointer; pointer-events: all;
-  overflow: hidden; transition: background var(--transition); min-height: 30px;
+  overflow: hidden; transition: background var(--transition); min-height: 0;
 }
 
 .timeline-block:hover { background: rgba(108,58,237,0.15); }
@@ -270,6 +270,30 @@ body {
 .tb-row-compact .tb-time { font-size: 0.7rem; }
 .tb-row-compact .tb-client { font-size: 0.7rem; }
 .tb-row-compact .tb-service { font-size: 0.7rem; }
+
+/* ✅ FIX 2: Bloco "tiny" (≤ 22px) — para serviços muito curtos (ex: 10min) */
+.timeline-block.tb-tiny {
+  padding: 0 6px;
+  border-radius: 6px;
+  border-left-width: 2px;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+.timeline-block.tb-tiny .tb-row-tiny {
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1; width: 100%;
+}
+.timeline-block.tb-tiny .tb-time {
+  font-size: 0.55rem; line-height: 1; flex-shrink: 0;
+  color: var(--gold); font-weight: 700;
+}
+.timeline-block.tb-tiny .tb-client {
+  font-size: 0.55rem; font-weight: 600; line-height: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1;
+}
 
 /* ===== MULTI-AGENDA ===== */
 .multi-agenda-container { position: relative; overflow-y: auto; max-height: 600px; }
@@ -988,6 +1012,12 @@ body {
 
 .config-layout { display: flex; gap: 0; min-height: 500px; }
 
+/* No mobile, o min-height: 500px do layout cria espaço vazio enorme
+   quando o conteúdo da aba é curto. Removemos para deixar a altura natural. */
+@media (max-width: 900px) {
+  .config-layout { min-height: 0; }
+}
+
 .config-sidebar {
   width: 220px; flex-shrink: 0; background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius) 0 0 var(--radius); padding: 16px 0;
@@ -1102,19 +1132,34 @@ body {
 @media (max-width: 900px) {
   .config-layout { flex-direction: column; min-width: 0; }
   .config-sidebar {
-    width: 100%; flex-direction: row; border-radius: var(--radius) var(--radius) 0 0;
-    padding: 8px; gap: 4px; overflow-x: auto; overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+    /* No mobile, transformamos o menu lateral em uma GRADE de abas
+       para que TODAS as opções (Geral, Meu Perfil, Usuários,
+       Dados Cadastrais, Tema da Agenda) fiquem sempre visíveis
+       sem depender de scroll horizontal. */
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding: 10px;
+    border-radius: var(--radius) var(--radius) 0 0;
+    overflow: visible;
   }
-  .config-sidebar::-webkit-scrollbar { height: 4px; }
-  .config-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
   .config-tab {
-    padding: 10px 14px; border-left: none; border-bottom: 3px solid transparent;
-    white-space: nowrap; justify-content: center;
-    flex: 0 0 auto; /* não comprime nem estica — deixa scrollar */
-    font-size: 0.9rem;
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px;
+    background: var(--surface-input, transparent);
+    white-space: normal;
+    justify-content: center;
+    text-align: center;
+    font-size: 0.88rem;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
   }
+  .config-tab i { font-size: 0.95rem; }
   .config-tab.active { border-left-color: transparent; border-bottom-color: var(--gold); }
   .config-content {
     border-left: 1px solid var(--border); border-top: none;
@@ -1135,7 +1180,8 @@ body {
   .config-section { padding: 20px 0; }
   .config-section-left h3 { font-size: 1rem; }
   .config-help-text { font-size: 0.85rem; }
-  .config-tab { padding: 9px 12px; font-size: 0.85rem; }
+  .config-sidebar { gap: 5px; padding: 8px; }
+  .config-tab { padding: 9px 8px; font-size: 0.78rem; gap: 6px; }
   .config-tab i { font-size: 0.9rem; }
 }
 
@@ -2666,7 +2712,585 @@ body {
   }
 }
 
+/* ============================================================
+   FIX MOBILE — Input do "Link de agendamento do cliente"
+   Quando .ac-link-row vira flex-direction: column, qualquer
+   flex-basis dos filhos passa a ser ALTURA. Várias regras mais
+   específicas (ex.: #config-geral .ac-link-row input { flex: 1 1 240px })
+   estavam transformando o input numa caixa de ~240px de altura.
+   Aqui forçamos altura natural em todas as variações.
+   ============================================================ */
+@media (max-width: 768px) {
+  .ac-link-row > *,
+  .ti-link-row > *,
+  #config-geral .ac-link-row > *,
+  #config-geral .ti-link-row > * {
+    flex: 0 0 auto !important;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .ac-link-row input[type="text"],
+  .ti-link-row input[type="text"],
+  #config-geral .ac-link-row input,
+  #config-geral .ti-link-row input[type="text"] {
+    height: 42px;
+    min-height: 42px;
+    max-height: 42px;
+    line-height: 42px;
+    padding: 0 12px;
+    box-sizing: border-box;
+  }
+
+  .ac-link-row .btn-secondary,
+  .ti-link-row .btn-secondary {
+    height: 42px;
+    min-height: 42px;
+    justify-content: center;
+  }
+}
+
 @media (max-width: 380px) {
   .ac-toggle-row { gap: 10px; }
   .ac-toggle-label { font-size: 0.88rem; }
+}
+
+/* ============================================================
+   FEATURE: Recomendação de serviços (Upsell)
+   ============================================================ */
+.svc-rec-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--gold-bg); color: var(--gold);
+  font-size: 0.7rem; font-weight: 700; cursor: help;
+  border: 1px solid var(--gold-border);
+}
+.svc-rec-hint {
+  font-size: 0.78rem; color: var(--text-muted, #888);
+  margin: 4px 0 8px; line-height: 1.4;
+}
+.svc-rec-list {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 220px; overflow-y: auto;
+  padding: 8px; border-radius: 8px;
+  border: 1px solid var(--border, #2a2a2a);
+  background: var(--input-bg, rgba(255,255,255,0.03));
+}
+.svc-rec-list::-webkit-scrollbar { width: 6px; }
+.svc-rec-list::-webkit-scrollbar-thumb { background: var(--gold-border); border-radius: 3px; }
+.svc-rec-empty {
+  font-size: 0.82rem; color: var(--text-muted, #888);
+  text-align: center; padding: 16px 8px; font-style: italic;
+}
+.svc-rec-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 6px;
+  cursor: pointer; transition: background 0.15s;
+  user-select: none;
+}
+.svc-rec-item:hover { background: var(--card-hover, rgba(255,255,255,0.04)); }
+.svc-rec-item input[type="checkbox"] { flex-shrink: 0; cursor: pointer; margin: 0 2px 0 0; }
+.svc-rec-item-name { flex: 1; font-size: 0.9rem; min-width: 0; word-break: break-word; padding-right: 12px; }
+.svc-rec-item-meta {
+  font-size: 0.75rem; color: var(--text-muted, #888);
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+@media (max-width: 640px) {
+  .svc-rec-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .svc-rec-item-name {
+    flex: 1 1 calc(100% - 32px);
+    padding-right: 0;
+  }
+  .svc-rec-item-meta {
+    width: 100%;
+    margin-left: 28px;
+    white-space: normal;
+  }
+}
+
+/* ===== Modal upsell ===== */
+.upsell-intro {
+  font-size: 0.9rem; color: var(--text-muted, #aaa);
+  margin: 0 0 14px;
+}
+.upsell-list { display: flex; flex-direction: column; gap: 10px; }
+.upsell-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border-radius: 8px;
+  border: 1px solid var(--gold-border);
+  background: var(--gold-bg);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.upsell-item:hover { transform: translateY(-1px); box-shadow: 0 4px 14px var(--gold-bg); }
+.upsell-item-info { flex: 1; min-width: 0; }
+.upsell-item-name {
+  font-size: 0.95rem; font-weight: 600; color: var(--gold);
+  margin: 0 0 2px; word-break: break-word;
+}
+.upsell-item-meta { font-size: 0.78rem; color: var(--text-muted, #aaa); }
+.upsell-item-add {
+  flex-shrink: 0; padding: 8px 14px; border-radius: 6px;
+  background: var(--gold); color: #000; border: none;
+  font-weight: 600; font-size: 0.85rem; cursor: pointer;
+  transition: opacity 0.15s;
+}
+.upsell-item-add:hover { opacity: 0.85; }
+.upsell-item-add:disabled { opacity: 0.5; cursor: not-allowed; }
+.upsell-item.added { opacity: 0.6; }
+.upsell-item.added .upsell-item-add { background: var(--text-muted, #888); }
+
+@media (max-width: 600px) {
+  .upsell-item { flex-direction: column; align-items: stretch; gap: 8px; }
+  .upsell-item-add { width: 100%; }
+}
+
+/* ============================================================
+   TENANT IMAGES — Configurações → Geral
+   Galeria + Cropper para o carrossel do agendamento-cliente
+   ============================================================ */
+.ti-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--border);
+}
+.ti-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.ti-section-head strong {
+  font-size: 0.95rem;
+  color: var(--text);
+  font-weight: 600;
+}
+.ti-section-head .btn-secondary { white-space: nowrap; }
+
+.ti-thumbs,
+.ti-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.ti-grid { min-height: 60px; }
+
+.ti-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface-input);
+  border: 1px solid var(--border);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+.ti-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ti-thumb:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+
+.ti-thumb-remove {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0,0,0,0.65);
+  color: #fff;
+  font-size: 0.78rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background var(--transition);
+}
+.ti-thumb-remove:hover { background: rgba(220, 38, 38, 0.95); }
+
+.ti-thumb-order {
+  position: absolute;
+  bottom: 6px; left: 6px;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ti-add-btn {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ti-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 28px 12px;
+  color: var(--text-muted);
+  border: 2px dashed var(--border);
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+/* Cropper modal */
+.ti-cropper-wrap {
+  width: 100%;
+  max-height: 60vh;
+  background: #111;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.ti-cropper-wrap img { display: block; max-width: 100%; }
+.ti-cropper-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 600px) {
+  .ti-section-head { flex-direction: column; align-items: stretch; }
+  .ti-thumbs, .ti-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+}
+
+/* ============================================================
+   TENANT IMAGES — Botão primário (design system)
+   Usado em "Adicionar imagens do agendamento" e "Selecionar uma foto".
+   ============================================================ */
+.ti-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 18px;
+  height: 42px;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--gold, #6C3AED) 0%, color-mix(in srgb, var(--gold, #6C3AED) 75%, #1B1340) 100%);
+  border: 1px solid color-mix(in srgb, var(--gold, #6C3AED) 80%, #000);
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(108, 58, 237, 0.25), 0 1px 2px rgba(0,0,0,0.06);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease,
+    background 0.2s ease;
+}
+.ti-btn-primary i { font-size: 0.95rem; }
+.ti-btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 6px 20px rgba(108, 58, 237, 0.32), 0 2px 4px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
+}
+.ti-btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(108, 58, 237, 0.22);
+  filter: brightness(0.96);
+}
+.ti-btn-primary:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(108, 58, 237, 0.25),
+    0 4px 14px rgba(108, 58, 237, 0.25);
+}
+.ti-btn-primary:disabled,
+.ti-btn-primary[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.15);
+  box-shadow: none;
+  transform: none;
+}
+
+/* Variante quando aparece sozinho dentro do modal (Selecionar uma foto) */
+.ti-add-btn.ti-btn-primary {
+  margin-top: 14px;
+  width: 100%;
+  max-width: 260px;
+}
+
+@media (max-width: 600px) {
+  .ti-btn-primary { width: 100%; }
+  .ti-add-btn.ti-btn-primary { max-width: none; }
+}
+
+/* =========================================================
+   PATCH RESPONSIVO — Aba "Geral" com toggle ativo
+   Ajuste final para desktop em 100% de zoom e telas intermediárias
+   ========================================================= */
+
+#config-geral,
+#config-geral * {
+  box-sizing: border-box;
+}
+
+#config-geral,
+#config-geral .config-section,
+#config-geral .config-section-right,
+#config-geral .ac-link-box,
+#config-geral .ti-images-block,
+#config-geral .ti-images-header,
+#config-geral .ac-link-row,
+#config-geral .ti-link-row {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#config-geral .config-section {
+  align-items: flex-start;
+}
+
+#config-geral .config-section-right {
+  flex: 1 1 0%;
+  width: 100%;
+}
+
+#config-geral .ac-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+}
+
+#config-geral .ac-toggle-label {
+  flex: 1 1 260px;
+  min-width: 0;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#config-geral .ac-link-box {
+  width: 100%;
+  overflow: hidden;
+}
+
+#config-geral .ac-link-row,
+#config-geral .ti-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+#config-geral .ac-link-row input,
+#config-geral .ti-link-row input[type="text"] {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+#config-geral .ac-link-row .btn-secondary {
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
+.ti-images-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--gold-bg);
+  border: 1px solid var(--gold-border);
+  border-radius: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ti-images-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.ti-images-header h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.ti-images-desc {
+  margin: 0;
+  width: 100%;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.ti-images-block .ti-btn-primary,
+.ti-images-header .ti-btn-primary {
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.config-panel,
+.config-content,
+.tab-content {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.config-panel > * {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ti-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.ti-link-row input[type="text"] {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+@media (max-width: 1120px) {
+  #config-geral .config-section {
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  #config-geral .config-section-left,
+  #config-geral .config-section-right {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .ti-images-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ti-images-block .ti-btn-primary {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ============================================================
+   FIX: quando .ti-images-header vira coluna no mobile,
+   o flex-basis dos filhos (h4: 220px, botão: 100%) passa a
+   representar ALTURA, criando um box vazio enorme acima do botão.
+   Resetamos os filhos para altura automática.
+   ============================================================ */
+@media (max-width: 900px) {
+  .ti-images-header > * {
+    flex: 0 0 auto;
+  }
+  .ti-images-header h4 {
+    width: 100%;
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+  .ti-images-block {
+    gap: 10px;
+  }
+}
+
+@media (max-width: 560px) {
+  .ti-images-block {
+    padding: 12px;
+  }
+
+  .ti-images-header h4 {
+    font-size: 14px;
+  }
+
+  .ti-images-desc {
+    font-size: 12.5px;
+  }
+}
+
+/* =========================================================
+   PATCH RESPONSIVO — Botão "Adicionar imagens do agendamento"
+   Garante que o texto nunca vaze para fora do botão, mesmo
+   em containers estreitos (card de Configurações > Geral).
+   ========================================================= */
+
+.ti-btn-add-images {
+  /* libera o nowrap herdado do .ti-btn-primary */
+  white-space: normal;
+  /* permite altura variável quando o texto quebra em duas linhas */
+  height: auto;
+  min-height: 42px;
+  /* o botão pode encolher dentro do header flex */
+  max-width: 100%;
+  min-width: 0;
+  flex: 0 1 auto;
+  /* padding um pouco menor no eixo horizontal para sobrar espaço ao texto */
+  padding: 10px 14px;
+  line-height: 1.25;
+  text-align: center;
+  text-wrap: balance;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.ti-btn-add-images .ti-btn-label {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.ti-btn-add-images i {
+  flex: 0 0 auto;
+}
+
+/* Em telas intermediárias, o botão ocupa a largura toda do header */
+@media (max-width: 1280px) {
+  .ti-images-header .ti-btn-add-images {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+}
+
+/* No mobile, o header já é column — flex-basis 100% viraria altura.
+   Forçamos o botão a ter altura natural. */
+@media (max-width: 900px) {
+  .ti-images-header .ti-btn-add-images {
+    flex: 0 0 auto;
+    width: 100%;
+    height: auto;
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 560px) {
+  .ti-btn-add-images {
+    font-size: 0.82rem;
+    padding: 10px 12px;
+    gap: 6px;
+  }
 }
