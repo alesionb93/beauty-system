@@ -19,6 +19,65 @@
       .toLowerCase();
   }
 
+
+  /* Busca bloqueios do tenant para a data e profissionais informados,
+     convertendo cada bloqueio em uma "ocupação" (mesmo formato dos agendamentos).
+     Se a tabela não existir ainda no banco, retorna array vazio (graceful). */
+  async function fetchBloqueiosClienteAsOcupacoes(sb, tenantId, dataISO, profissionalIds) {
+    if (!sb || !tenantId || !dataISO || !profissionalIds || !profissionalIds.length) return [];
+
+    function toOcup(rows) {
+      return (rows || []).map(function(b){
+        var p1 = String(b.hora_inicio||'00:00').split(':');
+        var p2 = String(b.hora_fim||'00:00').split(':');
+        var ini = parseInt(p1[0],10)*60 + parseInt(p1[1]||'0',10);
+        var fim = parseInt(p2[0],10)*60 + parseInt(p2[1]||'0',10);
+        var dur = Math.max(fim - ini, 1);
+        return {
+          profissional_id: b.profissional_id,
+          hora: String(b.hora_inicio||'').slice(0,5),
+          duracao_total: dur
+        };
+      });
+    }
+
+    // 1) Caminho preferido: RPC pública (anon-friendly, SECURITY DEFINER).
+    //    Necessário pois RLS de `agenda_bloqueios` bloqueia leitura anônima.
+    try {
+      var rpc = await sb.rpc('get_public_agenda_bloqueios', {
+        _tenant_id: tenantId,
+        _data: dataISO,
+        _profissional_ids: profissionalIds
+      });
+      if (!rpc.error && Array.isArray(rpc.data)) {
+        return toOcup(rpc.data);
+      }
+      if (rpc.error) {
+        console.warn('[ac] RPC bloqueios indisponivel, tentando SELECT:', rpc.error.message);
+      }
+    } catch (e) {
+      console.warn('[ac] RPC bloqueios erro:', e && e.message);
+    }
+
+    // 2) Fallback: SELECT direto (funciona quando a sessao tem permissao).
+    try {
+      var resp = await sb
+        .from('agenda_bloqueios')
+        .select('profissional_id, hora_inicio, hora_fim')
+        .eq('tenant_id', tenantId)
+        .eq('data', dataISO)
+        .in('profissional_id', profissionalIds);
+      if (resp.error) {
+        console.warn('[ac] bloqueios indisponiveis:', resp.error.message);
+        return [];
+      }
+      return toOcup(resp.data);
+    } catch(e) {
+      console.warn('[ac] fetchBloqueiosClienteAsOcupacoes erro:', e && e.message);
+      return [];
+    }
+  }
+
   /* ============================================================
      0. UTILS
      ============================================================ */
@@ -193,6 +252,8 @@
             habilitado: !!rpcRow.permitir_agendamento_cliente,
             horario_inicio: String(rpcRow.horario_inicio || '09:00:00').slice(0, 5),
             horario_fim: String(rpcRow.horario_fim || '19:00:00').slice(0, 5),
+            // Novo: horários por dia da semana (jsonb). Pode vir nulo se a RPC for antiga.
+            horarios_semanais: rpcRow.horarios_semanais || null,
             slot_minutos: Number(rpcRow.slot_minutos || 15)
           };
         }
@@ -209,7 +270,7 @@
           ),
           withTimeout(
             sb.from('tenant_settings')
-              .select('permitir_agendamento_cliente, horario_inicio, horario_fim, slot_minutos')
+              .select('permitir_agendamento_cliente, horario_inicio, horario_fim, slot_minutos, horarios_semanais')
               .eq('tenant_id', tenantId)
               .maybeSingle(),
             REQ_TIMEOUT, 'tenant_settings'
@@ -247,6 +308,7 @@
           habilitado: habilitado,
           horario_inicio: (settingsRow && String(settingsRow.horario_inicio || '09:00:00').slice(0,5)) || '09:00',
           horario_fim: (settingsRow && String(settingsRow.horario_fim || '19:00:00').slice(0,5)) || '19:00',
+          horarios_semanais: (settingsRow && settingsRow.horarios_semanais) || null,
           slot_minutos: (settingsRow && settingsRow.slot_minutos) || 15
         };
       } catch (e) {
@@ -390,13 +452,15 @@
           'rpc:get_public_busy_slots'
         );
         if (!rpcResp.error && Array.isArray(rpcResp.data)) {
-          return rpcResp.data.map(function (a) {
+          var ocupRpc = rpcResp.data.map(function (a) {
             return {
               profissional_id: a.profissional_id,
               hora: String(a.hora).slice(0, 5),
               duracao_total: Number(a.duracao_total || 30)
             };
           });
+          var blqRpc = await fetchBloqueiosClienteAsOcupacoes(sb, this.tenantId, dataISO, profissionalIds);
+          return ocupRpc.concat(blqRpc);
         }
 
         var rA = await withTimeout(
@@ -424,13 +488,15 @@
             durMap[row.agendamento_id] = (durMap[row.agendamento_id] || 0) + Number(row.duracao || 0);
           });
         }
-        return rA.data.map(function (a) {
+        var ocupFb = rA.data.map(function (a) {
           return {
             profissional_id: a.profissional_id,
             hora: String(a.hora).slice(0, 5),
             duracao_total: durMap[a.id] || 30
           };
         });
+        var blqFb = await fetchBloqueiosClienteAsOcupacoes(sb, this.tenantId, dataISO, profissionalIds);
+        return ocupFb.concat(blqFb);
       } catch (e) {
         console.error('[ac] listarAgendamentosDoDia timeout/erro', e && e.message);
         return [];
@@ -669,9 +735,43 @@
   /* ============================================================
      6. CÁLCULO DE SLOTS
      ============================================================ */
-  function buildAllSlots() {
-    var hi = parseInt((state.tenant.horario_inicio || '09:00').split(':')[0], 10);
-    var hf = parseInt((state.tenant.horario_fim || '19:00').split(':')[0], 10);
+
+  /* Mapeia ISO 'YYYY-MM-DD' (ou Date) para o horário daquele dia da semana,
+     respeitando state.tenant.horarios_semanais (jsonb).
+     Retorna { ativo, inicio, fim }. Fallback = horario_inicio/fim "globais". */
+  var DIA_KEYS_AC = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'];
+  function getHorarioForDate(isoOrDate) {
+    var dt;
+    if (isoOrDate instanceof Date) {
+      dt = isoOrDate;
+    } else {
+      var p = String(isoOrDate).split('-');
+      dt = new Date(parseInt(p[0],10), parseInt(p[1],10) - 1, parseInt(p[2],10));
+    }
+    var dow = dt.getDay();
+    var fbInicio = (state.tenant && state.tenant.horario_inicio) || '09:00';
+    var fbFim    = (state.tenant && state.tenant.horario_fim)    || '19:00';
+    var hs = state.tenant && state.tenant.horarios_semanais;
+    if (!hs) {
+      return { ativo: true, inicio: fbInicio, fim: fbFim };
+    }
+    var key = DIA_KEYS_AC[dow];
+    var d = hs[key];
+    if (!d) return { ativo: true, inicio: fbInicio, fim: fbFim };
+    return {
+      ativo: d.ativo !== false,
+      inicio: d.inicio ? String(d.inicio).slice(0,5) : fbInicio,
+      fim:    d.fim    ? String(d.fim).slice(0,5)    : fbFim
+    };
+  }
+
+  function buildAllSlots(horarioDia) {
+    var hd = horarioDia || (state.selectedDate ? getHorarioForDate(state.selectedDate) : { inicio: state.tenant.horario_inicio, fim: state.tenant.horario_fim, ativo: true });
+    if (!hd.ativo) return [];
+    var hi = parseInt(String(hd.inicio || '09:00').split(':')[0], 10);
+    var hfStr = String(hd.fim || '19:00').split(':');
+    var hf = parseInt(hfStr[0], 10);
+    if (parseInt(hfStr[1] || '0', 10) > 0) hf = hf + 1; // engloba 18:30 → vai até 19
     var step = state.tenant.slot_minutos || 15;
     var slots = [];
     for (var h = hi; h < hf; h++) {
@@ -680,9 +780,12 @@
     return slots;
   }
   function slotToMinutes(hhmm) { var p = hhmm.split(':'); return parseInt(p[0],10)*60 + parseInt(p[1],10); }
-  function isProfFree(profId, slot, duracao, ocupacoes) {
+  function isProfFree(profId, slot, duracao, ocupacoes, horarioDia) {
     var inicio = slotToMinutes(slot), fim = inicio + duracao;
-    var fimExp = parseInt((state.tenant.horario_fim || '19:00').split(':')[0], 10) * 60;
+    var hd = horarioDia || (state.selectedDate ? getHorarioForDate(state.selectedDate) : { fim: state.tenant.horario_fim, ativo: true });
+    if (!hd.ativo) return false;
+    var fimParts = String(hd.fim || '19:00').split(':');
+    var fimExp = parseInt(fimParts[0], 10) * 60 + parseInt(fimParts[1] || '0', 10);
     if (fim > fimExp) return false;
     return !ocupacoes.filter(function (a) { return a.profissional_id === profId; })
       .some(function (a) {
@@ -690,8 +793,8 @@
         return inicio < of && fim > oi;
       });
   }
-  function profsLivresNoSlot(slot, duracao, ocupacoes, candidatos) {
-    return candidatos.filter(function (p) { return isProfFree(p.id, slot, duracao, ocupacoes); });
+  function profsLivresNoSlot(slot, duracao, ocupacoes, candidatos, horarioDia) {
+    return candidatos.filter(function (p) { return isProfFree(p.id, slot, duracao, ocupacoes, horarioDia); });
   }
 
   /* ============================================================
@@ -979,10 +1082,15 @@
       var dt = new Date(state.calYear, state.calMonth, d);
       var iso = state.calYear + '-' + pad(state.calMonth+1) + '-' + pad(d);
       var dow = dows[dt.getDay()];
-      var disabled = dt < todayD ? 'disabled' : '';
+      // Dia desabilitado se: passado OU estabelecimento fechado naquele dia da semana
+      var horarioDow = getHorarioForDate(dt);
+      var fechadoNoDow = !horarioDow.ativo;
+      var disabled = (dt < todayD || fechadoNoDow) ? 'disabled' : '';
+      var closedCls = fechadoNoDow ? 'ac-cal-closed' : '';
       var isToday = dt.getTime() === todayD.getTime() ? 'today' : '';
       var sel = state.selectedDate === iso ? 'selected' : '';
-      html += '<button type="button" class="ac-cal-day ' + disabled + ' ' + isToday + ' ' + sel + '" data-date="' + iso + '">' +
+      var title = fechadoNoDow ? ' title="Fechado neste dia"' : '';
+      html += '<button type="button" class="ac-cal-day ' + disabled + ' ' + closedCls + ' ' + isToday + ' ' + sel + '" data-date="' + iso + '"' + title + '>' +
         '<span class="dow">' + dow + '</span><span class="num">' + d + '</span></button>';
     }
     cal.innerHTML = html;
@@ -1002,6 +1110,16 @@
     var wrap = $('#ac-slots'), empty = $('#ac-slots-empty');
     if (!state.selectedDate) { wrap.innerHTML = ''; empty.hidden = false; return; }
 
+    // Se o estabelecimento estiver fechado neste dia da semana → bloqueia
+    var horarioDia = getHorarioForDate(state.selectedDate);
+    if (!horarioDia.ativo) {
+      wrap.innerHTML = '';
+      empty.hidden = false;
+      var msgEl = empty.querySelector('p');
+      if (msgEl) msgEl.textContent = 'Estabelecimento fechado neste dia. Escolha outra data.';
+      return;
+    }
+
     var servico = state.selectedServico;
     var prof = state.selectedProfissional;
     var candidatos = prof.id === '__no_pref__' ? state.profissionais : [prof];
@@ -1012,12 +1130,12 @@
     var ocup = await TenantDataService.listarAgendamentosDoDia(state.selectedDate, candidatoIds);
     state.ocupacoesCache = ocup;
 
-    var allSlots = buildAllSlots();
+    var allSlots = buildAllSlots(horarioDia);
     var hoje = new Date(); hoje.setSeconds(0,0);
     var isHoje = state.selectedDate === todayISO();
     var manha = [], tarde = [];
     allSlots.forEach(function (slot) {
-      var livres = profsLivresNoSlot(slot, servico.duracao, ocup, candidatos);
+      var livres = profsLivresNoSlot(slot, servico.duracao, ocup, candidatos, horarioDia);
       var disponivel = livres.length > 0;
       if (isHoje) {
         var slotDate = new Date(state.selectedDate + 'T' + slot + ':00');

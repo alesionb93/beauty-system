@@ -516,6 +516,34 @@
 
             <!-- ABA: Geral (Agendamento Cliente) -->
             <div class="config-panel active" id="config-geral">
+
+              <!-- ============================================================
+                   HORÁRIO COMERCIAL (semanal)
+                   Define abertura/fechamento por dia da semana. Persistido em
+                   tenant_settings.horarios_semanais (jsonb) com fallback p/
+                   horario_inicio/horario_fim (compatibilidade).
+                   ============================================================ -->
+              <div class="config-section">
+                <div class="config-section-left">
+                  <h3>Horário comercial</h3>
+                  <p class="config-help-text">
+                    Defina o horário de funcionamento por dia da semana.
+                    Dias desativados aparecerão como “Fechado” e bloqueiam
+                    novos agendamentos (na agenda interna e no link público).
+                  </p>
+                </div>
+                <div class="config-section-right">
+                  <div class="hc-trigger-card">
+                    <button type="button" class="hc-trigger-btn" onclick="abrirModalHorarioComercial()">
+                      <i class="fa-regular fa-clock"></i>
+                      <span>Definir horário comercial</span>
+                    </button>
+                    <p class="hc-resumo" id="hc-resumo-text">Carregando…</p>
+                  </div>
+                  <p class="ac-feedback" id="cfg-horario-feedback" style="display:none;"></p>
+                </div>
+              </div>
+
               <div class="config-section">
                 <div class="config-section-left">
                   <h3>Agendamento pelo cliente</h3>
@@ -1415,23 +1443,9 @@
           <div class="form-group">
             <label>Hora</label>
             <div style="display:flex;gap:8px;align-items:center;">
-              <select id="ag-hora-h" required style="flex:1;">
-                <option value="07">07</option>
-                <option value="08">08</option>
-                <option value="09" selected>09</option>
-                <option value="10">10</option>
-                <option value="11">11</option>
-                <option value="12">12</option>
-                <option value="13">13</option>
-                <option value="14">14</option>
-                <option value="15">15</option>
-                <option value="16">16</option>
-                <option value="17">17</option>
-                <option value="18">18</option>
-                <option value="19">19</option>
-                <option value="20">20</option>
-                <option value="21">21</option>
-              </select>
+              <!-- Opções populadas dinamicamente em populateAgHoraSelect()
+                   conforme o horário comercial configurado em tenant_settings -->
+              <select id="ag-hora-h" required style="flex:1;"></select>
               <span style="font-weight:600;color:var(--text-muted);">:</span>
               <select id="ag-minuto" required style="flex:1;">
                 <option value="00" selected>00</option>
@@ -2153,6 +2167,137 @@
         <button type="button" class="btn-cancel" onclick="closeCropper()">Cancelar</button>
         <button type="button" class="btn-submit" onclick="confirmCropper()">
           <i class="fa-solid fa-check"></i> Usar este recorte
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+       MODAL: Bloquear horário
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-bloqueio">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-bloqueio-titulo"><i class="fa-solid fa-lock" style="margin-right:6px;"></i> Bloquear horário</h3>
+        <button class="modal-close" onclick="closeModal('modal-bloqueio')">&times;</button>
+      </div>
+      <form id="form-bloqueio" onsubmit="salvarBloqueio(event)">
+        <input type="hidden" id="bloq-id" value="">
+
+        <div class="form-group">
+          <label>Profissional</label>
+          <select id="bloq-profissional" required></select>
+        </div>
+
+        <div class="form-group">
+          <label>Data</label>
+          <input type="date" id="bloq-data" required>
+        </div>
+
+        <div class="form-group">
+          <label class="bloq-toggle-row">
+            <input type="checkbox" id="bloq-dia-inteiro">
+            <span>Dia inteiro</span>
+          </label>
+        </div>
+
+        <div class="form-row" id="bloq-horarios-row">
+          <div class="form-group">
+            <label>Início</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="bloq-hora-ini-h" required style="flex:1;"></select>
+              <span style="font-weight:600;color:var(--text-muted);">:</span>
+              <select id="bloq-hora-ini-m" required style="flex:1;">
+                <option value="00" selected>00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Fim</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="bloq-hora-fim-h" required style="flex:1;"></select>
+              <span style="font-weight:600;color:var(--text-muted);">:</span>
+              <select id="bloq-hora-fim-m" required style="flex:1;">
+                <option value="00" selected>00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Motivo (opcional)</label>
+          <input type="text" id="bloq-motivo" maxlength="120" placeholder="Ex: Almoço, reunião, folga...">
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-delete" id="btn-excluir-bloqueio" onclick="confirmarExclusaoBloqueio()" style="display:none;">
+            <i class="fa-solid fa-trash"></i> Excluir bloqueio
+          </button>
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-bloqueio')">Cancelar</button>
+          <button type="submit" class="btn-submit"><i class="fa-solid fa-lock"></i> Bloquear horário</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal de confirmação de exclusão de bloqueio -->
+  <div class="modal-overlay" id="modal-confirmar-exclusao-bloqueio">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h3>Excluir bloqueio?</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-exclusao-bloqueio')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted);margin-bottom:20px;">Esta ação não pode ser desfeita. O horário voltará a ficar disponível para agendamentos.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-confirmar-exclusao-bloqueio')">Cancelar</button>
+        <button type="button" class="btn-delete" onclick="excluirBloqueio()"><i class="fa-solid fa-trash"></i> Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Menu rápido: clique em horário vazio da agenda -->
+  <div class="agenda-quick-menu" id="agenda-quick-menu" hidden>
+    <button type="button" data-action="novo"><i class="fa-solid fa-plus"></i> Novo agendamento</button>
+    <button type="button" data-action="bloquear"><i class="fa-solid fa-lock"></i> Bloquear horário</button>
+  </div>
+
+  <!-- ============================================================
+       MODAL: Horário comercial
+       Substitui a exibição inline na aba Geral. Reutiliza o mesmo
+       container #cfg-horario-semanal renderizado por renderHorarioSemanalUI().
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-horario-comercial">
+    <div class="modal modal-lg modal-horario">
+      <div class="modal-header">
+        <h3>Horário comercial</h3>
+        <button class="modal-close" onclick="cancelarHorarioComercial()" aria-label="Fechar">&times;</button>
+      </div>
+
+      <div class="modal-horario-body">
+        <div class="hc-toolbar">
+          <button type="button" class="hc-link-btn" onclick="aplicarHorarioParaTodos()">
+            <i class="fa-regular fa-clone"></i> Aplicar segunda para todos os dias
+          </button>
+        </div>
+
+        <div class="hc-week-list" id="cfg-horario-semanal">
+          <!-- Linhas geradas via renderHorarioSemanalUI() em script.js -->
+        </div>
+
+        <p class="ac-feedback" id="modal-horario-feedback" style="display:none;"></p>
+      </div>
+
+      <div class="modal-actions modal-horario-actions">
+        <button type="button" class="btn-cancel" onclick="cancelarHorarioComercial()">Cancelar</button>
+        <button type="button" class="btn-submit btn-salvar-horario" onclick="salvarHorarioComercial()">
+          Salvar alterações
         </button>
       </div>
     </div>

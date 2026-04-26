@@ -13,6 +13,7 @@ var professionalAvatars = {};
 
 var clients = [];
 var appointments = [];
+var bloqueios = []; // Lista de bloqueios de horário do tenant
 var editingAppointmentId = null;
 var editingClientId = null;
 var pendingClienteFromIdentificacao = null;
@@ -27,6 +28,92 @@ var today = new Date();
 var currentMonth = today.getMonth();
 var currentYear = today.getFullYear();
 var selectedDay = today.getDate();
+
+/* ===== HORÁRIO COMERCIAL (carregado de tenant_settings) =====
+   Agora suportamos horário POR DIA DA SEMANA.
+   BUSINESS_HOURS_BY_DAY[0..6]:
+     - 0 = domingo, 1 = segunda, ..., 6 = sábado (igual a Date#getDay())
+     - { ativo:true, inicio:'09:00', fim:'18:00' }  ou  { ativo:false }
+   BUSINESS_HOUR_START/END continuam existindo como "envelope" do
+   intervalo (mínimo de abertura — máximo de fechamento entre os dias
+   ativos). São usados pelos selects de hora do modal de novo agendamento
+   para oferecer todas as horas possíveis na semana. A validação real
+   por dia acontece no save. */
+var DEFAULT_HORARIO_DIA = { ativo: true, inicio: '07:00', fim: '21:00' };
+var BUSINESS_HOURS_BY_DAY = [
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 0 dom
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 1 seg
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 2 ter
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 3 qua
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 4 qui
+  Object.assign({}, DEFAULT_HORARIO_DIA), // 5 sex
+  Object.assign({}, DEFAULT_HORARIO_DIA)  // 6 sab
+];
+var BUSINESS_HOUR_START = 7;
+var BUSINESS_HOUR_END = 21;
+
+/* Mapeia chave textual <-> índice Date#getDay() */
+var DIA_KEYS = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'];
+var DIA_LABELS = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
+
+/* Recalcula o "envelope" global a partir da configuração semanal */
+function recomputeBusinessEnvelope() {
+  var minH = null, maxH = null;
+  for (var i = 0; i < 7; i++) {
+    var d = BUSINESS_HOURS_BY_DAY[i];
+    if (!d || !d.ativo) continue;
+    var hi = parseInt(String(d.inicio || '07:00').split(':')[0], 10);
+    var hfStr = String(d.fim || '21:00').split(':');
+    var hf = parseInt(hfStr[0], 10);
+    var mf = parseInt(hfStr[1] || '0', 10);
+    if (mf > 0) hf = hf + 1;
+    if (isNaN(hi) || isNaN(hf)) continue;
+    if (minH === null || hi < minH) minH = hi;
+    if (maxH === null || hf > maxH) maxH = hf;
+  }
+  if (minH === null) { minH = 7; maxH = 21; } // tudo fechado → fallback p/ select
+  BUSINESS_HOUR_START = Math.max(0, Math.min(23, minH));
+  BUSINESS_HOUR_END   = Math.max(BUSINESS_HOUR_START, Math.min(23, maxH));
+}
+
+/* Retorna a config do dia para uma data (Date ou 'YYYY-MM-DD') */
+function getHorarioDoDia(dateOrStr) {
+  var dt;
+  if (dateOrStr instanceof Date) {
+    dt = dateOrStr;
+  } else if (typeof dateOrStr === 'string') {
+    var p = dateOrStr.split('-');
+    dt = new Date(parseInt(p[0],10), parseInt(p[1],10) - 1, parseInt(p[2],10));
+  } else {
+    dt = new Date();
+  }
+  var idx = dt.getDay();
+  return BUSINESS_HOURS_BY_DAY[idx] || Object.assign({}, DEFAULT_HORARIO_DIA);
+}
+
+/* Normaliza um payload jsonb vindo do banco em um array indexado 0..6 */
+function parseHorariosSemanais(jsonb, fallbackInicio, fallbackFim) {
+  var fb = {
+    ativo: true,
+    inicio: (fallbackInicio && String(fallbackInicio).slice(0,5)) || '07:00',
+    fim:    (fallbackFim    && String(fallbackFim).slice(0,5))    || '21:00'
+  };
+  var arr = [];
+  for (var i = 0; i < 7; i++) {
+    var key = DIA_KEYS[i];
+    var src = jsonb && jsonb[key];
+    if (!src) {
+      arr.push(Object.assign({}, fb));
+    } else {
+      arr.push({
+        ativo: src.ativo !== false,
+        inicio: src.inicio ? String(src.inicio).slice(0,5) : fb.inicio,
+        fim:    src.fim    ? String(src.fim).slice(0,5)    : fb.fim
+      });
+    }
+  }
+  return arr;
+}
 
 var profColors = {};
 var profColorPalette = ['#5bc0de', '#9b59b6', '#e91e90', '#2ecc71', '#e67e22', '#3498db', '#e74c3c', '#1abc9c', '#f39c12', '#8e44ad'];
@@ -1078,7 +1165,10 @@ document.addEventListener('DOMContentLoaded', async function() {
   await loadCores();
   await loadCorConfig();
   await loadClients();
+  // Carrega horário comercial ANTES dos agendamentos para que a timeline já renderize correta
+  try { await carregarConfigGeral(); } catch (_) {}
   await loadAppointments();
+  await loadBloqueios();
 
   // Navigation
   document.querySelectorAll('.nav-btn').forEach(function(btn) {
@@ -1272,31 +1362,55 @@ function setupIdentificacaoModal() {
   }
 }
 
-// Busca por NOME (parcial, ILIKE) — limite 10
+// ✅ Normalização accent-insensitive + case-insensitive
+// Remove acentos (NFD + remove diacríticos) e converte para minúsculas
+function normalizeText(text) {
+  if (text == null) return '';
+  return String(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+// Cache de nomes normalizados (evita recalcular a cada tecla digitada)
+// É invalidado sempre que `clients` é recarregado/atualizado.
+var _clientsNormCache = { ref: null, map: null };
+function getClientsNormalized() {
+  if (_clientsNormCache.ref === clients && _clientsNormCache.map) {
+    return _clientsNormCache.map;
+  }
+  var map = (clients || []).map(function(c) {
+    return { c: c, nomeNorm: normalizeText(c.nome || '') };
+  });
+  _clientsNormCache.ref = clients;
+  _clientsNormCache.map = map;
+  return map;
+}
+
+// Busca por NOME — local, accent-insensitive e case-insensitive
+// Usa o cache `clients` (já carregado por loadClients), sem ida ao banco.
 async function buscarClientesPorNome(termo) {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
-
-  var resp = await supabaseClient
-    .from('clientes')
-    .select('id, nome, telefone, nascimento, updated_at, created_at')
-    .eq('tenant_id', tenantId)
-    .ilike('nome', '%' + termo + '%')
-    .order('updated_at', { ascending: false })
-    .limit(10);
-
-  if (resp.error) {
-    console.error('Erro buscar por nome:', resp.error);
-    var status = document.getElementById('id-nome-status');
-    if (status) {
-      status.style.display = 'block';
-      status.classList.add('error');
-      status.textContent = 'Erro ao buscar clientes. Tente novamente.';
-    }
+  var termoNorm = normalizeText(termo || '').trim();
+  if (!termoNorm) {
+    renderResultadosBuscaNome([], termo);
     return;
   }
 
-  renderResultadosBuscaNome(resp.data || [], termo);
+  // Garante cache populado (caso usuário abra a busca antes do load completar)
+  if (!clients || clients.length === 0) {
+    try { await loadClients(); } catch (e) { console.error('loadClients falhou:', e); }
+  }
+
+  var normalizados = getClientsNormalized();
+  var encontrados = [];
+  for (var i = 0; i < normalizados.length; i++) {
+    if (normalizados[i].nomeNorm.indexOf(termoNorm) !== -1) {
+      encontrados.push(normalizados[i].c);
+      if (encontrados.length >= 10) break;
+    }
+  }
+
+  renderResultadosBuscaNome(encontrados, termo);
 }
 
 function renderResultadosBuscaNome(lista, termo) {
@@ -1685,10 +1799,25 @@ function renderDayDetail() {
   document.getElementById('day-detail-header').textContent = weekday + ', ' + formatted;
 
   var dateStr = currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay);
-  var dayAppointments = appointments.filter(function(a) { return a.data === dateStr && appointmentMatchesFilter(a); });
-  dayAppointments.sort(function(a, b) { return a.hora.localeCompare(b.hora); });
+  var horarioDia = getHorarioDoDia(date);
 
   var container = document.getElementById('day-appointments');
+
+  // Dia fechado → bloqueia agenda
+  if (!horarioDia.ativo) {
+    container.className = '';
+    container.innerHTML =
+      '<div class="no-appointments is-closed">' +
+        '<i class="fa-regular fa-circle-xmark"></i>' +
+        '<p><strong>Estabelecimento fechado neste dia</strong></p>' +
+        '<p style="font-size:.85rem;opacity:.8;margin-top:4px;">' +
+        'Configure o horário comercial em Configurações &rsaquo; Geral.</p>' +
+      '</div>';
+    return;
+  }
+
+  var dayAppointments = appointments.filter(function(a) { return a.data === dateStr && appointmentMatchesFilter(a); });
+  dayAppointments.sort(function(a, b) { return a.hora.localeCompare(b.hora); });
 
   if (dayAppointments.length === 0) {
     container.className = '';
@@ -1706,9 +1835,9 @@ function renderDayDetail() {
   var showMultiAgenda = isAdmin() && activeFilters.length > 1;
 
   if (showMultiAgenda) {
-    renderMultiAgenda(container, dayEvents, dateStr);
+    renderMultiAgenda(container, dayEvents, dateStr, horarioDia);
   } else {
-    renderSingleTimeline(container, dayEvents);
+    renderSingleTimeline(container, dayEvents, horarioDia);
   }
 }
 
@@ -1767,10 +1896,20 @@ function assignColumns(group) {
   return { map: result, totalCols: columns.length };
 }
 
-function renderSingleTimeline(container, dayEvents) {
+function renderSingleTimeline(container, dayEvents, horarioDia) {
   container.className = 'timeline-container';
-  var html = '<div class="timeline">';
-  for (var h = 7; h <= 21; h++) {
+  var hStart = horarioDia ? parseInt(String(horarioDia.inicio).split(':')[0], 10) : BUSINESS_HOUR_START;
+  var hFimRaw = horarioDia ? String(horarioDia.fim).split(':') : [String(BUSINESS_HOUR_END), '0'];
+  var hEnd = parseInt(hFimRaw[0], 10);
+  if (parseInt(hFimRaw[1] || '0', 10) > 0) hEnd = hEnd + 1;
+  if (isNaN(hStart)) hStart = BUSINESS_HOUR_START;
+  if (isNaN(hEnd)) hEnd = BUSINESS_HOUR_END;
+  // Expõe início do dia para os blocos calcularem seu top relativo
+  container.dataset.hourStart = String(hStart);
+  // Altura proporcional ao intervalo do dia (1 min = 1px)
+  var tlHeight = (hEnd - hStart + 1) * 60;
+  var html = '<div class="timeline" style="min-height:' + tlHeight + 'px;">';
+  for (var h = hStart; h <= hEnd; h++) {
     html += '<div class="timeline-row"><div class="timeline-hour">' + pad(h) + ':00</div><div class="timeline-slot" data-hour="' + h + '"></div></div>';
   }
   html += '<div class="timeline-blocks" id="timeline-blocks"></div></div>';
@@ -1781,13 +1920,21 @@ function renderSingleTimeline(container, dayEvents) {
   groups.forEach(function(group) {
     var cols = assignColumns(group);
     group.forEach(function(ev) {
-      renderTimelineBlock(blocksContainer, ev, cols.map[ev.id], cols.totalCols);
+      renderTimelineBlock(blocksContainer, ev, cols.map[ev.id], cols.totalCols, hStart);
     });
   });
 }
 
-function renderMultiAgenda(container, dayEvents, dateStr) {
+function renderMultiAgenda(container, dayEvents, dateStr, horarioDia) {
   container.className = 'multi-agenda-container';
+  var hStart = horarioDia ? parseInt(String(horarioDia.inicio).split(':')[0], 10) : BUSINESS_HOUR_START;
+  var hFimRaw = horarioDia ? String(horarioDia.fim).split(':') : [String(BUSINESS_HOUR_END), '0'];
+  var hEnd = parseInt(hFimRaw[0], 10);
+  if (parseInt(hFimRaw[1] || '0', 10) > 0) hEnd = hEnd + 1;
+  if (isNaN(hStart)) hStart = BUSINESS_HOUR_START;
+  if (isNaN(hEnd)) hEnd = BUSINESS_HOUR_END;
+  container.dataset.hourStart = String(hStart);
+
   var html = '<div class="multi-agenda">';
   html += '<div class="multi-agenda-header"><div class="timeline-hour-header"></div>';
   activeFilters.forEach(function(name) {
@@ -1795,7 +1942,7 @@ function renderMultiAgenda(container, dayEvents, dateStr) {
     html += '<div class="multi-agenda-col-header">' + avatarHtml + '<span>' + name + '</span></div>';
   });
   html += '</div><div class="multi-agenda-body">';
-  for (var h = 7; h <= 21; h++) {
+  for (var h = hStart; h <= hEnd; h++) {
     html += '<div class="multi-agenda-row"><div class="timeline-hour">' + pad(h) + ':00</div>';
     activeFilters.forEach(function(name) { html += '<div class="multi-agenda-cell" data-prof="' + name + '" data-hour="' + h + '"></div>'; });
     html += '</div>';
@@ -1816,17 +1963,18 @@ function renderMultiAgenda(container, dayEvents, dateStr) {
       var totalSubCols = cols.totalCols;
       group.forEach(function(ev) {
         var subCol = cols.map[ev.id];
-        renderTimelineBlockMulti(blocksEl, ev, colIdx, activeFilters.length, subCol, totalSubCols);
+        renderTimelineBlockMulti(blocksEl, ev, colIdx, activeFilters.length, subCol, totalSubCols, hStart);
       });
     });
   });
 }
 
-function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, totalSubCols) {
+function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, totalSubCols, hourStartOverride) {
   var parts = ev.hora.split(':');
   var hourNum = parseInt(parts[0]);
   var minNum = parseInt(parts[1] || 0);
-  var startMinutes = (hourNum - 7) * 60 + minNum;
+  var hStart = (typeof hourStartOverride === 'number') ? hourStartOverride : BUSINESS_HOUR_START;
+  var startMinutes = (hourNum - hStart) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
   var heightPx = Math.max(duration, 1);
@@ -1853,11 +2001,12 @@ function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, tota
   container.appendChild(block);
 }
 
-function renderTimelineBlock(container, ev, colIdx, totalCols) {
+function renderTimelineBlock(container, ev, colIdx, totalCols, hourStartOverride) {
   var parts = ev.hora.split(':');
   var hourNum = parseInt(parts[0]);
   var minNum = parseInt(parts[1] || 0);
-  var startMinutes = (hourNum - 7) * 60 + minNum;
+  var hStart = (typeof hourStartOverride === 'number') ? hourStartOverride : BUSINESS_HOUR_START;
+  var startMinutes = (hourNum - hStart) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
   var heightPx = Math.max(duration, 1);
@@ -1919,14 +2068,38 @@ function openAgendamentoModal(agId, clienteNome, clienteTel) {
   document.getElementById('btn-excluir-agendamento').style.display = agId ? 'flex' : 'none';
   document.getElementById('servicos-container').innerHTML = '';
 
+  // (Re)popula o select de horas conforme horário comercial atual
+  populateAgHoraSelect();
+
   if (!agId) {
     adicionarBlocoServico();
     document.getElementById('ag-data').value = formatDateInput(new Date(currentYear, currentMonth, selectedDay));
-    document.getElementById('ag-hora-h').value = '09';
+    var defaultH = pad(BUSINESS_HOUR_START);
+    document.getElementById('ag-hora-h').value = defaultH;
     document.getElementById('ag-minuto').value = '00';
   }
 
   openModal('modal-agendamento');
+}
+
+/* Popula <select id="ag-hora-h"> com as horas dentro do horário comercial */
+function populateAgHoraSelect() {
+  var sel = document.getElementById('ag-hora-h');
+  if (!sel) return;
+  var prev = sel.value;
+  var html = '';
+  for (var h = BUSINESS_HOUR_START; h <= BUSINESS_HOUR_END; h++) {
+    html += '<option value="' + pad(h) + '">' + pad(h) + '</option>';
+  }
+  sel.innerHTML = html;
+  // Mantém valor anterior se ainda válido
+  if (prev) {
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === prev) { found = true; break; }
+    }
+    if (found) sel.value = prev;
+  }
 }
 
 function openAgendamentoParaEditar(a) {
@@ -2442,15 +2615,32 @@ function renderClients() {
     }
     var bIcon = isBirthday ? ' <i class="fa-solid fa-cake-candles birthday-icon"></i>' : '';
     var safeName = String(c.nome || '').replace(/"/g, '&quot;');
+    // SVG silhouettes (Lucide-style) — inline com currentColor para herdar a cor do tema
+    var svgUser = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    var svgPhone = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
+    var svgCake = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/><path d="M7 4h.01"/><path d="M12 4h.01"/><path d="M17 4h.01"/></svg>';
     tr.innerHTML =
-      '<td>' + c.nome + bIcon + '</td>' +
-      '<td>' + formatTelefoneDisplay(c.telefone) + '</td>' +
-      '<td>' + birthFormatted + '</td>' +
-      '<td class="col-acoes">' +
+      '<td class="cell-icon-name" data-label="Nome">' +
+        '<span class="cell-icon-svg">' + svgUser + '</span>' +
+        '<span class="cell-label">Nome</span>' +
+        '<span class="cell-value cell-value-name">' + c.nome + bIcon + '</span>' +
+      '</td>' +
+      '<td class="cell-icon-phone" data-label="Telefone">' +
+        '<span class="cell-icon-svg">' + svgPhone + '</span>' +
+        '<span class="cell-label">Telefone</span>' +
+        '<span class="cell-value cell-value-phone">' + formatTelefoneDisplay(c.telefone) + '</span>' +
+      '</td>' +
+      '<td class="cell-icon-birth" data-label="Nascimento">' +
+        '<span class="cell-icon-svg">' + svgCake + '</span>' +
+        '<span class="cell-label">Nascimento</span>' +
+        '<span class="cell-value">' + birthFormatted + '</span>' +
+      '</td>' +
+      '<td class="col-acoes" data-label="Ações">' +
         '<button type="button" class="btn-edit-client" ' +
           'data-client-id="' + c.id + '" ' +
           'title="Editar cliente" aria-label="Editar ' + safeName + '">' +
           '<i class="fa-solid fa-pen"></i>' +
+          '<span class="btn-edit-client-label">Editar</span>' +
         '</button>' +
       '</td>';
     // Listener do botão editar (impede abrir o histórico)
@@ -3959,6 +4149,18 @@ async function initConfiguracoes() {
   });
 
   if (isAdmin()) { await loadUsuarios(); renderUsuarios(); }
+
+  // ✅ FIX: garantir que a aba "Geral" (Horário comercial + feature flag)
+  // seja sempre carregada quando o usuário entra em Configurações.
+  // 1) Renderiza a UI semanal IMEDIATAMENTE com os defaults (não depende
+  //    de ida ao banco) — assim o usuário sempre vê os 7 dias na tela.
+  // 2) Em seguida tenta carregar do banco para sobrescrever com os valores reais.
+  try {
+    if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI();
+  } catch (_) {}
+  if (typeof carregarConfigGeral === 'function') {
+    try { await carregarConfigGeral(); } catch (_) {}
+  }
 }
 
 async function loadCurrentUsuario() {
@@ -5352,28 +5554,346 @@ document.addEventListener('DOMContentLoaded', function() {
    ============================================================ */
 async function carregarConfigGeral() {
   var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
+  if (!tenantId) {
+    // Sem tenant ainda? Renderiza a UI com defaults para o usuário poder
+    // pelo menos visualizar a estrutura (será re-renderizada quando logar).
+    try { renderHorarioSemanalUI(); } catch (_) {}
+    return;
+  }
   try {
-    // Caminho preferido: RPC (ignora RLS via SECURITY DEFINER)
-    var rpc = await supabaseClient.rpc('get_tenant_settings', { p_tenant: tenantId });
+    // Lê SEMPRE direto da tabela. Inclui horarios_semanais (jsonb) novo
+    // + horario_inicio/horario_fim (legado, usado como fallback).
+    var resp = await supabaseClient
+      .from('tenant_settings')
+      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais')
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
     var on = false;
-    if (!rpc.error && rpc.data && rpc.data.length) {
-      on = !!rpc.data[0].permitir_agendamento_cliente;
+    var hIniLegacy = '07:00';
+    var hFimLegacy = '21:00';
+    var horariosJsonb = null;
+
+    if (resp && resp.data) {
+      on = !!resp.data.permitir_agendamento_cliente;
+      if (resp.data.horario_inicio) hIniLegacy = String(resp.data.horario_inicio).slice(0, 5);
+      if (resp.data.horario_fim)    hFimLegacy = String(resp.data.horario_fim).slice(0, 5);
+      horariosJsonb = resp.data.horarios_semanais || null;
     } else {
-      // Fallback: leitura direta (caso a RPC ainda não exista)
-      var resp = await supabaseClient
-        .from('tenant_settings')
-        .select('permitir_agendamento_cliente')
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-      on = !!(resp.data && resp.data.permitir_agendamento_cliente);
+      // Fallback via RPC (RLS, etc)
+      try {
+        var rpc = await supabaseClient.rpc('get_tenant_settings', { p_tenant: tenantId });
+        if (!rpc.error && rpc.data && rpc.data.length) {
+          on = !!rpc.data[0].permitir_agendamento_cliente;
+          if (rpc.data[0].horario_inicio) hIniLegacy = String(rpc.data[0].horario_inicio).slice(0, 5);
+          if (rpc.data[0].horario_fim)    hFimLegacy = String(rpc.data[0].horario_fim).slice(0, 5);
+          horariosJsonb = rpc.data[0].horarios_semanais || null;
+        }
+      } catch (_) { /* mantém defaults */ }
     }
+
+    // Atualiza UI da feature flag (Agendamento pelo cliente)
     var chk = document.getElementById('cfg-permitir-agendamento-cliente');
     if (chk) chk.checked = on;
     atualizarLinkAgendamentoCliente(on);
+
+    // Aplica horário semanal às variáveis globais (com fallback p/ legacy)
+    BUSINESS_HOURS_BY_DAY = parseHorariosSemanais(horariosJsonb, hIniLegacy, hFimLegacy);
+    recomputeBusinessEnvelope();
+
+    // (Re)renderiza UI da lista semanal e select de horas
+    renderHorarioSemanalUI();
+    if (typeof populateAgHoraSelect === 'function') populateAgHoraSelect();
+    try { renderResumoHorarioComercial(); } catch (_) {}
+
+    // Re-renderiza agenda do dia
+    try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
   } catch (e) {
     console.error('Erro ao carregar config geral:', e);
+    // Mesmo em erro, renderiza a UI com defaults para o usuário poder
+    // configurar e tentar salvar — sem isso a aba fica em branco.
+    try { renderHorarioSemanalUI(); } catch (_) {}
+    try { renderResumoHorarioComercial(); } catch (_) {}
   }
+}
+
+/* ============================================================
+   UI da lista semanal (Configurações > Geral)
+   ============================================================ */
+function renderHorarioSemanalUI() {
+  var root = document.getElementById('cfg-horario-semanal');
+  if (!root) return;
+
+  // Ordem de exibição: Segunda → Domingo (mais natural p/ negócio)
+  var ordem = [1,2,3,4,5,6,0];
+  var html = '';
+  ordem.forEach(function(idx) {
+    var dia = BUSINESS_HOURS_BY_DAY[idx] || Object.assign({}, DEFAULT_HORARIO_DIA);
+    var label = DIA_LABELS[idx];
+    var ativo = !!dia.ativo;
+    var ini = dia.inicio || '09:00';
+    var fim = dia.fim || '18:00';
+
+    html += ''
+      + '<div class="hc-day-row ' + (ativo ? '' : 'hc-off') + '" data-dayidx="' + idx + '">'
+      +   '<div class="hc-day-name">' + label + '</div>'
+      +   '<label class="hc-day-toggle" title="Ativar/desativar">'
+      +     '<input type="checkbox" ' + (ativo ? 'checked' : '') + ' onchange="onHorarioToggle(' + idx + ', this.checked)">'
+      +     '<span class="hc-slider"></span>'
+      +   '</label>';
+
+    if (ativo) {
+      html += ''
+        + '<div class="hc-day-times">'
+        +   '<input type="time" step="900" value="' + ini + '" onchange="onHorarioChange(' + idx + ', \'inicio\', this.value)">'
+        +   '<span class="hc-sep">até</span>'
+        +   '<input type="time" step="900" value="' + fim + '" onchange="onHorarioChange(' + idx + ', \'fim\', this.value)">'
+        + '</div>'
+        + '<button type="button" class="hc-day-copy" onclick="copiarHorarioParaProximos(' + idx + ')" title="Copiar este horário para os próximos dias">'
+        +   '<i class="fa-regular fa-copy"></i> copiar'
+        + '</button>';
+    } else {
+      html += '<div class="hc-day-times hc-closed-mobile"><span class="hc-closed-label">Fechado</span></div>';
+    }
+
+    html += '</div>';
+  });
+  root.innerHTML = html;
+}
+
+function onHorarioToggle(idx, ativo) {
+  if (!BUSINESS_HOURS_BY_DAY[idx]) BUSINESS_HOURS_BY_DAY[idx] = Object.assign({}, DEFAULT_HORARIO_DIA);
+  BUSINESS_HOURS_BY_DAY[idx].ativo = !!ativo;
+  if (ativo && !BUSINESS_HOURS_BY_DAY[idx].inicio) BUSINESS_HOURS_BY_DAY[idx].inicio = '09:00';
+  if (ativo && !BUSINESS_HOURS_BY_DAY[idx].fim)    BUSINESS_HOURS_BY_DAY[idx].fim = '18:00';
+  renderHorarioSemanalUI();
+}
+
+function onHorarioChange(idx, campo, valor) {
+  if (!BUSINESS_HOURS_BY_DAY[idx]) BUSINESS_HOURS_BY_DAY[idx] = Object.assign({}, DEFAULT_HORARIO_DIA);
+  BUSINESS_HOURS_BY_DAY[idx][campo] = String(valor || '').slice(0,5);
+}
+
+/* Atalho: aplica o horário da segunda-feira a todos os outros dias */
+function aplicarHorarioParaTodos() {
+  var seg = BUSINESS_HOURS_BY_DAY[1] || Object.assign({}, DEFAULT_HORARIO_DIA);
+  for (var i = 0; i < 7; i++) {
+    if (i === 1) continue;
+    BUSINESS_HOURS_BY_DAY[i] = {
+      ativo: !!seg.ativo,
+      inicio: seg.inicio,
+      fim: seg.fim
+    };
+  }
+  renderHorarioSemanalUI();
+}
+
+/* Copia o horário do dia "idx" para todos os dias seguintes (até sábado) */
+function copiarHorarioParaProximos(idx) {
+  var src = BUSINESS_HOURS_BY_DAY[idx];
+  if (!src) return;
+  // Ordem: seg, ter, qua, qui, sex, sab, dom — copia para os subsequentes nessa ordem
+  var ordem = [1,2,3,4,5,6,0];
+  var pos = ordem.indexOf(idx);
+  if (pos < 0) return;
+  for (var k = pos + 1; k < ordem.length; k++) {
+    var alvo = ordem[k];
+    BUSINESS_HOURS_BY_DAY[alvo] = {
+      ativo: !!src.ativo,
+      inicio: src.inicio,
+      fim: src.fim
+    };
+  }
+  renderHorarioSemanalUI();
+}
+
+/* ============================================================
+   MODAL: Horário comercial
+   - Abre o modal e renderiza a UI semanal dentro dele
+   - Faz snapshot do estado atual; cancelar restaura
+   - Salvar persiste e fecha o modal
+   ============================================================ */
+var __HC_SNAPSHOT = null;
+
+function abrirModalHorarioComercial() {
+  // snapshot defensivo (deep clone simples)
+  try {
+    __HC_SNAPSHOT = JSON.parse(JSON.stringify(BUSINESS_HOURS_BY_DAY));
+  } catch (_) { __HC_SNAPSHOT = null; }
+
+  // limpa feedback anterior
+  var fb = document.getElementById('modal-horario-feedback');
+  if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
+
+  if (typeof openModal === 'function') {
+    openModal('modal-horario-comercial');
+  } else {
+    var ov = document.getElementById('modal-horario-comercial');
+    if (ov) ov.classList.add('active');
+  }
+  // Renderiza após o modal estar visível (garante que o container existe no DOM)
+  setTimeout(function(){ try { renderHorarioSemanalUI(); } catch(_){} }, 0);
+}
+
+function cancelarHorarioComercial() {
+  if (__HC_SNAPSHOT) {
+    try { BUSINESS_HOURS_BY_DAY = JSON.parse(JSON.stringify(__HC_SNAPSHOT)); } catch (_) {}
+    recomputeBusinessEnvelope();
+  }
+  __HC_SNAPSHOT = null;
+  if (typeof closeModal === 'function') {
+    closeModal('modal-horario-comercial');
+  } else {
+    var ov = document.getElementById('modal-horario-comercial');
+    if (ov) ov.classList.remove('active');
+  }
+  // Atualiza resumo (caso já houvesse alterações temporárias)
+  try { renderResumoHorarioComercial(); } catch(_){}
+}
+
+/* Gera resumo legível: "Seg–Sex: 09:00 às 18:00 • Sáb: 09:00 às 13:00 • Dom: Fechado"
+   Agrupa dias consecutivos com o mesmo horário. */
+function renderResumoHorarioComercial() {
+  var el = document.getElementById('hc-resumo-text');
+  if (!el) return;
+
+  var SHORT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  // Ordem: Seg(1)..Sáb(6), Dom(0) — mais natural
+  var ORDER = [1,2,3,4,5,6,0];
+
+  function sigOf(idx) {
+    var d = BUSINESS_HOURS_BY_DAY[idx] || { ativo:false };
+    if (!d.ativo) return 'OFF';
+    return (d.inicio || '') + '|' + (d.fim || '');
+  }
+
+  // Agrupa runs consecutivas com mesma assinatura
+  var groups = [];
+  var i = 0;
+  while (i < ORDER.length) {
+    var s = sigOf(ORDER[i]);
+    var j = i;
+    while (j + 1 < ORDER.length && sigOf(ORDER[j+1]) === s) j++;
+    groups.push({ from: ORDER[i], to: ORDER[j], sig: s });
+    i = j + 1;
+  }
+
+  var parts = groups.map(function(g){
+    var label = (g.from === g.to)
+      ? SHORT[g.from]
+      : SHORT[g.from] + '–' + SHORT[g.to];
+    if (g.sig === 'OFF') return label + ': Fechado';
+    var p = g.sig.split('|');
+    return label + ': ' + p[0] + ' às ' + p[1];
+  });
+
+  // Se todos os dias fecharem, mensagem amigável
+  var allOff = groups.every(function(g){ return g.sig === 'OFF'; });
+  el.textContent = allOff ? 'Nenhum dia ativo — estabelecimento fechado.' : parts.join(' • ');
+}
+
+/* Salva horário comercial semanal no banco (tenant_settings.horarios_semanais) */
+async function salvarHorarioComercial() {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+
+  var btn = document.querySelector('#modal-horario-comercial .btn-salvar-horario')
+         || document.querySelector('.btn-salvar-horario');
+  var fb  = document.getElementById('modal-horario-feedback')
+         || document.getElementById('cfg-horario-feedback');
+
+  function showFb(type, msg) {
+    if (!fb) return;
+    fb.style.display = '';
+    fb.className = 'ac-feedback ' + (type === 'ok' ? 'ok' : 'err');
+    fb.textContent = msg;
+    if (type === 'ok') setTimeout(function () { fb.style.display = 'none'; }, 3000);
+  }
+
+  // Valida cada dia ativo: fim > inicio
+  var payload = {};
+  var menorIni = null;
+  var maiorFim = null;
+  for (var i = 0; i < 7; i++) {
+    var d = BUSINESS_HOURS_BY_DAY[i] || Object.assign({}, DEFAULT_HORARIO_DIA);
+    var key = DIA_KEYS[i];
+    if (!d.ativo) {
+      payload[key] = { ativo: false };
+      continue;
+    }
+    if (!d.inicio || !d.fim) {
+      showFb('err', 'Preencha início e fim em ' + DIA_LABELS[i] + '.');
+      return;
+    }
+    if (d.fim <= d.inicio) {
+      showFb('err', 'Em ' + DIA_LABELS[i] + ', o fechamento deve ser maior que a abertura.');
+      return;
+    }
+    payload[key] = { ativo: true, inicio: d.inicio, fim: d.fim };
+    if (!menorIni || d.inicio < menorIni) menorIni = d.inicio;
+    if (!maiorFim || d.fim > maiorFim)    maiorFim = d.fim;
+  }
+
+  if (btn) btn.disabled = true;
+  try {
+    // Atualiza o jsonb novo + mantém colunas legadas sincronizadas para
+    // qualquer integração antiga (link público, dashboards, etc.)
+    var update = { tenant_id: tenantId, horarios_semanais: payload };
+    if (menorIni) update.horario_inicio = menorIni + ':00';
+    if (maiorFim) update.horario_fim    = maiorFim + ':00';
+
+    var resp = await supabaseClient
+      .from('tenant_settings')
+      .upsert(update, { onConflict: 'tenant_id' });
+    if (resp.error) throw resp.error;
+
+    recomputeBusinessEnvelope();
+    if (typeof populateAgHoraSelect === 'function') populateAgHoraSelect();
+    try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
+
+    // Snapshot consumido (mudanças aceitas) e UI principal atualizada
+    __HC_SNAPSHOT = null;
+    try { renderResumoHorarioComercial(); } catch (_) {}
+
+    showFb('ok', '✓ Horário atualizado com sucesso');
+
+    // Fecha o modal após um pequeno delay para o usuário ver o feedback
+    setTimeout(function () {
+      if (typeof closeModal === 'function') {
+        closeModal('modal-horario-comercial');
+      } else {
+        var ov = document.getElementById('modal-horario-comercial');
+        if (ov) ov.classList.remove('active');
+      }
+    }, 700);
+  } catch (err) {
+    console.error('Erro ao salvar horário comercial:', err);
+    var msg = (err && err.message) ? err.message : '';
+    if (msg.toLowerCase().indexOf('permiss') >= 0 || (err && err.code === '42501')) {
+      showFb('err', 'Você não tem permissão para alterar essa configuração.');
+    } else if (msg.toLowerCase().indexOf('horarios_semanais') >= 0) {
+      showFb('err', 'Coluna horarios_semanais ausente. Rode o SQL de migração.');
+    } else {
+      showFb('err', 'Não foi possível salvar. Tente novamente.');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* Mantida por compatibilidade: aplica um intervalo único como "todos os dias".
+   Usada apenas em código legado (não chamada pela UI nova). */
+function aplicarHorarioComercialGlobal(hIni, hFim) {
+  var hi = parseInt(String(hIni || '07:00').split(':')[0], 10);
+  var hf = parseInt(String(hFim || '21:00').split(':')[0], 10);
+  if (isNaN(hi) || isNaN(hf)) return;
+  var minFim = parseInt(String(hFim || '21:00').split(':')[1] || '0', 10);
+  if (minFim > 0) hf = hf + 1;
+  for (var i = 0; i < 7; i++) {
+    BUSINESS_HOURS_BY_DAY[i] = { ativo: true, inicio: pad(hi) + ':00', fim: pad(hf) + ':00' };
+  }
+  recomputeBusinessEnvelope();
+  try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
 }
 
 async function onTogglePermitirAgendamentoCliente(el) {
@@ -5926,4 +6446,581 @@ function acceptUpsell(btn) {
     };
     window.atualizarLinkAgendamentoCliente = atualizarLinkAgendamentoCliente;
   }
+})();
+
+
+/* ============================================================
+   FEATURE: BLOQUEIO DE HORÁRIO (Google Calendar like)
+   ============================================================ */
+
+/* ---- Estado ---- */
+var editingBloqueioId = null;
+
+/* ---- Helpers ---- */
+function bloqProfissionaisDisponiveis() {
+  // Colaborador só pode bloquear o próprio profissional
+  if (currentUser.role === 'colaborador') {
+    if (!currentUser.profissionalId) return [];
+    var p = (allProfissionais || []).find(function(x){return x.id === currentUser.profissionalId;});
+    return p ? [p] : [];
+  }
+  return (allProfissionais || []);
+}
+
+function bloqHHMMToMin(s) {
+  var p = String(s||'00:00').split(':');
+  return parseInt(p[0],10) * 60 + parseInt(p[1]||'0', 10);
+}
+
+function bloqOverlapWithAppointments(profId, dateISO, iniHHMM, fimHHMM, ignoreBloqueioId) {
+  var ini = bloqHHMMToMin(iniHHMM), fim = bloqHHMMToMin(fimHHMM);
+  // 1. Sobrepõe agendamento existente?
+  var dayApps = appointments.filter(function(a){ return a.data === dateISO; });
+  for (var i = 0; i < dayApps.length; i++) {
+    var a = dayApps[i];
+    var evs = expandToServiceEvents([a]);
+    for (var j = 0; j < evs.length; j++) {
+      var ev = evs[j];
+      var profMatch = false;
+      // Match por id (se profissional id estiver presente em servicoData)
+      if (ev.servicoData && ev.servicoData.profissional_id) {
+        profMatch = (ev.servicoData.profissional_id === profId);
+      } else {
+        // Fallback por nome
+        var prof = (allProfissionais||[]).find(function(p){return p.id === profId;});
+        if (prof && ev.profissional === prof.nome) profMatch = true;
+      }
+      if (!profMatch) continue;
+      var evIni = bloqHHMMToMin(ev.hora);
+      var evFim = evIni + (ev.duracao || 30);
+      if (ini < evFim && fim > evIni) {
+        return { tipo: 'agendamento', cliente: ev.cliente, hora: ev.hora };
+      }
+    }
+  }
+  return null;
+}
+
+function bloqOverlapWithBloqueios(profId, dateISO, iniHHMM, fimHHMM, ignoreBloqueioId) {
+  var ini = bloqHHMMToMin(iniHHMM), fim = bloqHHMMToMin(fimHHMM);
+  var same = (bloqueios||[]).filter(function(b){
+    return b.data === dateISO && b.profissional_id === profId && b.id !== ignoreBloqueioId;
+  });
+  for (var i = 0; i < same.length; i++) {
+    var b = same[i];
+    var bi = bloqHHMMToMin(b.hora_inicio), bf = bloqHHMMToMin(b.hora_fim);
+    if (ini < bf && fim > bi) return b;
+  }
+  return null;
+}
+
+/* ---- Carregar bloqueios do tenant ---- */
+async function loadBloqueios() {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) { bloqueios = []; return; }
+  try {
+    var resp = await supabaseClient
+      .from('agenda_bloqueios')
+      .select('*')
+      .eq('tenant_id', tenantId);
+    if (resp.error) { console.error('Erro bloqueios:', resp.error); bloqueios = []; return; }
+    bloqueios = (resp.data || []).map(function(b) {
+      return {
+        id: b.id,
+        tenant_id: b.tenant_id,
+        profissional_id: b.profissional_id,
+        data: b.data,
+        hora_inicio: String(b.hora_inicio || '').slice(0,5),
+        hora_fim: String(b.hora_fim || '').slice(0,5),
+        motivo: b.motivo || '',
+        created_at: b.created_at
+      };
+    });
+  } catch (e) {
+    console.error('loadBloqueios erro:', e);
+    bloqueios = [];
+  }
+}
+
+/* ---- Render: injetar bloqueios na timeline ----
+   Estratégia: ganchos pós-render. Após renderDayDetail() rodar,
+   percorremos `bloqueios` do dia e injetamos blocos visuais. */
+function renderBloqueiosNoDia() {
+  var dateStr = currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay);
+  var profIdToNome = {};
+  (allProfissionais||[]).forEach(function(p){ profIdToNome[p.id] = p.nome; });
+
+  var dayBloqueios = (bloqueios||[]).filter(function(b){
+    if (b.data !== dateStr) return false;
+    var nome = profIdToNome[b.profissional_id];
+    if (!nome) return false;
+    return activeFilters.indexOf(nome) >= 0;
+  });
+  if (!dayBloqueios.length) return;
+
+  var container = document.getElementById('day-appointments');
+  if (!container) return;
+  var hStartAttr = container.dataset.hourStart;
+  var hStart = hStartAttr ? parseInt(hStartAttr, 10) : BUSINESS_HOUR_START;
+
+  var showMultiAgenda = isAdmin() && activeFilters.length > 1;
+
+  if (showMultiAgenda) {
+    // multi: cada coluna tem .multi-agenda-blocks[data-prof-col=NOME]
+    // ✅ FIX: containers .multi-agenda-blocks ocupam a LARGURA TOTAL da timeline
+    // (são empilhados absolutamente no body), por isso precisamos passar
+    // colIdx/totalCols para que o bloco respeite a coluna do profissional.
+    var totalCols = activeFilters.length;
+    dayBloqueios.forEach(function(b){
+      var nome = profIdToNome[b.profissional_id];
+      var colIdx = activeFilters.indexOf(nome);
+      if (colIdx < 0) return;
+      var blocksEl = container.querySelector('.multi-agenda-blocks[data-prof-col="' + nome + '"]');
+      if (!blocksEl) return;
+      injectBloqueioBlock(blocksEl, b, hStart, false, colIdx, totalCols);
+    });
+  } else {
+    var blocks = document.getElementById('timeline-blocks');
+    if (!blocks) return;
+    dayBloqueios.forEach(function(b){
+      injectBloqueioBlock(blocks, b, hStart, true, 0, 1);
+    });
+  }
+}
+
+function injectBloqueioBlock(container, b, hStart, isSingle, colIdx, totalCols) {
+  var iniMin = bloqHHMMToMin(b.hora_inicio);
+  var fimMin = bloqHHMMToMin(b.hora_fim);
+  var dur = Math.max(fimMin - iniMin, 1);
+  var top = (Math.floor(iniMin / 60) - hStart) * 60 + (iniMin % 60);
+
+  var block = document.createElement('div');
+  block.className = 'timeline-block is-bloqueio';
+  block.style.top = top + 'px';
+  block.style.height = dur + 'px';
+  block.style.zIndex = 5;
+  block.style.cursor = 'pointer';
+
+  // ✅ FIX: respeitar a coluna do profissional no modo multi-agenda.
+  // Sem isso, o bloco ocupava 100% da largura (left:4px → right:4px do CSS .timeline-block)
+  // e invadia a coluna dos outros profissionais.
+  if (typeof totalCols === 'number' && totalCols > 1 && typeof colIdx === 'number') {
+    var colW = 100 / totalCols;
+    block.style.left = 'calc(' + (colIdx * colW) + '% + 4px)';
+    block.style.right = 'auto';
+    block.style.width = 'calc(' + colW + '% - 8px)';
+  }
+
+  var label = b.motivo ? b.motivo : 'Bloqueado';
+  var timeLabel = b.hora_inicio + ' – ' + b.hora_fim;
+  var heightPx = dur;
+
+  if (heightPx <= 22) {
+    block.classList.add('tb-tiny');
+    block.title = timeLabel + ' — ' + label;
+    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time"><i class="fa-solid fa-lock"></i></span> <span class="tb-client tb-truncate">' + label + '</span></div>';
+  } else if (heightPx <= 38) {
+    block.innerHTML = '<div class="tb-row-compact"><span class="tb-time"><i class="fa-solid fa-lock"></i> ' + timeLabel + '</span> <span class="tb-client">' + label + '</span></div>';
+  } else {
+    block.innerHTML = '<div class="tb-time"><i class="fa-solid fa-lock"></i> ' + timeLabel + '</div>' +
+                      '<div class="tb-client tb-truncate">' + label + '</div>';
+  }
+  block.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    abrirBloqueioParaEditar(b);
+  });
+  container.appendChild(block);
+}
+
+/* Wrap renderDayDetail para chamar renderBloqueiosNoDia depois */
+(function(){
+  if (typeof renderDayDetail !== 'function') return;
+  var _orig = renderDayDetail;
+  renderDayDetail = function() {
+    _orig.apply(this, arguments);
+    try { renderBloqueiosNoDia(); } catch(e) { console.error('renderBloqueiosNoDia erro', e); }
+    try { wireAgendaQuickMenu(); } catch(e){}
+  };
+})();
+
+/* ---- Modal: popular selects ---- */
+function bloqPopulateProfissionais() {
+  var sel = document.getElementById('bloq-profissional');
+  if (!sel) return;
+  var opts = bloqProfissionaisDisponiveis();
+  sel.innerHTML = '';
+  if (opts.length === 0) {
+    sel.innerHTML = '<option value="">— Sem profissionais —</option>';
+    return;
+  }
+  opts.forEach(function(p){
+    var o = document.createElement('option');
+    o.value = p.id;
+    o.textContent = p.nome;
+    sel.appendChild(o);
+  });
+  // Colaborador: travar
+  if (currentUser.role === 'colaborador') {
+    sel.value = currentUser.profissionalId || '';
+    sel.disabled = true;
+  } else {
+    sel.disabled = false;
+  }
+}
+
+function bloqPopulateHoras() {
+  ['bloq-hora-ini-h', 'bloq-hora-fim-h'].forEach(function(id){
+    var sel = document.getElementById(id);
+    if (!sel) return;
+    var prev = sel.value;
+    var html = '';
+    for (var h = BUSINESS_HOUR_START; h <= BUSINESS_HOUR_END; h++) {
+      html += '<option value="' + pad(h) + '">' + pad(h) + '</option>';
+    }
+    sel.innerHTML = html;
+    if (prev) sel.value = prev;
+  });
+}
+
+/* ---- Abrir modal: novo ---- */
+function abrirModalBloqueio(prefill) {
+  if (currentUser.role === 'colaborador' && !currentUser.profissionalId) {
+    showToast('Seu usuário não está vinculado a um profissional.', 'error');
+    return;
+  }
+  editingBloqueioId = null;
+  document.getElementById('bloq-id').value = '';
+  document.getElementById('modal-bloqueio-titulo').innerHTML = '<i class="fa-solid fa-lock" style="margin-right:6px;"></i> Bloquear horário';
+  document.getElementById('btn-excluir-bloqueio').style.display = 'none';
+
+  bloqPopulateProfissionais();
+  bloqPopulateHoras();
+
+  // Defaults
+  var dataInput = document.getElementById('bloq-data');
+  dataInput.value = (prefill && prefill.data) || formatDateInput(new Date(currentYear, currentMonth, selectedDay));
+
+  var defH = pad(BUSINESS_HOUR_START);
+  document.getElementById('bloq-hora-ini-h').value = (prefill && prefill.iniH) || defH;
+  document.getElementById('bloq-hora-ini-m').value = (prefill && prefill.iniM) || '00';
+  document.getElementById('bloq-hora-fim-h').value = (prefill && prefill.fimH) || pad(Math.min(BUSINESS_HOUR_END, parseInt((prefill && prefill.iniH) || defH, 10) + 1));
+  document.getElementById('bloq-hora-fim-m').value = (prefill && prefill.fimM) || '00';
+
+  if (prefill && prefill.profissionalId && currentUser.role !== 'colaborador') {
+    document.getElementById('bloq-profissional').value = prefill.profissionalId;
+  }
+
+  document.getElementById('bloq-dia-inteiro').checked = false;
+  document.getElementById('bloq-horarios-row').classList.remove('hidden');
+  document.getElementById('bloq-motivo').value = '';
+
+  openModal('modal-bloqueio');
+}
+
+/* ---- Abrir modal: editar (clique em bloco) ---- */
+function abrirBloqueioParaEditar(b) {
+  // Permissões
+  if (currentUser.role === 'colaborador' && b.profissional_id !== currentUser.profissionalId) {
+    showToast('Você não pode editar bloqueios de outros profissionais.', 'error');
+    return;
+  }
+  editingBloqueioId = b.id;
+  document.getElementById('bloq-id').value = b.id;
+  document.getElementById('modal-bloqueio-titulo').innerHTML = '<i class="fa-solid fa-lock" style="margin-right:6px;"></i> Editar bloqueio';
+  document.getElementById('btn-excluir-bloqueio').style.display = 'inline-flex';
+
+  bloqPopulateProfissionais();
+  bloqPopulateHoras();
+
+  document.getElementById('bloq-profissional').value = b.profissional_id;
+  document.getElementById('bloq-data').value = b.data;
+  var iniParts = (b.hora_inicio || '00:00').split(':');
+  var fimParts = (b.hora_fim || '00:00').split(':');
+  document.getElementById('bloq-hora-ini-h').value = iniParts[0];
+  document.getElementById('bloq-hora-ini-m').value = iniParts[1] || '00';
+  document.getElementById('bloq-hora-fim-h').value = fimParts[0];
+  document.getElementById('bloq-hora-fim-m').value = fimParts[1] || '00';
+  document.getElementById('bloq-motivo').value = b.motivo || '';
+
+  // Detecta dia inteiro = se cobre 00:00 → 23:59 OU horario comercial completo
+  var diaInteiro = (b.hora_inicio === '00:00' && (b.hora_fim === '23:59' || b.hora_fim === '23:45'));
+  document.getElementById('bloq-dia-inteiro').checked = diaInteiro;
+  document.getElementById('bloq-horarios-row').classList.toggle('hidden', diaInteiro);
+
+  openModal('modal-bloqueio');
+}
+
+/* ---- Toggle "Dia inteiro" ---- */
+function setupBloqueioListeners() {
+  var diaInt = document.getElementById('bloq-dia-inteiro');
+  if (diaInt && !diaInt.dataset.bound) {
+    diaInt.dataset.bound = '1';
+    diaInt.addEventListener('change', function(){
+      var row = document.getElementById('bloq-horarios-row');
+      if (this.checked) {
+        row.classList.add('hidden');
+      } else {
+        row.classList.remove('hidden');
+      }
+    });
+  }
+  var btn = document.getElementById('btn-bloquear-horario');
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', function(){ abrirModalBloqueio(); });
+  }
+}
+
+/* ---- Salvar bloqueio ---- */
+async function salvarBloqueio(e) {
+  e.preventDefault();
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) { showToast('Tenant não definido.', 'error'); return; }
+
+  var profId = document.getElementById('bloq-profissional').value;
+  if (!profId) { showToast('Selecione um profissional.', 'error'); return; }
+
+  // Permissão colaborador
+  if (currentUser.role === 'colaborador' && profId !== currentUser.profissionalId) {
+    showToast('Colaborador só pode bloquear o próprio horário.', 'error');
+    return;
+  }
+
+  var data = document.getElementById('bloq-data').value;
+  if (!data) { showToast('Selecione uma data.', 'error'); return; }
+
+  var diaInteiro = document.getElementById('bloq-dia-inteiro').checked;
+  var iniH, iniM, fimH, fimM;
+  if (diaInteiro) {
+    iniH = '00'; iniM = '00';
+    fimH = '23'; fimM = '59';
+  } else {
+    iniH = document.getElementById('bloq-hora-ini-h').value;
+    iniM = document.getElementById('bloq-hora-ini-m').value;
+    fimH = document.getElementById('bloq-hora-fim-h').value;
+    fimM = document.getElementById('bloq-hora-fim-m').value;
+  }
+  var iniHHMM = iniH + ':' + iniM;
+  var fimHHMM = fimH + ':' + fimM;
+
+  if (bloqHHMMToMin(fimHHMM) <= bloqHHMMToMin(iniHHMM)) {
+    showToast('Horário fim deve ser maior que o início.', 'error');
+    return;
+  }
+
+  // Conflitos
+  var confApt = bloqOverlapWithAppointments(profId, data, iniHHMM, fimHHMM, editingBloqueioId);
+  if (confApt) {
+    showToast('Conflito: já existe agendamento de "' + (confApt.cliente || '') + '" às ' + confApt.hora + '.', 'error');
+    return;
+  }
+  var confBlq = bloqOverlapWithBloqueios(profId, data, iniHHMM, fimHHMM, editingBloqueioId);
+  if (confBlq) {
+    showToast('Conflito: já existe bloqueio neste intervalo (' + confBlq.hora_inicio + '–' + confBlq.hora_fim + ').', 'error');
+    return;
+  }
+
+  var motivo = document.getElementById('bloq-motivo').value.trim();
+  var row = {
+    tenant_id: tenantId,
+    profissional_id: profId,
+    data: data,
+    hora_inicio: iniHHMM + ':00',
+    hora_fim: fimHHMM + ':00',
+    motivo: motivo || null
+  };
+
+  try {
+    var resp;
+    if (editingBloqueioId) {
+      resp = await supabaseClient.from('agenda_bloqueios').update(row).eq('id', editingBloqueioId);
+    } else {
+      resp = await supabaseClient.from('agenda_bloqueios').insert([row]).select();
+    }
+    if (resp.error) {
+      console.error('Erro salvar bloqueio:', resp.error);
+      showToast('Erro ao salvar bloqueio: ' + (resp.error.message || ''), 'error');
+      return;
+    }
+    showToast(editingBloqueioId ? 'Bloqueio atualizado!' : 'Horário bloqueado com sucesso!');
+    closeModal('modal-bloqueio');
+    editingBloqueioId = null;
+    await loadBloqueios();
+    renderCalendar();
+    renderDayDetail();
+  } catch (err) {
+    console.error(err);
+    showToast('Erro inesperado ao salvar bloqueio.', 'error');
+  }
+}
+
+/* ---- Excluir bloqueio ---- */
+function confirmarExclusaoBloqueio() {
+  if (!editingBloqueioId) return;
+  openModal('modal-confirmar-exclusao-bloqueio');
+}
+async function excluirBloqueio() {
+  if (!editingBloqueioId) return;
+  try {
+    var resp = await supabaseClient.from('agenda_bloqueios').delete().eq('id', editingBloqueioId);
+    if (resp.error) {
+      showToast('Erro ao excluir bloqueio.', 'error');
+      console.error(resp.error);
+      return;
+    }
+    showToast('Bloqueio excluído.');
+    closeModal('modal-confirmar-exclusao-bloqueio');
+    closeModal('modal-bloqueio');
+    editingBloqueioId = null;
+    await loadBloqueios();
+    renderCalendar();
+    renderDayDetail();
+  } catch (err) {
+    console.error(err);
+    showToast('Erro inesperado ao excluir.', 'error');
+  }
+}
+
+/* ---- Validação no save de agendamento: não permitir sobre bloqueio ---- */
+(function(){
+  if (typeof saveAppointment !== 'function') return;
+  var _origSave = saveAppointment;
+  saveAppointment = async function(e) {
+    // Pré-validar antes de salvar: percorrer cada serviço/profissional do form e checar bloqueio
+    try {
+      var data = document.getElementById('ag-data').value;
+      var hora = document.getElementById('ag-hora-h').value + ':' + document.getElementById('ag-minuto').value;
+      // Coleta serviços do DOM (mesma lógica de collectServicos)
+      var blocos = document.querySelectorAll('#servicos-container .servico-block');
+      var cursor = bloqHHMMToMin(hora);
+      var profsByName = {};
+      (allProfissionais||[]).forEach(function(p){ profsByName[p.nome] = p.id; });
+      for (var i = 0; i < blocos.length; i++) {
+        var profSel = blocos[i].querySelector('.svc-profissional');
+        var svcSel  = blocos[i].querySelector('.svc-servico');
+        if (!profSel || !svcSel) continue;
+        var profNome = profSel.value;
+        var svcNome  = svcSel.value;
+        var profId = profsByName[profNome];
+        if (!profId || !svcNome) continue;
+        var dur = (servicePrices[svcNome] && servicePrices[svcNome].duracao) || 30;
+        var hh = Math.floor(cursor / 60);
+        var mm = cursor % 60;
+        var iniHHMM = pad(hh) + ':' + pad(mm);
+        var fhh = Math.floor((cursor + dur) / 60);
+        var fmm = (cursor + dur) % 60;
+        var fimHHMM = pad(fhh) + ':' + pad(fmm);
+        var conf = bloqOverlapWithBloqueios(profId, data, iniHHMM, fimHHMM, null);
+        if (conf) {
+          e.preventDefault();
+          showToast('Não é possível agendar: horário bloqueado (' + conf.hora_inicio + '–' + conf.hora_fim + ').', 'error');
+          return;
+        }
+        cursor += dur;
+      }
+    } catch (err) {
+      console.warn('[bloqueio] validação pulada por erro:', err);
+    }
+    return _origSave.apply(this, arguments);
+  };
+})();
+
+/* ---- Menu rápido na agenda: clique em horário vazio ---- */
+function wireAgendaQuickMenu() {
+  var container = document.getElementById('day-appointments');
+  if (!container || container.dataset.quickWired === '1') return;
+  container.dataset.quickWired = '1';
+
+  container.addEventListener('click', function(ev){
+    var slot = ev.target.closest('.timeline-slot, .multi-agenda-cell');
+    if (!slot) return;
+    if (ev.target.closest('.timeline-block')) return;
+
+    var hour = parseInt(slot.dataset.hour, 10);
+    if (isNaN(hour)) return;
+
+    var profNome = slot.dataset.prof || null;
+    var profId = null;
+    if (profNome) {
+      var p = (allProfissionais||[]).find(function(x){return x.nome === profNome;});
+      if (p) profId = p.id;
+    } else if (currentUser.role === 'colaborador') {
+      profId = currentUser.profissionalId;
+    }
+
+    showAgendaQuickMenu(ev.clientX, ev.clientY, {
+      hour: hour,
+      profissionalId: profId,
+      data: currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay)
+    });
+  });
+
+  // Fechar menu ao clicar fora
+  document.addEventListener('click', function(ev){
+    var m = document.getElementById('agenda-quick-menu');
+    if (!m || m.hidden) return;
+    if (ev.target.closest('#agenda-quick-menu')) return;
+    if (ev.target.closest('.timeline-slot, .multi-agenda-cell')) return;
+    m.hidden = true;
+  });
+}
+
+function showAgendaQuickMenu(x, y, ctx) {
+  var menu = document.getElementById('agenda-quick-menu');
+  if (!menu) return;
+  menu.hidden = false;
+  // Posicionar dentro do viewport
+  var w = 220, h = 100;
+  var left = Math.min(window.innerWidth - w - 8, x);
+  var top = Math.min(window.innerHeight - h - 8, y);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+
+  // Bind handlers (rebind a cada abertura)
+  var btns = menu.querySelectorAll('button');
+  btns.forEach(function(b){
+    var clone = b.cloneNode(true);
+    b.parentNode.replaceChild(clone, b);
+  });
+  menu.querySelector('[data-action="novo"]').addEventListener('click', function(){
+    menu.hidden = true;
+    // Abre fluxo padrão de novo agendamento, com hora pré-selecionada após identificação.
+    // Para simplicidade, apenas dispara o fluxo padrão (modal de identificação).
+    resetIdentificacaoModal();
+    openModal('modal-identificacao');
+    // Pré-define a hora padrão no modal de agendamento (será aplicada quando abrir)
+    window.__bloqPrefillHora = pad(ctx.hour);
+  });
+  menu.querySelector('[data-action="bloquear"]').addEventListener('click', function(){
+    menu.hidden = true;
+    abrirModalBloqueio({
+      data: ctx.data,
+      iniH: pad(ctx.hour), iniM: '00',
+      fimH: pad(Math.min(BUSINESS_HOUR_END, ctx.hour + 1)), fimM: '00',
+      profissionalId: ctx.profissionalId
+    });
+  });
+}
+
+/* ---- Setup inicial dos listeners ---- */
+document.addEventListener('DOMContentLoaded', function(){
+  setupBloqueioListeners();
+});
+// Também tentar setup imediato (caso DOM já esteja pronto)
+setTimeout(setupBloqueioListeners, 0);
+
+/* Hook em openAgendamentoModal: aplicar prefill de hora vindo do menu rápido */
+(function(){
+  if (typeof openAgendamentoModal !== 'function') return;
+  var _orig = openAgendamentoModal;
+  openAgendamentoModal = function(agId, clienteNome, clienteTel) {
+    _orig.call(this, agId, clienteNome, clienteTel);
+    if (!agId && window.__bloqPrefillHora) {
+      try {
+        document.getElementById('ag-hora-h').value = window.__bloqPrefillHora;
+        document.getElementById('ag-minuto').value = '00';
+      } catch(_) {}
+      window.__bloqPrefillHora = null;
+    }
+  };
 })();

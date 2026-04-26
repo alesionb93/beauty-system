@@ -607,6 +607,25 @@ img, video, svg { max-width: 100%; }
   cursor: not-allowed;
   pointer-events: none;
 }
+/* Dia da semana sem expediente — visualmente diferente do "passado" */
+.ac-cal-day.ac-cal-closed {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--ac-surface) 0px,
+    var(--ac-surface) 6px,
+    var(--ac-surface-2) 6px,
+    var(--ac-surface-2) 12px
+  );
+  border-style: dashed;
+}
+.ac-cal-day.ac-cal-closed .num,
+.ac-cal-day.ac-cal-closed .dow {
+  color: var(--ac-text-dim);
+  text-decoration: line-through;
+}
 .ac-cal-day.selected {
   background: var(--ac-primary);
   border-color: var(--ac-primary);
