@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Beauty System - Login</title>
+  <meta name="description" content="Beauty System - Sistema de agendamento para salões de beleza">
+
+  <!-- PWA CONFIG -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#652AF4">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Beauty System">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="estilos.css">
+
+  <!-- FONT -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    .toast-success {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #27ae60;
+      color: #fff;
+      padding: 14px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 500;
+      max-width: 90%;
+      text-align: center;
+      transition: opacity 0.4s ease;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <img src="beautySystemLogo.png" alt="Beauty System" class="logo-img">
+      <h1>BEAUTY SYSTEM</h1>
+      <p class="subtitle">Sistema de Agendamento</p>
+
+      <div class="form-group">
+        <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+      </div>
+
+      <div class="form-group">
+        <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password">
+      </div>
+
+      <button class="btn-login" id="btn-login">Entrar</button>
+      <p class="login-error" id="login-error"></p>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+
+  <!-- PWA SCRIPT -->
+  <script src="/pwa.js"></script>
+
+  <script>
+    var urlParams = new URLSearchParams(window.location.search);
+    var senhaCriada = urlParams.get('senha_criada') === '1';
+
+    if (senhaCriada) {
+      var toast = document.createElement('div');
+      toast.className = 'toast-success';
+      toast.textContent = '✓ Senha criada com sucesso! Faça login para continuar.';
+      document.body.appendChild(toast);
+
+      var cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('senha_criada');
+      window.history.replaceState({}, '', cleanUrl);
+
+      setTimeout(function() {
+        toast.style.opacity = '0';
+        setTimeout(function() { toast.remove(); }, 400);
+      }, 5000);
+    }
+
+    async function getUserRolesFromDb(userId) {
+      var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
+      if (resp.error) {
+        console.error('Erro ao buscar roles:', resp.error);
+        return [];
+      }
+      return resp.data || [];
+    }
+
+    function resolveUserRole(roleRows, tenantId) {
+      if (!roleRows || roleRows.length === 0) return 'colaborador';
+
+      if (roleRows.some(function(row) { return row.role === 'master_admin'; })) {
+        return 'master_admin';
+      }
+
+      if (tenantId) {
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'admin'; })) {
+          return 'admin';
+        }
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'colaborador'; })) {
+          return 'colaborador';
+        }
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'admin'; })) {
+        return 'admin';
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'colaborador'; })) {
+        return 'colaborador';
+      }
+
+      return roleRows[0].role || 'colaborador';
+    }
+
+    async function getUserFromDb(userId) {
+      var resp = await supabaseClient.from('usuarios').select('nome, tenant_id, ativo').eq('id', userId).single();
+      return resp.data || null;
+    }
+
+    async function handlePostLogin(userId) {
+      var userData = await getUserFromDb(userId);
+      var roleRows = await getUserRolesFromDb(userId);
+      var role = resolveUserRole(roleRows, userData && userData.tenant_id ? userData.tenant_id : null);
+
+      if (role !== 'master_admin' && userData && userData.ativo === false) {
+        await supabaseClient.auth.signOut();
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        var errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.textContent = 'Usuário inativo. Contate o administrador do sistema.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (role === 'master_admin') {
+        window.location.href = 'select-tenant.html';
+      } else {
+        if (userData && userData.tenant_id) {
+          localStorage.setItem('currentTenantId', userData.tenant_id);
+        }
+        window.location.href = 'agenda.html';
+      }
+    }
+
+    (async function() {
+      if (senhaCriada) {
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        return;
+      }
+
+      var { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        await handlePostLogin(session.user.id);
+      }
+    })();
+
+    document.getElementById('btn-login').addEventListener('click', login);
+    document.getElementById('login-pass').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') login();
+    });
+    document.getElementById('login-email').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('login-pass').focus();
+    });
+
+    async function login() {
+      var email = document.getElementById('login-email').value.trim();
+      var pass = document.getElementById('login-pass').value;
+      var errEl = document.getElementById('login-error');
+      errEl.style.display = 'none';
+
+      if (!email || !pass) {
+        errEl.textContent = 'Preencha email e senha.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      var { data, error } = await supabaseClient.auth.signInWithPassword({ email: email, password: pass });
+      if (error) {
+        errEl.textContent = 'Email ou senha incorretos.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      await handlePostLogin(data.user.id);
+    }
+  </script>
+</body>
+</html>

@@ -13,9 +13,7 @@ var professionalAvatars = {};
 
 var clients = [];
 var appointments = [];
-var bloqueios = []; // Lista de bloqueios de horário do tenant
 var editingAppointmentId = null;
-var editingClientId = null;
 var pendingClienteFromIdentificacao = null;
 var currentUser = { nome: '', role: '', tenantId: null, profissionalId: null, profissionalNome: null };
 var activeFilters = [];
@@ -28,92 +26,6 @@ var today = new Date();
 var currentMonth = today.getMonth();
 var currentYear = today.getFullYear();
 var selectedDay = today.getDate();
-
-/* ===== HORÁRIO COMERCIAL (carregado de tenant_settings) =====
-   Agora suportamos horário POR DIA DA SEMANA.
-   BUSINESS_HOURS_BY_DAY[0..6]:
-     - 0 = domingo, 1 = segunda, ..., 6 = sábado (igual a Date#getDay())
-     - { ativo:true, inicio:'09:00', fim:'18:00' }  ou  { ativo:false }
-   BUSINESS_HOUR_START/END continuam existindo como "envelope" do
-   intervalo (mínimo de abertura — máximo de fechamento entre os dias
-   ativos). São usados pelos selects de hora do modal de novo agendamento
-   para oferecer todas as horas possíveis na semana. A validação real
-   por dia acontece no save. */
-var DEFAULT_HORARIO_DIA = { ativo: true, inicio: '07:00', fim: '21:00' };
-var BUSINESS_HOURS_BY_DAY = [
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 0 dom
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 1 seg
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 2 ter
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 3 qua
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 4 qui
-  Object.assign({}, DEFAULT_HORARIO_DIA), // 5 sex
-  Object.assign({}, DEFAULT_HORARIO_DIA)  // 6 sab
-];
-var BUSINESS_HOUR_START = 7;
-var BUSINESS_HOUR_END = 21;
-
-/* Mapeia chave textual <-> índice Date#getDay() */
-var DIA_KEYS = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'];
-var DIA_LABELS = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
-
-/* Recalcula o "envelope" global a partir da configuração semanal */
-function recomputeBusinessEnvelope() {
-  var minH = null, maxH = null;
-  for (var i = 0; i < 7; i++) {
-    var d = BUSINESS_HOURS_BY_DAY[i];
-    if (!d || !d.ativo) continue;
-    var hi = parseInt(String(d.inicio || '07:00').split(':')[0], 10);
-    var hfStr = String(d.fim || '21:00').split(':');
-    var hf = parseInt(hfStr[0], 10);
-    var mf = parseInt(hfStr[1] || '0', 10);
-    if (mf > 0) hf = hf + 1;
-    if (isNaN(hi) || isNaN(hf)) continue;
-    if (minH === null || hi < minH) minH = hi;
-    if (maxH === null || hf > maxH) maxH = hf;
-  }
-  if (minH === null) { minH = 7; maxH = 21; } // tudo fechado → fallback p/ select
-  BUSINESS_HOUR_START = Math.max(0, Math.min(23, minH));
-  BUSINESS_HOUR_END   = Math.max(BUSINESS_HOUR_START, Math.min(23, maxH));
-}
-
-/* Retorna a config do dia para uma data (Date ou 'YYYY-MM-DD') */
-function getHorarioDoDia(dateOrStr) {
-  var dt;
-  if (dateOrStr instanceof Date) {
-    dt = dateOrStr;
-  } else if (typeof dateOrStr === 'string') {
-    var p = dateOrStr.split('-');
-    dt = new Date(parseInt(p[0],10), parseInt(p[1],10) - 1, parseInt(p[2],10));
-  } else {
-    dt = new Date();
-  }
-  var idx = dt.getDay();
-  return BUSINESS_HOURS_BY_DAY[idx] || Object.assign({}, DEFAULT_HORARIO_DIA);
-}
-
-/* Normaliza um payload jsonb vindo do banco em um array indexado 0..6 */
-function parseHorariosSemanais(jsonb, fallbackInicio, fallbackFim) {
-  var fb = {
-    ativo: true,
-    inicio: (fallbackInicio && String(fallbackInicio).slice(0,5)) || '07:00',
-    fim:    (fallbackFim    && String(fallbackFim).slice(0,5))    || '21:00'
-  };
-  var arr = [];
-  for (var i = 0; i < 7; i++) {
-    var key = DIA_KEYS[i];
-    var src = jsonb && jsonb[key];
-    if (!src) {
-      arr.push(Object.assign({}, fb));
-    } else {
-      arr.push({
-        ativo: src.ativo !== false,
-        inicio: src.inicio ? String(src.inicio).slice(0,5) : fb.inicio,
-        fim:    src.fim    ? String(src.fim).slice(0,5)    : fb.fim
-      });
-    }
-  }
-  return arr;
-}
 
 var profColors = {};
 var profColorPalette = ['#5bc0de', '#9b59b6', '#e91e90', '#2ecc71', '#e67e22', '#3498db', '#e74c3c', '#1abc9c', '#f39c12', '#8e44ad'];
@@ -252,8 +164,7 @@ async function loadClients() {
 async function loadAppointments() {
   var tenantId = getCurrentTenantId();
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
-  // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
-  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, servico_id, profissional_id, preco, duracao, cor_id, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) { console.error('Erro agendamentos:', resp.error); return; }
@@ -264,14 +175,7 @@ async function loadAppointments() {
 
   appointments = resp.data.map(function(a) {
     var profPrincipalNome = profIdToNome[a.profissional_id] || '';
-    // ✅ FIX ORDEM SERVIÇOS (v10): garantir ordem por created_at (fallback id)
-    var svcsOrdenados = (a.agendamento_servicos || []).slice().sort(function(x, y) {
-      var cx = x && x.created_at ? String(x.created_at) : '';
-      var cy = y && y.created_at ? String(y.created_at) : '';
-      if (cx && cy && cx !== cy) return cx < cy ? -1 : 1;
-      return String(x && x.id || '').localeCompare(String(y && y.id || ''), undefined, { numeric: true, sensitivity: 'base' });
-    });
-    var svcs = svcsOrdenados.map(function(as) {
+    var svcs = (a.agendamento_servicos || []).map(function(as) {
       var bases = [];
       var pigmentacoes = [];
       var coresArr = [];
@@ -381,110 +285,6 @@ async function loadServicos() {
   servicePrices = {};
   allServicos.forEach(function(s) {
     servicePrices[s.nome] = { preco: parseFloat(s.preco), duracao: s.duracao };
-  });
-  await loadServiceRecommendations();
-}
-
-/* ===== RECOMENDAÇÕES DE SERVIÇOS (Upsell) ===== */
-// recommendationsByService[service_id] = [recommended_service_id, ...]
-var recommendationsByService = {};
-
-async function loadServiceRecommendations() {
-  recommendationsByService = {};
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
-  try {
-    var resp = await supabaseClient
-      .from('service_recommendations')
-      .select('service_id, recommended_service_id')
-      .eq('tenant_id', tenantId);
-    if (resp.error) { console.warn('service_recommendations indisponível:', resp.error.message); return; }
-    (resp.data || []).forEach(function(r) {
-      if (!recommendationsByService[r.service_id]) recommendationsByService[r.service_id] = [];
-      recommendationsByService[r.service_id].push(r.recommended_service_id);
-    });
-  } catch (e) { console.warn('loadServiceRecommendations falhou:', e); }
-}
-
-function getRecommendedServicesFor(servicoId) {
-  var ids = recommendationsByService[servicoId] || [];
-  return ids
-    .map(function(id) { return allServicos.find(function(s) { return s.id === id; }); })
-    .filter(function(s) { return s && s.ativo !== false; });
-}
-
-async function saveServiceRecommendations(servicoId, recommendedIds) {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId || !servicoId) {
-    return { ok: false, error: 'Não foi possível identificar o tenant ou o serviço.' };
-  }
-
-  var desired = Array.from(new Set((recommendedIds || []).filter(function(id) {
-    return id && id !== servicoId;
-  })));
-
-  try {
-    var rpcResp = await supabaseClient.rpc('save_service_recommendations', {
-      p_service_id: servicoId,
-      p_recommended_ids: desired
-    });
-
-    if (rpcResp.error) {
-      console.error('Erro salvando recomendações via RPC:', rpcResp.error);
-
-      var msg = 'Erro ao salvar recomendações de serviços. Tente novamente.';
-      var rawMessage = String(rpcResp.error.message || '').toLowerCase();
-
-      if (rpcResp.error.code === 'PGRST202' || rawMessage.indexOf('save_service_recommendations') >= 0) {
-        msg = 'A função de salvamento das recomendações não foi encontrada. Execute o script SQL e tente novamente.';
-      } else if (rpcResp.error.code === '42501') {
-        msg = 'Você não tem permissão para salvar recomendações deste serviço.';
-      }
-
-      return { ok: false, error: msg, details: rpcResp.error };
-    }
-
-    recommendationsByService[servicoId] = desired.slice();
-    return { ok: true, data: rpcResp.data || null };
-  } catch (err) {
-    console.error('Erro inesperado ao salvar recomendações:', err);
-    return {
-      ok: false,
-      error: 'Erro ao salvar recomendações de serviços. Tente novamente.',
-      details: err
-    };
-  }
-}
-
-function renderRecommendationsPicker(servicoId) {
-  var container = document.getElementById('svc-rec-list');
-  if (!container) return;
-  var others = allServicos.filter(function(s) { return s.id !== servicoId; });
-  if (others.length === 0) {
-    container.innerHTML = '<div class="svc-rec-empty">Nenhum outro serviço cadastrado.</div>';
-    return;
-  }
-  var selected = servicoId ? (recommendationsByService[servicoId] || []) : [];
-  container.innerHTML = others.map(function(s) {
-    var checked = selected.indexOf(s.id) >= 0 ? 'checked' : '';
-    var preco = formatCurrency(parseFloat(s.preco || 0));
-    var duracao = (s.duracao || 0) + ' min';
-    return '<label class="svc-rec-item">' +
-      '<input type="checkbox" class="svc-rec-checkbox" value="' + s.id + '" ' + checked + '>' +
-      '<span class="svc-rec-item-name">' + escapeHtmlSafe(s.nome) + '</span>' +
-      '<span class="svc-rec-item-meta">' + escapeHtmlSafe(preco) + ' - ' + escapeHtmlSafe(duracao) + '</span>' +
-    '</label>';
-  }).join('');
-}
-
-function getSelectedRecommendationIds() {
-  var nodes = document.querySelectorAll('#svc-rec-list .svc-rec-checkbox:checked');
-  return Array.prototype.map.call(nodes, function(n) { return n.value; });
-}
-
-function escapeHtmlSafe(str) {
-  return String(str || '').replace(/[&<>"']/g, function(c) {
-    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
 }
 
@@ -690,13 +490,11 @@ async function insertAppointment(apt) {
       // ✅ FIX MULTI-PROFISSIONAL: profissional individual de CADA serviço
       var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
       var svcProfId = svcProfObj ? svcProfObj.id : profId; // fallback p/ principal
-      // 💰 Preço variável: se o usuário escolheu valor, persiste-o
-      var __precoFinal = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco);
       var svcRow = {
         agendamento_id: agId,
         servico_id: svcObj.id,
         profissional_id: svcProfId,
-        preco: __precoFinal,
+        preco: svcObj.preco,
         duracao: svcObj.duracao,
         cor_id: null,
         tenant_id: tenantId
@@ -882,37 +680,6 @@ async function deleteAppointment(id) {
       if (svcInsResp.error) console.warn('[deleteAppointment] INSERT historico_servicos falhou:', svcInsResp.error);
     }
   }
-  // ✅ FALLBACK LOCAL: garante que mesmo se TODOS os retries do INSERT falharem
-  // (esquema da tabela diferente, RLS, FK, etc.), o registro "Cliente desmarcado"
-  // ainda aparecerá no histórico do cliente. Salvo em localStorage por tenant.
-  if (!histId && ag) {
-    try {
-      var lsKey = 'bs_hist_desmarcados_' + (tenantId || 'default');
-      var arr = JSON.parse(localStorage.getItem(lsKey) || '[]');
-      arr.push({
-        id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
-        agendamento_id: ag.id,
-        cliente_id: ag.cliente_id || null,
-        cliente_nome: ag.cliente,
-        cliente_telefone: ag.telefone || null,
-        profissional_nome: ag.profissional || null,
-        status: 'excluido',
-        data: ag.data,
-        hora: ag.hora,
-        observacoes: ag.observacoes || '',
-        servicos: (ag.servicos || []).map(function(s) {
-          return { profissional: s.profissional || ag.profissional || '', servico: s.servico, bases: s.bases || [], pigmentacoes: s.pigmentacoes || [], cores: s.cores || [] };
-        }),
-        tenant_id: tenantId,
-        _local: true
-      });
-      localStorage.setItem(lsKey, JSON.stringify(arr));
-      console.warn('[deleteAppointment] Histórico salvo em localStorage como fallback.');
-    } catch (e) {
-      console.error('[deleteAppointment] Falha no fallback localStorage:', e);
-    }
-  }
-
   // Delete agendamento_servicos first (FK constraint)
   await supabaseClient.from('agendamento_servicos').delete().eq('agendamento_id', id);
   var resp = await supabaseClient.from('agendamentos').delete().eq('id', id);
@@ -923,17 +690,14 @@ async function deleteAppointment(id) {
 async function insertClient(clientObj) {
   var tenantId = getCurrentTenantId();
 
-  // Normaliza o telefone para sempre persistir com máscara (XX) XXXXX-XXXX
-  var telefoneFormatado = formatTelefoneDisplay(clientObj.telefone);
-
-  // Verificar se já existe cliente com mesmo telefone no tenant (compara por dígitos)
-  var existente = await buscarClientePorTelefone(telefoneFormatado, tenantId);
+  // Verificar se já existe cliente com mesmo telefone no tenant
+  var existente = await buscarClientePorTelefone(clientObj.telefone, tenantId);
   if (existente) {
     console.log('Cliente já existe com este telefone, retornando existente:', existente.id);
     return existente;
   }
 
-  var row = { nome: clientObj.nome, telefone: telefoneFormatado, tenant_id: tenantId };
+  var row = { nome: clientObj.nome, telefone: clientObj.telefone, tenant_id: tenantId };
   if (clientObj.nascimento) row.nascimento = clientObj.nascimento;
   var resp = await supabaseClient.from('clientes').insert([row]).select();
 
@@ -941,7 +705,7 @@ async function insertClient(clientObj) {
   if (resp.error) {
     if (resp.error.code === '23505' || (resp.error.message && resp.error.message.indexOf('unique') !== -1)) {
       console.warn('Duplicidade detectada, buscando cliente existente...');
-      var existente2 = await buscarClientePorTelefone(telefoneFormatado, tenantId);
+      var existente2 = await buscarClientePorTelefone(clientObj.telefone, tenantId);
       if (existente2) return existente2;
     }
     console.error('Erro inserir cliente:', resp.error);
@@ -962,140 +726,16 @@ async function buscarClientePorTelefone(telefone, tenantId) {
   return found || null;
 }
 
-
-/* ===== EDIÇÃO DE CLIENTE: getClientById + updateClient ===== */
-async function getClientById(id) {
-  if (!id) return null;
-  var tenantId = getCurrentTenantId();
-  var query = supabaseClient.from('clientes').select('*').eq('id', id);
-  if (tenantId) query = query.eq('tenant_id', tenantId);
-  var resp = await query.maybeSingle();
-  if (resp.error) {
-    console.error('Erro ao buscar cliente por id:', resp.error);
-    return null;
-  }
-  return resp.data || null;
-}
-
-async function updateClient(id, clientObj) {
-  if (!id) return null;
-  var tenantId = getCurrentTenantId();
-  var telefoneFormatado = formatTelefoneDisplay(clientObj.telefone);
-
-  // Verifica se outro cliente do mesmo tenant já usa este telefone (compara por dígitos)
-  var existente = await buscarClientePorTelefone(telefoneFormatado, tenantId);
-  if (existente && existente.id !== id) {
-    return { error: 'duplicate', existente: existente };
-  }
-
-  var row = {
-    nome: clientObj.nome,
-    telefone: telefoneFormatado,
-    nascimento: clientObj.nascimento || null,
-    updated_at: new Date().toISOString()
-  };
-
-  var query = supabaseClient.from('clientes').update(row).eq('id', id);
-  if (tenantId) query = query.eq('tenant_id', tenantId);
-  var resp = await query.select();
-  if (resp.error) {
-    console.error('Erro ao atualizar cliente:', resp.error);
-    return { error: resp.error };
-  }
-  return { data: (resp.data && resp.data[0]) || null };
-}
-
-/* Abrir modal de edição já preenchido */
-async function openEditClienteModal(clienteId) {
-  if (!clienteId) return;
-  editingClientId = clienteId;
-  pendingClienteFromIdentificacao = null;
-
-  // Reset visual
-  var form = document.getElementById('form-cliente');
-  if (form) form.reset();
-
-  // Tenta usar o cache local; se não tiver, busca no banco
-  var cliente = clients.find(function(c) { return c.id === clienteId; });
-  if (!cliente) cliente = await getClientById(clienteId);
-  if (!cliente) {
-    showToast('Não foi possível carregar os dados do cliente.', 'error');
-    editingClientId = null;
-    return;
-  }
-
-  // Atualiza UI do modal para modo edição
-  var title = document.getElementById('modal-cliente-title');
-  if (title) title.textContent = 'Editar Cliente';
-  var btn = document.getElementById('btn-cliente-submit');
-  if (btn) { btn.textContent = 'Salvar'; btn.classList.remove('is-loading'); }
-
-  // Preenche campos
-  var nomeEl = document.getElementById('cl-nome');
-  var telEl  = document.getElementById('cl-telefone');
-  var nascEl = document.getElementById('cl-nascimento');
-  if (nomeEl) nomeEl.value = cliente.nome || '';
-  if (telEl)  telEl.value  = cliente.telefone || '';
-  if (nascEl) nascEl.value = cliente.nascimento || '';
-
-  openModal('modal-cliente');
-}
-window.openEditClienteModal = openEditClienteModal;
-
-/* Reseta o modal para modo "Novo Cliente" */
-function resetClienteModalToCreate() {
-  editingClientId = null;
-  var title = document.getElementById('modal-cliente-title');
-  if (title) title.textContent = 'Novo Cliente';
-  var btn = document.getElementById('btn-cliente-submit');
-  if (btn) { btn.textContent = 'Cadastrar'; btn.classList.remove('is-loading'); }
-}
-window.resetClienteModalToCreate = resetClienteModalToCreate;
-
 /* ===== CRUD DE SERVIÇOS (com tenant_id) ===== */
-async function criarServico(nome, preco, duracao, usa_cores, preco_variavel, valores_sugeridos) {
+async function criarServico(nome, preco, duracao, usa_cores) {
   var tenantId = getCurrentTenantId();
-  var __payload_servico = {
-    nome: nome, preco: preco, duracao: duracao,
-    usa_cores: usa_cores || false,
-    preco_variavel: !!preco_variavel,
-    valores_sugeridos: Array.isArray(valores_sugeridos) ? valores_sugeridos : [],
-    tenant_id: tenantId
-  };
-  var resp = await supabaseClient.from('servicos').insert([__payload_servico]).select();
-  if (resp.error) {
-    console.error('Erro criar serviço:', resp.error);
-    // 23505 = unique_violation. A constraint servicos_nome_tenant_id_unique
-    // impede dois serviços com o mesmo nome no mesmo tenant. Em vez de falhar
-    // (e impedir o vínculo de recomendações), recuperamos o serviço existente
-    // e devolvemos como se fosse um sucesso "reaproveitado", para que o fluxo
-    // de salvar recomendações continue funcionando.
-    if (resp.error.code === '23505') {
-      try {
-        var existing = await supabaseClient
-          .from('servicos')
-          .select('*')
-          .eq('tenant_id', tenantId)
-          .ilike('nome', nome)
-          .limit(1);
-        if (!existing.error && existing.data && existing.data[0]) {
-          return { data: [existing.data[0]], duplicated: true };
-        }
-      } catch (e) { console.warn('Falha ao recuperar serviço duplicado:', e); }
-      return { error: resp.error, duplicated: true };
-    }
-    return null;
-  }
-  return { data: resp.data };
+  var resp = await supabaseClient.from('servicos').insert([{ nome: nome, preco: preco, duracao: duracao, usa_cores: usa_cores || false, tenant_id: tenantId }]).select();
+  if (resp.error) { console.error('Erro criar serviço:', resp.error); return null; }
+  return resp.data[0];
 }
 
-async function editarServico(id, nome, preco, duracao, usa_cores, preco_variavel, valores_sugeridos) {
-  var resp = await supabaseClient.from('servicos').update({
-    nome: nome, preco: preco, duracao: duracao,
-    usa_cores: usa_cores || false,
-    preco_variavel: !!preco_variavel,
-    valores_sugeridos: Array.isArray(valores_sugeridos) ? valores_sugeridos : []
-  }).eq('id', id);
+async function editarServico(id, nome, preco, duracao, usa_cores) {
+  var resp = await supabaseClient.from('servicos').update({ nome: nome, preco: preco, duracao: duracao, usa_cores: usa_cores || false }).eq('id', id);
   if (resp.error) { console.error('Erro editar serviço:', resp.error); return false; }
   return true;
 }
@@ -1179,10 +819,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   await loadCores();
   await loadCorConfig();
   await loadClients();
-  // Carrega horário comercial ANTES dos agendamentos para que a timeline já renderize correta
-  try { await carregarConfigGeral(); } catch (_) {}
   await loadAppointments();
-  await loadBloqueios();
 
   // Navigation
   document.querySelectorAll('.nav-btn').forEach(function(btn) {
@@ -1209,9 +846,6 @@ document.addEventListener('DOMContentLoaded', async function() {
       document.querySelectorAll('.config-panel').forEach(function(p) { p.classList.remove('active'); });
       this.classList.add('active');
       document.getElementById('config-' + tabName).classList.add('active');
-      if (tabName === 'geral' && typeof carregarConfigGeral === 'function') {
-        carregarConfigGeral();
-      }
     });
   });
 
@@ -1236,15 +870,14 @@ document.addEventListener('DOMContentLoaded', async function() {
   });
 
   document.getElementById('btn-novo-agendamento').addEventListener('click', function() {
-    resetIdentificacaoModal();
+    document.getElementById('id-telefone').value = '';
+    document.getElementById('id-feedback').style.display = 'none';
     openModal('modal-identificacao');
   });
 
   document.getElementById('btn-novo-cliente').addEventListener('click', function() {
     pendingClienteFromIdentificacao = null;
-    editingClientId = null;
     document.getElementById('form-cliente').reset();
-    resetClienteModalToCreate();
     openModal('modal-cliente');
   });
 
@@ -1257,9 +890,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 
   maskTelefone(document.getElementById('id-telefone'));
   maskTelefone(document.getElementById('cl-telefone'));
-
-  // Novo: configurar comportamento do modal de identificação (telefone OU nome)
-  setupIdentificacaoModal();
 
   // Quantidade selects serão populados dinamicamente via populateQtdSelect()
   // Fallback: popular com valores padrão caso servico_cor_config não exista
@@ -1285,246 +915,6 @@ function maskTelefone(input) {
 }
 
 /* ===== IDENTIFICAÇÃO DO CLIENTE ===== */
-
-function resetIdentificacaoModal() {
-  // Reset campos
-  var telInput = document.getElementById('id-telefone');
-  var nomeInput = document.getElementById('id-nome');
-  if (telInput) telInput.value = '';
-  if (nomeInput) nomeInput.value = '';
-
-  var fb = document.getElementById('id-feedback');
-  if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
-
-  var status = document.getElementById('id-nome-status');
-  if (status) { status.style.display = 'none'; status.textContent = ''; status.classList.remove('error'); }
-
-  var results = document.getElementById('id-nome-results');
-  if (results) { results.style.display = 'none'; results.innerHTML = ''; }
-
-  // Volta para a aba "telefone" como padrão
-  switchIdentificacaoTab('telefone');
-}
-
-function switchIdentificacaoTab(tipo) {
-  var tabs = document.querySelectorAll('.id-search-tab');
-  tabs.forEach(function(t) {
-    var isActive = t.dataset.searchType === tipo;
-    t.classList.toggle('active', isActive);
-    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
-  });
-
-  var panelTel = document.getElementById('id-panel-telefone');
-  var panelNome = document.getElementById('id-panel-nome');
-  if (panelTel) panelTel.style.display = (tipo === 'telefone') ? 'block' : 'none';
-  if (panelNome) panelNome.style.display = (tipo === 'nome') ? 'block' : 'none';
-
-  // Foco no input correspondente
-  setTimeout(function() {
-    var input = document.getElementById(tipo === 'telefone' ? 'id-telefone' : 'id-nome');
-    if (input) input.focus();
-  }, 50);
-}
-
-var _idNomeDebounce = null;
-
-function setupIdentificacaoModal() {
-  // Tabs
-  var tabs = document.querySelectorAll('.id-search-tab');
-  tabs.forEach(function(t) {
-    t.addEventListener('click', function() {
-      switchIdentificacaoTab(this.dataset.searchType);
-    });
-  });
-
-  // Enter no telefone -> consultar
-  var telInput = document.getElementById('id-telefone');
-  if (telInput) {
-    telInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); consultarCliente(); }
-    });
-  }
-
-  // Autocomplete reativo no nome (debounce 300ms)
-  var nomeInput = document.getElementById('id-nome');
-  if (nomeInput) {
-    nomeInput.addEventListener('input', function() {
-      var termo = this.value.trim();
-      if (_idNomeDebounce) clearTimeout(_idNomeDebounce);
-
-      var status = document.getElementById('id-nome-status');
-      var results = document.getElementById('id-nome-results');
-
-      if (termo.length < 2) {
-        if (status) {
-          status.style.display = 'block';
-          status.classList.remove('error');
-          status.textContent = 'Digite ao menos 2 caracteres para buscar...';
-        }
-        if (results) { results.style.display = 'none'; results.innerHTML = ''; }
-        return;
-      }
-
-      if (status) {
-        status.style.display = 'block';
-        status.classList.remove('error');
-        status.textContent = 'Buscando...';
-      }
-
-      _idNomeDebounce = setTimeout(function() { buscarClientesPorNome(termo); }, 300);
-    });
-  }
-}
-
-// ✅ Normalização accent-insensitive + case-insensitive
-// Remove acentos (NFD + remove diacríticos) e converte para minúsculas
-function normalizeText(text) {
-  if (text == null) return '';
-  return String(text)
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-// Cache de nomes normalizados (evita recalcular a cada tecla digitada)
-// É invalidado sempre que `clients` é recarregado/atualizado.
-var _clientsNormCache = { ref: null, map: null };
-function getClientsNormalized() {
-  if (_clientsNormCache.ref === clients && _clientsNormCache.map) {
-    return _clientsNormCache.map;
-  }
-  var map = (clients || []).map(function(c) {
-    return { c: c, nomeNorm: normalizeText(c.nome || '') };
-  });
-  _clientsNormCache.ref = clients;
-  _clientsNormCache.map = map;
-  return map;
-}
-
-// Busca por NOME — local, accent-insensitive e case-insensitive
-// Usa o cache `clients` (já carregado por loadClients), sem ida ao banco.
-async function buscarClientesPorNome(termo) {
-  var termoNorm = normalizeText(termo || '').trim();
-  if (!termoNorm) {
-    renderResultadosBuscaNome([], termo);
-    return;
-  }
-
-  // Garante cache populado (caso usuário abra a busca antes do load completar)
-  if (!clients || clients.length === 0) {
-    try { await loadClients(); } catch (e) { console.error('loadClients falhou:', e); }
-  }
-
-  var normalizados = getClientsNormalized();
-  var encontrados = [];
-  for (var i = 0; i < normalizados.length; i++) {
-    if (normalizados[i].nomeNorm.indexOf(termoNorm) !== -1) {
-      encontrados.push(normalizados[i].c);
-      if (encontrados.length >= 10) break;
-    }
-  }
-
-  renderResultadosBuscaNome(encontrados, termo);
-}
-
-function renderResultadosBuscaNome(lista, termo) {
-  var status = document.getElementById('id-nome-status');
-  var results = document.getElementById('id-nome-results');
-  if (!results) return;
-
-  // Caso 1: nenhum resultado
-  if (!lista || lista.length === 0) {
-    if (status) { status.style.display = 'none'; }
-    results.style.display = 'block';
-    results.innerHTML =
-      '<div class="id-empty-state">' +
-        '<div><i class="fa-regular fa-face-frown"></i> Nenhum cliente encontrado</div>' +
-        '<button type="button" class="btn-submit" onclick="cadastrarNovoClienteDoNome()">' +
-          '<i class="fa-solid fa-user-plus"></i> Cadastrar novo cliente' +
-        '</button>' +
-      '</div>';
-    return;
-  }
-
-  // Casos 2 e 3: 1 ou múltiplos — sempre mostra como lista
-  if (status) {
-    status.style.display = 'block';
-    status.classList.remove('error');
-    status.textContent = lista.length === 1
-      ? '1 cliente encontrado'
-      : lista.length + ' clientes encontrados';
-  }
-
-  var html = '';
-  lista.forEach(function(c, idx) {
-    var telFmt = formatTelefoneDisplay(c.telefone || '');
-    html +=
-      '<div class="id-result-item" data-idx="' + idx + '">' +
-        '<div class="id-result-info">' +
-          '<div class="id-result-name">' + escapeHtml(c.nome) + '</div>' +
-          '<div class="id-result-meta">' +
-            '<span><i class="fa-solid fa-phone"></i> ' + escapeHtml(telFmt) + '</span>' +
-          '</div>' +
-        '</div>' +
-        '<button type="button" class="id-result-select">Selecionar</button>' +
-      '</div>';
-  });
-
-  // Opção fixa de cadastro
-  html +=
-    '<div class="id-result-newclient" onclick="cadastrarNovoClienteDoNome()">' +
-      '<i class="fa-solid fa-user-plus"></i> Nenhum desses? Cadastrar novo cliente' +
-    '</div>';
-
-  results.style.display = 'block';
-  results.innerHTML = html;
-
-  // Bind clique nos itens — NUNCA auto-seleciona
-  results.querySelectorAll('.id-result-item').forEach(function(el) {
-    el.addEventListener('click', function() {
-      var idx = parseInt(this.dataset.idx, 10);
-      var c = lista[idx];
-      if (!c) return;
-      // Garante que está no cache local
-      if (!clients.some(function(x) { return x.id === c.id; })) {
-        clients.push({ id: c.id, nome: c.nome, telefone: c.telefone, nascimento: c.nascimento || '' });
-      }
-      closeModal('modal-identificacao');
-      openAgendamentoModal(null, c.nome, c.telefone);
-    });
-  });
-}
-
-function cadastrarNovoClienteDoNome() {
-  var termo = (document.getElementById('id-nome').value || '').trim();
-  pendingClienteFromIdentificacao = true;
-  closeModal('modal-identificacao');
-  document.getElementById('form-cliente').reset();
-  // Pré-preenche o nome com o termo digitado
-  if (termo) document.getElementById('cl-nome').value = termo;
-  openModal('modal-cliente');
-}
-
-// Util: formata telefone para exibição (ex: (11) 99999-9999)
-function formatTelefoneDisplay(tel) {
-  var d = (tel || '').replace(/\D/g, '');
-  if (d.length === 11) return '(' + d.substring(0,2) + ') ' + d.substring(2,7) + '-' + d.substring(7);
-  if (d.length === 10) return '(' + d.substring(0,2) + ') ' + d.substring(2,6) + '-' + d.substring(6);
-  return tel || '';
-}
-
-// Util: escape simples
-function escapeHtml(s) {
-  if (s == null) return '';
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-// === Busca por TELEFONE (mantém comportamento atual) ===
 async function consultarCliente() {
   var tel = document.getElementById('id-telefone').value.trim();
   var feedback = document.getElementById('id-feedback');
@@ -1590,7 +980,6 @@ function switchPage(page) {
   if (page === 'profissionais') { renderProfessionals(); }
   if (page === 'dashboard') { initDashboard(); }
   if (page === 'configuracoes') { initConfiguracoes(); }
-  if (page === 'comissoes') { initComissoesPage(); }
 
   closeSidebar();
 }
@@ -1757,22 +1146,6 @@ function expandToServiceEvents(apps) {
 
 function eventDuration(ev) { return ev.duracao || 30; }
 
-function getEventStartMinutes(ev) {
-  var parts = String(ev.hora || '00:00').split(':');
-  return parseInt(parts[0] || 0, 10) * 60 + parseInt(parts[1] || 0, 10);
-}
-
-function compareTimelineEvents(a, b) {
-  var diff = getEventStartMinutes(a) - getEventStartMinutes(b);
-  if (diff !== 0) return diff;
-
-  var agA = a && a.agendamento ? String(a.agendamento.id || '') : '';
-  var agB = b && b.agendamento ? String(b.agendamento.id || '') : '';
-  if (agA === agB) return (a.idx || 0) - (b.idx || 0);
-
-  return String(a.id || '').localeCompare(String(b.id || ''), 'pt-BR', { numeric: true, sensitivity: 'base' });
-}
-
 
 /* ===== CALENDAR ===== */
 function renderCalendar() {
@@ -1814,25 +1187,10 @@ function renderDayDetail() {
   document.getElementById('day-detail-header').textContent = weekday + ', ' + formatted;
 
   var dateStr = currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay);
-  var horarioDia = getHorarioDoDia(date);
-
-  var container = document.getElementById('day-appointments');
-
-  // Dia fechado → bloqueia agenda
-  if (!horarioDia.ativo) {
-    container.className = '';
-    container.innerHTML =
-      '<div class="no-appointments is-closed">' +
-        '<i class="fa-regular fa-circle-xmark"></i>' +
-        '<p><strong>Estabelecimento fechado neste dia</strong></p>' +
-        '<p style="font-size:.85rem;opacity:.8;margin-top:4px;">' +
-        'Configure o horário comercial em Configurações &rsaquo; Geral.</p>' +
-      '</div>';
-    return;
-  }
-
   var dayAppointments = appointments.filter(function(a) { return a.data === dateStr && appointmentMatchesFilter(a); });
   dayAppointments.sort(function(a, b) { return a.hora.localeCompare(b.hora); });
+
+  var container = document.getElementById('day-appointments');
 
   if (dayAppointments.length === 0) {
     container.className = '';
@@ -1845,14 +1203,14 @@ function renderDayDetail() {
     // respeita o filtro: cada evento só aparece se SEU profissional está no filtro
     return activeFilters.indexOf(ev.profissional) >= 0;
   });
-  dayEvents.sort(compareTimelineEvents);
+  dayEvents.sort(function(a, b) { return a.hora.localeCompare(b.hora); });
 
   var showMultiAgenda = isAdmin() && activeFilters.length > 1;
 
   if (showMultiAgenda) {
-    renderMultiAgenda(container, dayEvents, dateStr, horarioDia);
+    renderMultiAgenda(container, dayEvents, dateStr);
   } else {
-    renderSingleTimeline(container, dayEvents, horarioDia);
+    renderSingleTimeline(container, dayEvents);
   }
 }
 
@@ -1868,7 +1226,7 @@ function computeEndTime(hora, durationMin) {
 
 // Agrupa EVENTOS que se sobrepõem no tempo (mesmo profissional ou mesma coluna)
 function computeOverlapGroups(events) {
-  var sorted = events.slice().sort(compareTimelineEvents);
+  var sorted = events.slice().sort(function(a, b) { return a.hora.localeCompare(b.hora); });
   var groups = [];
   sorted.forEach(function(a) {
     var aParts = a.hora.split(':');
@@ -1892,7 +1250,7 @@ function computeOverlapGroups(events) {
 }
 
 function assignColumns(group) {
-  var sorted = group.slice().sort(compareTimelineEvents);
+  var sorted = group.slice().sort(function(a, b) { return a.hora.localeCompare(b.hora); });
   var columns = [];
   var result = {};
   sorted.forEach(function(a) {
@@ -1911,20 +1269,10 @@ function assignColumns(group) {
   return { map: result, totalCols: columns.length };
 }
 
-function renderSingleTimeline(container, dayEvents, horarioDia) {
+function renderSingleTimeline(container, dayEvents) {
   container.className = 'timeline-container';
-  var hStart = horarioDia ? parseInt(String(horarioDia.inicio).split(':')[0], 10) : BUSINESS_HOUR_START;
-  var hFimRaw = horarioDia ? String(horarioDia.fim).split(':') : [String(BUSINESS_HOUR_END), '0'];
-  var hEnd = parseInt(hFimRaw[0], 10);
-  if (parseInt(hFimRaw[1] || '0', 10) > 0) hEnd = hEnd + 1;
-  if (isNaN(hStart)) hStart = BUSINESS_HOUR_START;
-  if (isNaN(hEnd)) hEnd = BUSINESS_HOUR_END;
-  // Expõe início do dia para os blocos calcularem seu top relativo
-  container.dataset.hourStart = String(hStart);
-  // Altura proporcional ao intervalo do dia (1 min = 1px)
-  var tlHeight = (hEnd - hStart + 1) * 60;
-  var html = '<div class="timeline" style="min-height:' + tlHeight + 'px;">';
-  for (var h = hStart; h <= hEnd; h++) {
+  var html = '<div class="timeline">';
+  for (var h = 7; h <= 21; h++) {
     html += '<div class="timeline-row"><div class="timeline-hour">' + pad(h) + ':00</div><div class="timeline-slot" data-hour="' + h + '"></div></div>';
   }
   html += '<div class="timeline-blocks" id="timeline-blocks"></div></div>';
@@ -1935,21 +1283,13 @@ function renderSingleTimeline(container, dayEvents, horarioDia) {
   groups.forEach(function(group) {
     var cols = assignColumns(group);
     group.forEach(function(ev) {
-      renderTimelineBlock(blocksContainer, ev, cols.map[ev.id], cols.totalCols, hStart);
+      renderTimelineBlock(blocksContainer, ev, cols.map[ev.id], cols.totalCols);
     });
   });
 }
 
-function renderMultiAgenda(container, dayEvents, dateStr, horarioDia) {
+function renderMultiAgenda(container, dayEvents, dateStr) {
   container.className = 'multi-agenda-container';
-  var hStart = horarioDia ? parseInt(String(horarioDia.inicio).split(':')[0], 10) : BUSINESS_HOUR_START;
-  var hFimRaw = horarioDia ? String(horarioDia.fim).split(':') : [String(BUSINESS_HOUR_END), '0'];
-  var hEnd = parseInt(hFimRaw[0], 10);
-  if (parseInt(hFimRaw[1] || '0', 10) > 0) hEnd = hEnd + 1;
-  if (isNaN(hStart)) hStart = BUSINESS_HOUR_START;
-  if (isNaN(hEnd)) hEnd = BUSINESS_HOUR_END;
-  container.dataset.hourStart = String(hStart);
-
   var html = '<div class="multi-agenda">';
   html += '<div class="multi-agenda-header"><div class="timeline-hour-header"></div>';
   activeFilters.forEach(function(name) {
@@ -1957,15 +1297,14 @@ function renderMultiAgenda(container, dayEvents, dateStr, horarioDia) {
     html += '<div class="multi-agenda-col-header">' + avatarHtml + '<span>' + name + '</span></div>';
   });
   html += '</div><div class="multi-agenda-body">';
-  for (var h = hStart; h <= hEnd; h++) {
+  for (var h = 7; h <= 21; h++) {
     html += '<div class="multi-agenda-row"><div class="timeline-hour">' + pad(h) + ':00</div>';
     activeFilters.forEach(function(name) { html += '<div class="multi-agenda-cell" data-prof="' + name + '" data-hour="' + h + '"></div>'; });
     html += '</div>';
   }
-  // ✅ FIX 1: blocos DENTRO do body para alinhar top:0 com início das rows (sem offset do header)
+  html += '</div>';
   activeFilters.forEach(function(name) { html += '<div class="multi-agenda-blocks" data-prof-col="' + name + '"></div>'; });
-  html += '</div>'; // fecha .multi-agenda-body
-  html += '</div>'; // fecha .multi-agenda
+  html += '</div>';
   container.innerHTML = html;
 
   // ✅ Cada coluna recebe SOMENTE os eventos do seu profissional
@@ -1978,21 +1317,20 @@ function renderMultiAgenda(container, dayEvents, dateStr, horarioDia) {
       var totalSubCols = cols.totalCols;
       group.forEach(function(ev) {
         var subCol = cols.map[ev.id];
-        renderTimelineBlockMulti(blocksEl, ev, colIdx, activeFilters.length, subCol, totalSubCols, hStart);
+        renderTimelineBlockMulti(blocksEl, ev, colIdx, activeFilters.length, subCol, totalSubCols);
       });
     });
   });
 }
 
-function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, totalSubCols, hourStartOverride) {
+function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, totalSubCols) {
   var parts = ev.hora.split(':');
   var hourNum = parseInt(parts[0]);
   var minNum = parseInt(parts[1] || 0);
-  var hStart = (typeof hourStartOverride === 'number') ? hourStartOverride : BUSINESS_HOUR_START;
-  var startMinutes = (hourNum - hStart) * 60 + minNum;
+  var startMinutes = (hourNum - 7) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
-  var heightPx = Math.max(duration, 1);
+  var heightPx = Math.max(duration, 20);
 
   var endTime = computeEndTime(ev.hora, duration);
 
@@ -2016,15 +1354,14 @@ function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, tota
   container.appendChild(block);
 }
 
-function renderTimelineBlock(container, ev, colIdx, totalCols, hourStartOverride) {
+function renderTimelineBlock(container, ev, colIdx, totalCols) {
   var parts = ev.hora.split(':');
   var hourNum = parseInt(parts[0]);
   var minNum = parseInt(parts[1] || 0);
-  var hStart = (typeof hourStartOverride === 'number') ? hourStartOverride : BUSINESS_HOUR_START;
-  var startMinutes = (hourNum - hStart) * 60 + minNum;
+  var startMinutes = (hourNum - 7) * 60 + minNum;
   var duration = eventDuration(ev);
   var topPx = startMinutes;
-  var heightPx = Math.max(duration, 1);
+  var heightPx = Math.max(duration, 20);
 
   var endTime = computeEndTime(ev.hora, duration);
 
@@ -2057,12 +1394,7 @@ function buildBlockContent(block, ev, heightPx, endTime, serviceNames) {
   block.style.display = 'flex';
   block.style.flexDirection = 'column';
   block.style.justifyContent = 'center';
-  // ✅ FIX 2: Boxes muito curtos (ex: 10min) — exibe apenas horário inicial em fonte mínima
-  if (heightPx <= 22) {
-    block.classList.add('tb-tiny');
-    block.title = timeRange + ' — ' + ev.cliente + (serviceNames ? ' (' + serviceNames + ')' : '');
-    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time">' + ev.hora + '</span> <span class="tb-client tb-truncate">' + ev.cliente + '</span></div>';
-  } else if (heightPx <= 38) {
+  if (heightPx <= 38) {
     block.innerHTML = '<div class="tb-row-compact">' +
       '<span class="tb-time">' + timeRange + '</span> <span class="tb-client">' + ev.cliente + '</span><span class="tb-service">' + serviceText + '</span>' + partTag + '</div>';
   } else if (heightPx <= 55) {
@@ -2083,38 +1415,14 @@ function openAgendamentoModal(agId, clienteNome, clienteTel) {
   document.getElementById('btn-excluir-agendamento').style.display = agId ? 'flex' : 'none';
   document.getElementById('servicos-container').innerHTML = '';
 
-  // (Re)popula o select de horas conforme horário comercial atual
-  populateAgHoraSelect();
-
   if (!agId) {
     adicionarBlocoServico();
     document.getElementById('ag-data').value = formatDateInput(new Date(currentYear, currentMonth, selectedDay));
-    var defaultH = pad(BUSINESS_HOUR_START);
-    document.getElementById('ag-hora-h').value = defaultH;
+    document.getElementById('ag-hora-h').value = '09';
     document.getElementById('ag-minuto').value = '00';
   }
 
   openModal('modal-agendamento');
-}
-
-/* Popula <select id="ag-hora-h"> com as horas dentro do horário comercial */
-function populateAgHoraSelect() {
-  var sel = document.getElementById('ag-hora-h');
-  if (!sel) return;
-  var prev = sel.value;
-  var html = '';
-  for (var h = BUSINESS_HOUR_START; h <= BUSINESS_HOUR_END; h++) {
-    html += '<option value="' + pad(h) + '">' + pad(h) + '</option>';
-  }
-  sel.innerHTML = html;
-  // Mantém valor anterior se ainda válido
-  if (prev) {
-    var found = false;
-    for (var i = 0; i < sel.options.length; i++) {
-      if (sel.options[i].value === prev) { found = true; break; }
-    }
-    if (found) sel.value = prev;
-  }
 }
 
 function openAgendamentoParaEditar(a) {
@@ -2183,25 +1491,6 @@ function adicionarBlocoServicoComDados(dados) {
     wrapper.querySelector('.svc-servico').value = dados.servico || '';
     onSvcServicoChange(wrapper.querySelector('.svc-servico'));
 
-    // 💰 Pré-selecionar preço escolhido (preço variável) na edição
-    if (dados.preco != null) {
-      var __precoSelEdit = wrapper.querySelector('.svc-preco-escolhido');
-      if (__precoSelEdit) {
-        var __alvo = Number(dados.preco).toFixed(2);
-        Array.prototype.forEach.call(__precoSelEdit.options, function(o){
-          if (o.value && Number(o.value).toFixed(2) === __alvo) __precoSelEdit.value = o.value;
-        });
-        if (!__precoSelEdit.value) {
-          // Valor histórico não está mais nas variações do serviço — injetar como legado
-          var __optLegado = document.createElement('option');
-          __optLegado.value = Number(dados.preco);
-          __optLegado.textContent = 'R$ ' + Number(dados.preco).toFixed(2).replace('.', ',') + ' (legado)';
-          __optLegado.selected = true;
-          __precoSelEdit.appendChild(__optLegado);
-        }
-      }
-    }
-
     if (dados.bases && dados.bases.length > 0) {
       var extrasDiv = wrapper.querySelector('.svc-extras');
       var basesContainer = extrasDiv.querySelector('.bases-container');
@@ -2253,7 +1542,6 @@ function onSvcProfChange(selectEl) {
   var prof = selectEl.value;
   var block = selectEl.closest('.servico-block');
   var svcSelect = block.querySelector('.svc-servico');
-  var prevServico = svcSelect.value; // ✅ Preserva o serviço já selecionado (ex: vindo do upsell)
   svcSelect.innerHTML = '<option value="">Selecione...</option>';
   var services = getProfServiceNames(prof);
   services.forEach(function(s) {
@@ -2261,10 +1549,6 @@ function onSvcProfChange(selectEl) {
     opt.value = s; opt.textContent = s;
     svcSelect.appendChild(opt);
   });
-  // ✅ Se o serviço anterior continua disponível para o novo profissional, mantém a seleção
-  if (prevServico && services.indexOf(prevServico) >= 0) {
-    svcSelect.value = prevServico;
-  }
   onSvcServicoChange(svcSelect);
 }
 
@@ -2276,29 +1560,6 @@ function onSvcServicoChange(selectEl) {
 
   // Encontrar o serviço pelo nome e verificar usa_cores (database-driven)
   var svcObj = allServicos.find(function(s) { return s.nome === servico; });
-
-  // ✨ Upsell: sugerir serviços recomendados (não-intrusivo, só se houver)
-  // ⚠️ NUNCA exibir em modo edição — apenas durante CRIAÇÃO de novo agendamento
-  var isEditMode = !!editingAppointmentId || !!window._isEditingAppointment || !!window._suppressUpsell;
-  if (!isEditMode && svcObj && typeof showUpsellSuggestions === 'function') {
-    try { showUpsellSuggestions(svcObj.id); } catch (e) { console.warn('upsell falhou:', e); }
-  }
-
-  // 💰 NOVO: dropdown de preço variável (se aplicável)
-  if (svcObj && svcObj.preco_variavel && Array.isArray(svcObj.valores_sugeridos) && svcObj.valores_sugeridos.length > 0) {
-    var __vals = svcObj.valores_sugeridos.slice().sort(function(a,b){return Number(a)-Number(b);});
-    var __opts = '<option value="">Selecione o valor...</option>';
-    __vals.forEach(function(v){
-      var nv = Number(v);
-      __opts += '<option value="' + nv + '">R$ ' + nv.toFixed(2).replace('.', ',') + '</option>';
-    });
-    extrasDiv.insertAdjacentHTML('beforeend',
-      '<div class="form-group svc-preco-variavel-group">' +
-        '<label>Valor do serviço *</label>' +
-        '<select class="svc-preco-escolhido" required>' + __opts + '</select>' +
-      '</div>');
-  }
-
   if (!svcObj || !svcObj.usa_cores) return;
 
   var servicoId = svcObj.id;
@@ -2320,17 +1581,17 @@ function onSvcServicoChange(selectEl) {
         '<button type="button" class="btn-add-cor" onclick="adicionarPigmentacao(this)" data-servico-id="' + servicoId + '"><i class="fa-solid fa-circle-plus"></i> Adicionar pigmentação</button>' +
         '</div>';
     }
-    extrasDiv.insertAdjacentHTML('beforeend', html);
+    extrasDiv.innerHTML = html;
     // Store servicoId on the block for later use
     block.dataset.servicoId = servicoId;
     if (temBase) adicionarCampoBase(extrasDiv.querySelector('[onclick*="adicionarCampoBase"]'));
   } else {
     // Serviço usa cores mas não tem base/pigmento configurados - mostrar seletor simples
-    extrasDiv.insertAdjacentHTML('beforeend',
+    extrasDiv.innerHTML =
       '<div class="form-group"><label>Cores</label>' +
       '<div class="cores-container"></div>' +
       '<button type="button" class="btn-add-cor" onclick="adicionarCorSimples(this)" data-servico-id="' + servicoId + '"><i class="fa-solid fa-circle-plus"></i> Adicionar cor</button>' +
-      '</div>');
+      '</div>';
     block.dataset.servicoId = servicoId;
     adicionarCorSimples(extrasDiv.querySelector('.btn-add-cor'));
   }
@@ -2563,7 +1824,6 @@ document.addEventListener('click', function() {
 function collectServicos() {
   var blocks = document.querySelectorAll('.servico-block');
   var servicos = [];
-  var __faltouPreco = false;
   blocks.forEach(function(block) {
     var prof = block.querySelector('.svc-profissional').value;
     // 🔒 REGRA: Colaborador SEMPRE agenda para o profissional vinculado (anti-bypass)
@@ -2573,13 +1833,6 @@ function collectServicos() {
     var servico = block.querySelector('.svc-servico').value;
     if (!prof || !servico) return;
     var svc = { profissional: prof, servico: servico, bases: [], pigmentacoes: [], cores: [] };
-    // 💰 Preço variável — capturar valor escolhido
-    var __precoSel = block.querySelector('.svc-preco-escolhido');
-    if (__precoSel) {
-      var __v = parseFloat(__precoSel.value);
-      if (isNaN(__v)) { __faltouPreco = true; return; }
-      svc.precoEscolhido = __v;
-    }
     block.querySelectorAll('.base-item').forEach(function(bi) {
       if (bi.dataset.cor) svc.bases.push({ cor: bi.dataset.cor, qtd: parseInt(bi.dataset.qtd) || 0 });
     });
@@ -2591,10 +1844,6 @@ function collectServicos() {
     });
     servicos.push(svc);
   });
-  if (__faltouPreco) {
-    showToast('Selecione o valor para os serviços de preço variável.', 'error');
-    return [];
-  }
   return servicos;
 }
 
@@ -2675,43 +1924,7 @@ function renderClients() {
       if (isBirthday) birthdayNames.push(c.nome);
     }
     var bIcon = isBirthday ? ' <i class="fa-solid fa-cake-candles birthday-icon"></i>' : '';
-    var safeName = String(c.nome || '').replace(/"/g, '&quot;');
-    // SVG silhouettes (Lucide-style) — inline com currentColor para herdar a cor do tema
-    var svgUser = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
-    var svgPhone = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
-    var svgCake = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/><path d="M7 4h.01"/><path d="M12 4h.01"/><path d="M17 4h.01"/></svg>';
-    tr.innerHTML =
-      '<td class="cell-icon-name" data-label="Nome">' +
-        '<span class="cell-icon-svg">' + svgUser + '</span>' +
-        '<span class="cell-label">Nome</span>' +
-        '<span class="cell-value cell-value-name">' + c.nome + bIcon + '</span>' +
-      '</td>' +
-      '<td class="cell-icon-phone" data-label="Telefone">' +
-        '<span class="cell-icon-svg">' + svgPhone + '</span>' +
-        '<span class="cell-label">Telefone</span>' +
-        '<span class="cell-value cell-value-phone">' + formatTelefoneDisplay(c.telefone) + '</span>' +
-      '</td>' +
-      '<td class="cell-icon-birth" data-label="Nascimento">' +
-        '<span class="cell-icon-svg">' + svgCake + '</span>' +
-        '<span class="cell-label">Nascimento</span>' +
-        '<span class="cell-value">' + birthFormatted + '</span>' +
-      '</td>' +
-      '<td class="col-acoes" data-label="Ações">' +
-        '<button type="button" class="btn-edit-client" ' +
-          'data-client-id="' + c.id + '" ' +
-          'title="Editar cliente" aria-label="Editar ' + safeName + '">' +
-          '<i class="fa-solid fa-pen"></i>' +
-          '<span class="btn-edit-client-label">Editar</span>' +
-        '</button>' +
-      '</td>';
-    // Listener do botão editar (impede abrir o histórico)
-    var editBtn = tr.querySelector('.btn-edit-client');
-    if (editBtn) {
-      editBtn.addEventListener('click', function(ev) {
-        ev.stopPropagation();
-        openEditClienteModal(c.id);
-      });
-    }
+    tr.innerHTML = '<td>' + c.nome + bIcon + '</td><td>' + c.telefone + '</td><td>' + birthFormatted + '</td>';
     tbody.appendChild(tr);
   });
   var banner = document.getElementById('birthday-banner');
@@ -2726,44 +1939,10 @@ function renderClients() {
 async function saveClient(e) {
   e.preventDefault();
   var nome = document.getElementById('cl-nome').value.trim();
-  var telefoneRaw = document.getElementById('cl-telefone').value.trim();
+  var telefone = document.getElementById('cl-telefone').value.trim();
   var nascimento = document.getElementById('cl-nascimento').value;
-  if (!nome || !telefoneRaw) return;
-  var telDigits = telefoneRaw.replace(/\D/g, '');
-  if (telDigits.length < 10 || telDigits.length > 11) {
-    showToast('Telefone inválido. Use 10 ou 11 dígitos.', 'error');
-    return;
-  }
-  var telefone = formatTelefoneDisplay(telefoneRaw);
-  var submitBtn = document.getElementById('btn-cliente-submit');
+  if (!nome || !telefone) return;
 
-  /* ============ MODO EDIÇÃO ============ */
-  if (editingClientId) {
-    if (submitBtn) submitBtn.classList.add('is-loading');
-    var upd = await updateClient(editingClientId, {
-      nome: nome, telefone: telefone, nascimento: nascimento
-    });
-    if (submitBtn) submitBtn.classList.remove('is-loading');
-
-    if (upd && upd.error === 'duplicate') {
-      showToast('Já existe outro cliente com este telefone: ' + (upd.existente && upd.existente.nome), 'error');
-      return;
-    }
-    if (!upd || upd.error) {
-      showToast('Erro ao atualizar cliente!', 'error');
-      return;
-    }
-    showToast('Cliente atualizado!');
-    var idEditado = editingClientId;
-    editingClientId = null;
-    closeModal('modal-cliente');
-    resetClienteModalToCreate();
-    await loadClients();
-    renderClients();
-    return;
-  }
-
-  /* ============ MODO CRIAÇÃO ============ */
   // Verificar duplicidade antes de tentar inserir
   var tenantId = getCurrentTenantId();
   var existente = await buscarClientePorTelefone(telefone, tenantId);
@@ -2779,9 +1958,7 @@ async function saveClient(e) {
     return;
   }
 
-  if (submitBtn) submitBtn.classList.add('is-loading');
   var result = await insertClient({ nome: nome, telefone: telefone, nascimento: nascimento });
-  if (submitBtn) submitBtn.classList.remove('is-loading');
   if (!result) { showToast('Erro ao cadastrar cliente!'); return; }
   showToast('Cliente cadastrado!');
   closeModal('modal-cliente');
@@ -2832,22 +2009,10 @@ async function openHistorico(cliente) {
     if (tenantId) qByName = qByName.eq('tenant_id', tenantId);
     var rByName = await qByName;
     (rByName.data || []).forEach(function(r) { if (!seen[r.id]) { seen[r.id] = 1; results.push(r); } });
-
-    // ✅ MERGE LOCAL: registros "Cliente desmarcado" salvos em localStorage como fallback
-    try {
-      var lsKey = 'bs_hist_desmarcados_' + (tenantId || 'default');
-      var locais = JSON.parse(localStorage.getItem(lsKey) || '[]');
-      locais.forEach(function(r) {
-        var match = (cliente.id && r.cliente_id === cliente.id) || (r.cliente_nome === cliente.nome);
-        if (match && !seen[r.id]) { seen[r.id] = 1; results.push(r); }
-      });
-    } catch (e) { console.warn('[fetchHistorico] merge local falhou:', e); }
-
     return results;
   }
   async function fetchAgendamentos() {
-    // ✅ FIX ORDEM SERVIÇOS (v10): incluir id+created_at p/ ordenar serviços conforme cadastro
-    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
+    var sel = '*, agendamento_servicos(servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
     var results = [];
     var seen = {};
     if (cliente.id) {
@@ -2878,14 +2043,7 @@ async function openHistorico(cliente) {
       var profNomeMap = {};
       allProfissionais.forEach(function(p) { profNomeMap[p.id] = p.nome; });
       ag.profissional = profNomeMap[ag.profissional_id] || '';
-      // ✅ FIX ORDEM SERVIÇOS (v10): ordenar por created_at (fallback id)
-      var svcsOrdenados = ag.agendamento_servicos.slice().sort(function(x, y) {
-        var cx = x && x.created_at ? String(x.created_at) : '';
-        var cy = y && y.created_at ? String(y.created_at) : '';
-        if (cx && cy && cx !== cy) return cx < cy ? -1 : 1;
-        return String(x && x.id || '').localeCompare(String(y && y.id || ''), undefined, { numeric: true, sensitivity: 'base' });
-      });
-      ag.servicos = svcsOrdenados.map(function(as) {
+      ag.servicos = ag.agendamento_servicos.map(function(as) {
         var bases = [], pigmentacoes = [], coresArr = [];
         if (as.agendamento_servico_cores && as.agendamento_servico_cores.length > 0) {
           as.agendamento_servico_cores.forEach(function(asc) {
@@ -2939,17 +2097,10 @@ async function openHistorico(cliente) {
 
   var html = '<div class="historico-info">';
   html += '<p><strong>' + cliente.nome + '</strong></p>';
-  html += '<p><i class="fa-solid fa-phone" style="margin-right:6px"></i>' + formatTelefoneDisplay(cliente.telefone) + '</p>';
+  html += '<p><i class="fa-solid fa-phone" style="margin-right:6px"></i>' + cliente.telefone + '</p>';
   html += '<p><i class="fa-solid fa-cake-candles" style="margin-right:6px"></i>' + birthFormatted + '</p>';
   html += '</div>';
 
-  // ✅ NOVO: Abas Histórico / Pacotes
-  html += '<div class="hist-tabs">' +
-    '<button type="button" class="hist-tab-btn active" data-hist-tab="historico" onclick="switchHistTab(this,\'historico\')"><i class="fa-solid fa-clock-rotate-left"></i> Histórico</button>' +
-    '<button type="button" class="hist-tab-btn" data-hist-tab="pacotes" onclick="switchHistTab(this,\'pacotes\')"><i class="fa-solid fa-box"></i> Pacotes</button>' +
-    '</div>';
-
-  html += '<div class="hist-tab-pane" data-hist-pane="historico">';
   if (todos.length === 0) {
     html += '<p style="color:var(--text-muted)">Nenhum atendimento registrado.</p>';
   } else {
@@ -3020,104 +2171,7 @@ async function openHistorico(cliente) {
     });
     html += '</ul>';
   }
-  html += '</div>'; // fecha pane historico
-
-  // Pane Pacotes (carregado sob demanda)
-  html += '<div class="hist-tab-pane" data-hist-pane="pacotes" style="display:none">' +
-    '<div id="pacotes-cliente-conteudo"><p style="color:var(--text-muted)">Carregando pacotes...</p></div>' +
-    '</div>';
-
   conteudo.innerHTML = html;
-
-  // Carrega pacotes do cliente
-  try {
-    var pacotes = await listarPacotesCliente(cliente.id);
-    var box = document.getElementById('pacotes-cliente-conteudo');
-    if (box) box.innerHTML = renderPacotesCliente(pacotes);
-  } catch (e) {
-    console.warn('[openHistorico] Erro carregando pacotes:', e);
-    var box2 = document.getElementById('pacotes-cliente-conteudo');
-    if (box2) box2.innerHTML = '<p style="color:var(--text-muted)">Não foi possível carregar os pacotes.</p>';
-  }
-}
-
-/* ====== ABAS HISTÓRICO / PACOTES ====== */
-function switchHistTab(btn, tab) {
-  var modal = document.getElementById('modal-historico');
-  if (!modal) return;
-  var btns = modal.querySelectorAll('.hist-tab-btn');
-  btns.forEach(function(b) { b.classList.toggle('active', b.getAttribute('data-hist-tab') === tab); });
-  var panes = modal.querySelectorAll('.hist-tab-pane');
-  panes.forEach(function(p) { p.style.display = (p.getAttribute('data-hist-pane') === tab) ? '' : 'none'; });
-}
-
-/* ====== PACOTES DO CLIENTE (aba no histórico) ====== */
-async function listarPacotesCliente(clienteId) {
-  if (!clienteId) return [];
-  var tenantId = (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
-  var q = supabaseClient
-    .from('cliente_pacotes')
-    .select('id, quantidade_total, quantidade_restante, preco_unitario, preco_total, data_inicio, data_expiracao, status, pacote_id, pacotes(nome, servico_id, servicos(nome))')
-    .eq('cliente_id', clienteId)
-    .order('data_expiracao', { ascending: true });
-  if (tenantId) q = q.eq('tenant_id', tenantId);
-  var resp = await q;
-  if (resp.error) {
-    console.warn('[listarPacotesCliente] erro:', resp.error);
-    return [];
-  }
-  return resp.data || [];
-}
-
-function getStatusPacote(cp) {
-  var hoje = pacoteTodayISO();
-  var statusDb = String(cp.status || '').toLowerCase();
-  var restante = Number(cp.quantidade_restante || 0);
-  var total = Number(cp.quantidade_total || 0);
-  if (statusDb === 'expirado' || (cp.data_expiracao && cp.data_expiracao < hoje)) {
-    return { key: 'expirado', label: 'EXPIRADO', cls: 'status-expirado' };
-  }
-  if (statusDb === 'concluido' || restante <= 0) {
-    return { key: 'concluido', label: 'CONCLUÍDO', cls: 'status-concluido' };
-  }
-  // Alerta: expira em < 5 dias
-  if (cp.data_expiracao) {
-    try {
-      var d1 = new Date(cp.data_expiracao + 'T00:00:00');
-      var d0 = new Date(hoje + 'T00:00:00');
-      var diff = Math.ceil((d1 - d0) / (1000 * 60 * 60 * 24));
-      if (diff >= 0 && diff <= 5) {
-        return { key: 'alerta', label: 'EXPIRA EM BREVE', cls: 'status-alerta' };
-      }
-    } catch (e) {}
-  }
-  return { key: 'ativo', label: 'ATIVO', cls: 'status-ativo' };
-}
-
-function renderPacotesCliente(pacotes) {
-  if (!pacotes || pacotes.length === 0) {
-    return '<p style="color:var(--text-muted)">Este cliente ainda não possui pacotes.</p>';
-  }
-  // ✅ Render em estilo TEXTO (mesmo padrão do histórico — <ul class="historico-lista">)
-  var html = '<ul class="historico-lista">';
-  pacotes.forEach(function(cp) {
-    var status = getStatusPacote(cp);
-    var nomePacote = (cp.pacotes && cp.pacotes.nome) || 'Pacote';
-    var nomeServico = (cp.pacotes && cp.pacotes.servicos && cp.pacotes.servicos.nome) || '-';
-    var total = Number(cp.quantidade_total || 0);
-    var restante = Number(cp.quantidade_restante || 0);
-    var usados = Math.max(0, total - restante);
-    var dataExp = cp.data_expiracao ? pacoteFormatDate(cp.data_expiracao) : '-';
-    var badge = '<span class="hist-status-badge hist-pacote-badge ' + status.cls + '">' + status.label + '</span>';
-    var linha = '<strong>' + pacoteEscapeHtml(nomePacote) + '</strong>'
-      + ' — Serviço: ' + pacoteEscapeHtml(nomeServico)
-      + '<br>Utilizados: <strong>' + usados + '/' + total + '</strong> (restam ' + restante + ')'
-      + ' — Expira em: <strong>' + dataExp + '</strong>';
-    html += '<li><div class="hist-item-top"><span class="hist-data"><i class="fa-solid fa-box"></i> Pacote</span>' + badge + '</div>'
-         + '<div class="hist-item-body">' + linha + '</div></li>';
-  });
-  html += '</ul>';
-  return html;
 }
 
 /* ===== PROFESSIONALS PAGE ===== */
@@ -3377,13 +2431,7 @@ function openCriarServico() {
   document.getElementById('svc-crud-preco').value = '';
   document.getElementById('svc-crud-duracao').value = '';
   document.getElementById('svc-crud-usa-cores').checked = false;
-  // 💰 Preço variável — reset
-  var pvChk = document.getElementById('svc-crud-preco-variavel');
-  if (pvChk) pvChk.checked = false;
-  if (typeof renderVariacoesPreco === 'function') renderVariacoesPreco([]);
-  if (typeof onTogglePrecoVariavel === 'function') onTogglePrecoVariavel();
   document.getElementById('modal-crud-servico-titulo').textContent = 'Novo Serviço';
-  renderRecommendationsPicker(null); // Sem service_id ainda → mostra todos para futura associação após salvar
   openModal('modal-crud-servico');
 }
 
@@ -3395,187 +2443,33 @@ function openEditarServico(id) {
   document.getElementById('svc-crud-preco').value = svc.preco;
   document.getElementById('svc-crud-duracao').value = svc.duracao;
   document.getElementById('svc-crud-usa-cores').checked = svc.usa_cores || false;
-  // 💰 Preço variável — hidratar
-  var pvChk = document.getElementById('svc-crud-preco-variavel');
-  if (pvChk) pvChk.checked = !!svc.preco_variavel;
-  if (typeof renderVariacoesPreco === 'function') renderVariacoesPreco(Array.isArray(svc.valores_sugeridos) ? svc.valores_sugeridos : []);
-  if (typeof onTogglePrecoVariavel === 'function') onTogglePrecoVariavel();
   document.getElementById('modal-crud-servico-titulo').textContent = 'Editar Serviço';
-  renderRecommendationsPicker(svc.id);
   openModal('modal-crud-servico');
 }
 
 async function salvarServicoCrud(e) {
   e.preventDefault();
-  // 🔒 Trava contra duplo clique (que poderia gerar dois inserts simultâneos
-  // e disparar a constraint de unicidade no banco).
-  var submitBtn = (e.submitter) ? e.submitter
-    : (e.target ? e.target.querySelector('button[type="submit"]') : null);
-  if (submitBtn) {
-    if (submitBtn.dataset.saving === '1') return;
-    submitBtn.dataset.saving = '1';
-    submitBtn.disabled = true;
-  }
-  var releaseBtn = function() {
-    if (submitBtn) { submitBtn.dataset.saving = ''; submitBtn.disabled = false; }
-  };
-
   var id = document.getElementById('svc-crud-id').value;
   var nome = document.getElementById('svc-crud-nome').value.trim();
-  var precoRaw = document.getElementById('svc-crud-preco').value;
-  var preco = parseFloat(precoRaw);
+  var preco = parseFloat(document.getElementById('svc-crud-preco').value);
   var duracao = parseInt(document.getElementById('svc-crud-duracao').value);
   var usa_cores = document.getElementById('svc-crud-usa-cores').checked;
-  // 💰 Preço variável — capturar e validar
-  var __pvChk = document.getElementById('svc-crud-preco-variavel');
-  var preco_variavel = !!(__pvChk && __pvChk.checked);
-  var valores_sugeridos = (preco_variavel && typeof coletarVariacoesPreco === 'function') ? coletarVariacoesPreco() : [];
-  if (preco_variavel && valores_sugeridos.length === 0) {
-    showToast('Adicione pelo menos um valor para o preço variável.', 'error');
-    releaseBtn(); return;
-  }
-  // 🎯 Quando preço variável está ativo, o campo "Preço (R$)" é ignorado.
-  // Para manter retrocompatibilidade do campo NOT NULL `preco` no banco,
-  // gravamos o menor valor das variações como preço base.
-  if (preco_variavel) {
-    preco = valores_sugeridos[0]; // já vem ordenado asc em coletarVariacoesPreco()
-  }
-  var recommendedIds = getSelectedRecommendationIds();
-  if (!nome || isNaN(duracao)) { showToast('Preencha todos os campos!', 'error'); releaseBtn(); return; }
-  if (!preco_variavel && isNaN(preco)) { showToast('Preencha o preço do serviço!', 'error'); releaseBtn(); return; }
-  var savedId = id;
-  var acao = id ? 'atualizar' : 'criar';
-  var reusedExisting = false;
-
+  if (!nome || isNaN(preco) || isNaN(duracao)) { showToast('Preencha todos os campos!'); return; }
   if (id) {
-    var ok = await editarServico(id, nome, preco, duracao, usa_cores, preco_variavel, valores_sugeridos);
-    if (!ok) { showToast('Erro ao atualizar o serviço.', 'error'); releaseBtn(); return; }
+    var ok = await editarServico(id, nome, preco, duracao, usa_cores);
+    if (!ok) { showToast('Erro ao atualizar!'); return; }
+    showToast('Serviço atualizado!');
   } else {
-    var result = await criarServico(nome, preco, duracao, usa_cores, preco_variavel, valores_sugeridos);
-    if (!result) { showToast('Erro ao criar o serviço.', 'error'); releaseBtn(); return; }
-    if (result.error && !(result.data && result.data[0])) {
-      showToast('Erro ao criar o serviço.', 'error'); releaseBtn(); return;
-    }
-    if (result.duplicated) {
-      reusedExisting = true;
-      showToast('Já existia um serviço com este nome — atualizando o serviço existente.', 'info');
-    }
-    // result.data é o array do .select(); pegar id do primeiro
-    if (result && result.data && result.data[0]) savedId = result.data[0].id;
-    if (!savedId) {
-      showToast('Serviço salvo, mas não foi possível identificar o ID para vincular recomendações.', 'error');
-      releaseBtn();
-      return;
-    }
-    document.getElementById('svc-crud-id').value = savedId;
+    var result = await criarServico(nome, preco, duracao, usa_cores);
+    if (!result) { showToast('Erro ao criar!'); return; }
+    showToast('Serviço criado!');
   }
-
-  // Salvar recomendações vinculadas (após termos um id válido)
-  if (savedId) {
-    var recResult = await saveServiceRecommendations(savedId, recommendedIds);
-    if (!recResult || !recResult.ok) {
-      var fallbackMsg = acao === 'criar'
-        ? 'Serviço criado, mas houve erro ao salvar as recomendações. Tente novamente.'
-        : 'Erro ao salvar recomendações de serviços. Tente novamente.';
-      showToast((recResult && recResult.error) ? recResult.error : fallbackMsg, 'error');
-      releaseBtn();
-      return;
-    }
-  }
-
-  var successMsg;
-  if (id) {
-    successMsg = 'Serviço e recomendações atualizados com sucesso!';
-  } else if (reusedExisting) {
-    successMsg = 'Serviço já existente reutilizado e recomendações atualizadas!';
-  } else {
-    successMsg = 'Serviço e recomendações salvos com sucesso!';
-  }
-  showToast(successMsg, 'success');
   closeModal('modal-crud-servico');
   await loadServicos();
   await loadProfissionalServicos();
   renderListaServicos();
   renderProfessionals();
-  releaseBtn();
 }
-
-
-/* ===== PREÇO VARIÁVEL — helpers do modal de serviço ===== */
-function onTogglePrecoVariavel() {
-  var chk = document.getElementById('svc-crud-preco-variavel');
-  if (!chk) return;
-  var on = chk.checked;
-  var wrap = document.getElementById('svc-crud-variacoes-wrapper');
-  if (wrap) wrap.style.display = on ? 'block' : 'none';
-  // 🔁 Sincronizar campo "Preço (R$)" — quando preço variável está ativo,
-  // o campo fixo não pode ser obrigatório nem editável (evita conflito de validação).
-  var precoInp = document.getElementById('svc-crud-preco');
-  var precoHint = document.getElementById('svc-crud-preco-hint');
-  if (precoInp) {
-    if (on) {
-      precoInp.disabled = true;
-      precoInp.removeAttribute('required');
-      precoInp.value = '';
-      precoInp.style.opacity = '0.55';
-    } else {
-      precoInp.disabled = false;
-      precoInp.setAttribute('required', 'required');
-      precoInp.style.opacity = '';
-    }
-  }
-  if (precoHint) precoHint.style.display = on ? 'block' : 'none';
-  if (on) {
-    var list = document.getElementById('svc-crud-variacoes-list');
-    if (list && list.children.length === 0) adicionarVariacaoPreco();
-  }
-}
-window.onTogglePrecoVariavel = onTogglePrecoVariavel;
-
-function renderVariacoesPreco(valores) {
-  var list = document.getElementById('svc-crud-variacoes-list');
-  if (!list) return;
-  list.innerHTML = '';
-  (valores || []).forEach(function(v) { adicionarVariacaoPreco(v); });
-}
-window.renderVariacoesPreco = renderVariacoesPreco;
-
-function adicionarVariacaoPreco(valor) {
-  var list = document.getElementById('svc-crud-variacoes-list');
-  if (!list) return;
-  var row = document.createElement('div');
-  row.style.cssText = 'display:flex; gap:6px; align-items:center;';
-  var inp = document.createElement('input');
-  inp.type = 'number'; inp.className = 'svc-variacao-input';
-  inp.step = '0.01'; inp.min = '0'; inp.placeholder = 'Ex: 100.00';
-  if (valor != null && !isNaN(Number(valor))) inp.value = Number(valor);
-  inp.style.cssText = 'flex:1; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface-input); color:var(--text);';
-  var btn = document.createElement('button');
-  btn.type = 'button'; btn.className = 'btn-icon btn-danger';
-  btn.title = 'Remover'; btn.innerHTML = '<i class="fa-solid fa-xmark"></i>';
-  btn.onclick = function() { row.parentNode && row.parentNode.removeChild(row); };
-  row.appendChild(inp); row.appendChild(btn);
-  list.appendChild(row);
-}
-window.adicionarVariacaoPreco = adicionarVariacaoPreco;
-
-function coletarVariacoesPreco() {
-  var inputs = document.querySelectorAll('#svc-crud-variacoes-list .svc-variacao-input');
-  var seen = {}, out = [];
-  Array.prototype.forEach.call(inputs, function(inp) {
-    var n = parseFloat(inp.value);
-    if (isNaN(n) || n < 0) return;
-    var key = n.toFixed(2);
-    if (seen[key]) return;        // dedup
-    seen[key] = 1;
-    out.push(Number(key));
-  });
-  out.sort(function(a, b) { return a - b; });   // ordenação automática
-  return out;
-}
-window.coletarVariacoesPreco = coletarVariacoesPreco;
-/* ===== FIM PREÇO VARIÁVEL helpers ===== */
-
 
 async function confirmarExcluirServico(id) {
   if (!confirm('Excluir este serviço?')) return;
@@ -4104,51 +2998,15 @@ async function loadDashboard() {
   document.getElementById('dash-total-servicos').textContent = totalServicos;
   document.getElementById('dash-faturamento').textContent = formatCurrency(totalFaturamento);
 
-  // ===== Box: Divisão de comissões =====
-  try { renderDashComissoes(profData, profNomeToId, totalFaturamento); } catch(e) { console.warn('[comissoes] render dash falhou', e); }
-
   renderLineChart(profHoraFat);
 
   var profTbody = document.getElementById('dash-prof-tbody');
   profTbody.innerHTML = '';
-
-  // Feature flag: só exibe coluna "Comissões" se ativa em Configurações > Geral
-  var comissoesAtivas = (typeof isFeatureComissoesAtiva === 'function') && isFeatureComissoesAtiva();
-
-  // Mostra/esconde o <th> da coluna no cabeçalho
-  document.querySelectorAll('.dash-prof-col-comissao').forEach(function(th){
-    th.style.display = comissoesAtivas ? '' : 'none';
-  });
-
-  // Garante que o cache de % por profissional esteja carregado antes de calcular
-  if (comissoesAtivas) {
-    try { await loadComissoesCache(false); } catch(_) {}
-  }
-
   Object.keys(profData).forEach(function(name) {
     if (!name) return;
     var d = profData[name];
     if ((d.atendimentos || 0) === 0 && (d.servicos || 0) === 0 && (d.faturamento || 0) === 0) return;
-
-    var comissaoCell = '';
-    if (comissoesAtivas) {
-      var profId = profNomeToId ? profNomeToId[name] : null;
-      var c = (typeof getComissaoForProfId === 'function')
-        ? getComissaoForProfId(profId)
-        : { percentual_profissional: 50 };
-      var pctProf = parseFloat(c && c.percentual_profissional);
-      if (!isFinite(pctProf)) pctProf = 50; // default 50/50
-      var comissaoProf = (parseFloat(d.faturamento) || 0) * (pctProf / 100);
-      comissaoCell = '<td>' + formatCurrency(comissaoProf) + '</td>';
-    }
-
-    profTbody.innerHTML +=
-      '<tr><td>' + name + '</td>' +
-      '<td>' + d.atendimentos + '</td>' +
-      '<td>' + d.servicos + '</td>' +
-      '<td>' + formatCurrency(d.faturamento) + '</td>' +
-      comissaoCell +
-      '</tr>';
+    profTbody.innerHTML += '<tr><td>' + name + '</td><td>' + d.atendimentos + '</td><td>' + d.servicos + '</td><td>' + formatCurrency(d.faturamento) + '</td></tr>';
   });
 
   var svcArr = Object.keys(servicoCount).map(function(k) { return { nome: k, qtd: servicoCount[k].qtd, valor: servicoCount[k].valor }; });
@@ -4303,10 +3161,8 @@ function showToast(msg, type) {
     'max-width:calc(100vw - 32px)'
   ].join(';') + ';';
 
-  div.setAttribute('role', 'status');
-  div.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
   div.innerHTML = '<i class="fa-solid ' + conf.icon + '" style="color:#ffffff;font-size:1.2rem;"></i>' +
-                  '<span style="color:#ffffff;">' + escapeHtmlSafe(msg) + '</span>';
+                  '<span style="color:#ffffff;">' + msg + '</span>';
 
   document.body.appendChild(div);
   requestAnimationFrame(function() {
@@ -4349,18 +3205,6 @@ async function initConfiguracoes() {
   });
 
   if (isAdmin()) { await loadUsuarios(); renderUsuarios(); }
-
-  // ✅ FIX: garantir que a aba "Geral" (Horário comercial + feature flag)
-  // seja sempre carregada quando o usuário entra em Configurações.
-  // 1) Renderiza a UI semanal IMEDIATAMENTE com os defaults (não depende
-  //    de ida ao banco) — assim o usuário sempre vê os 7 dias na tela.
-  // 2) Em seguida tenta carregar do banco para sobrescrever com os valores reais.
-  try {
-    if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI();
-  } catch (_) {}
-  if (typeof carregarConfigGeral === 'function') {
-    try { await carregarConfigGeral(); } catch (_) {}
-  }
 }
 
 async function loadCurrentUsuario() {
@@ -5297,16 +4141,6 @@ function collectServicosComPacotes() {
     var servico = block.querySelector('.svc-servico').value;
     if (!prof || !servico) return;
     var svc = { profissional: prof, servico: servico, bases: [], pigmentacoes: [], cores: [], pacote: null };
-    // 💰 Preço variável — capturar valor escolhido
-    var __precoSelPk = block.querySelector('.svc-preco-escolhido');
-    if (__precoSelPk) {
-      var __vPk = parseFloat(__precoSelPk.value);
-      if (isNaN(__vPk)) {
-        showToast('Selecione o valor para os serviços de preço variável.', 'error');
-        return;
-      }
-      svc.precoEscolhido = __vPk;
-    }
     block.querySelectorAll('.base-item').forEach(function(bi) {
       if (bi.dataset.cor) svc.bases.push({ cor: bi.dataset.cor, qtd: parseInt(bi.dataset.qtd) || 0 });
     });
@@ -5430,8 +4264,7 @@ insertAppointment = async function(apt) {
     if (!svcObj) continue;
     var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
     var svcProfId = svcProfObj ? svcProfObj.id : profId;
-    // Precedência: pacote > preço variável escolhido > preço base do serviço
-    var precoServico = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
+    var precoServico = Number(svcObj.preco || 0);
     var clientePacoteId = null;
     try {
       if (s.pacote && s.pacote.acao === 'usar') {
@@ -5489,8 +4322,7 @@ updateAppointment = async function(id, apt) {
     if (!svcObj) continue;
     var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
     var svcProfId = svcProfObj ? svcProfObj.id : profId;
-    // Precedência: pacote > preço variável escolhido > preço base do serviço
-    var precoServico = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
+    var precoServico = Number(svcObj.preco || 0);
     var clientePacoteId = null;
     try {
       if (s.pacote && s.pacote.acao === 'usar') {
@@ -5639,13 +4471,13 @@ function renderPacotes(rows) {
   }
   tbody.innerHTML = rows.map(function(p) {
     return '<tr>' +
-      '<td data-label="Nome">' + pacoteEscapeHtml(p.nome) + '</td>' +
-      '<td data-label="Serviço">' + pacoteEscapeHtml((p.servicos && p.servicos.nome) || '-') + '</td>' +
-      '<td data-label="Qtd.">' + p.quantidade_total + '</td>' +
-      '<td data-label="Total">' + pacoteMoney(p.preco_total) + '</td>' +
-      '<td data-label="Validade">' + p.validade_dias + ' dias</td>' +
-      '<td data-label="Status"><span class="status-badge ' + (p.ativo ? 'ativo' : 'inativo') + '">' + (p.ativo ? 'Ativo' : 'Inativo') + '</span></td>' +
-      '<td data-label="Ações" class="pacote-acoes">' +
+      '<td>' + pacoteEscapeHtml(p.nome) + '</td>' +
+      '<td>' + pacoteEscapeHtml((p.servicos && p.servicos.nome) || '-') + '</td>' +
+      '<td>' + p.quantidade_total + '</td>' +
+      '<td>' + pacoteMoney(p.preco_total) + '</td>' +
+      '<td>' + p.validade_dias + ' dias</td>' +
+      '<td><span class="status-badge ' + (p.ativo ? 'ativo' : 'inativo') + '">' + (p.ativo ? 'Ativo' : 'Inativo') + '</span></td>' +
+      '<td class="pacote-acoes">' +
         '<button class="pacote-icon-btn" type="button" title="Editar" onclick="editarPacote(\'' + p.id + '\')"><i class="fa-solid fa-pen"></i></button>' +
         '<button class="pacote-toggle-switch ' + (p.ativo ? 'is-active' : '') + '" type="button" title="Ativar/Inativar" onclick="togglePacoteAtivo(\'' + p.id + '\', ' + (!p.ativo) + ')"><span class="track"></span><span class="thumb"></span></button>' +
       '</td>' +
@@ -5754,1826 +4586,4 @@ document.addEventListener('DOMContentLoaded', function() {
     formPacote.dataset.bound = '1';
     formPacote.addEventListener('submit', salvarPacoteCrud);
   }
-  // Carrega Geral assim que entra em Configurações
-  if (typeof carregarConfigGeral === 'function') {
-    setTimeout(carregarConfigGeral, 300);
-  }
 });
-
-/* ============================================================
-   AGENDAMENTO PELO CLIENTE — Feature flag + Link público
-   Tabela: public.tenant_settings (uma linha por tenant)
-   ============================================================ */
-async function carregarConfigGeral() {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) {
-    // Sem tenant ainda? Renderiza a UI com defaults para o usuário poder
-    // pelo menos visualizar a estrutura (será re-renderizada quando logar).
-    try { renderHorarioSemanalUI(); } catch (_) {}
-    return;
-  }
-  try {
-    // Lê SEMPRE direto da tabela. Inclui horarios_semanais (jsonb) novo
-    // + horario_inicio/horario_fim (legado, usado como fallback).
-    var resp = await supabaseClient
-      .from('tenant_settings')
-      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais')
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    var on = false;
-    var hIniLegacy = '07:00';
-    var hFimLegacy = '21:00';
-    var horariosJsonb = null;
-
-    if (resp && resp.data) {
-      on = !!resp.data.permitir_agendamento_cliente;
-      if (resp.data.horario_inicio) hIniLegacy = String(resp.data.horario_inicio).slice(0, 5);
-      if (resp.data.horario_fim)    hFimLegacy = String(resp.data.horario_fim).slice(0, 5);
-      horariosJsonb = resp.data.horarios_semanais || null;
-    } else {
-      // Fallback via RPC (RLS, etc)
-      try {
-        var rpc = await supabaseClient.rpc('get_tenant_settings', { p_tenant: tenantId });
-        if (!rpc.error && rpc.data && rpc.data.length) {
-          on = !!rpc.data[0].permitir_agendamento_cliente;
-          if (rpc.data[0].horario_inicio) hIniLegacy = String(rpc.data[0].horario_inicio).slice(0, 5);
-          if (rpc.data[0].horario_fim)    hFimLegacy = String(rpc.data[0].horario_fim).slice(0, 5);
-          horariosJsonb = rpc.data[0].horarios_semanais || null;
-        }
-      } catch (_) { /* mantém defaults */ }
-    }
-
-    // Atualiza UI da feature flag (Agendamento pelo cliente)
-    var chk = document.getElementById('cfg-permitir-agendamento-cliente');
-    if (chk) chk.checked = on;
-    atualizarLinkAgendamentoCliente(on);
-
-    // Aplica horário semanal às variáveis globais (com fallback p/ legacy)
-    BUSINESS_HOURS_BY_DAY = parseHorariosSemanais(horariosJsonb, hIniLegacy, hFimLegacy);
-    recomputeBusinessEnvelope();
-
-    // (Re)renderiza UI da lista semanal e select de horas
-    renderHorarioSemanalUI();
-    if (typeof populateAgHoraSelect === 'function') populateAgHoraSelect();
-    try { renderResumoHorarioComercial(); } catch (_) {}
-
-    // Re-renderiza agenda do dia
-    try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
-  } catch (e) {
-    console.error('Erro ao carregar config geral:', e);
-    // Mesmo em erro, renderiza a UI com defaults para o usuário poder
-    // configurar e tentar salvar — sem isso a aba fica em branco.
-    try { renderHorarioSemanalUI(); } catch (_) {}
-    try { renderResumoHorarioComercial(); } catch (_) {}
-  }
-}
-
-/* ============================================================
-   UI da lista semanal (Configurações > Geral)
-   ============================================================ */
-function renderHorarioSemanalUI() {
-  var root = document.getElementById('cfg-horario-semanal');
-  if (!root) return;
-
-  // Ordem de exibição: Segunda → Domingo (mais natural p/ negócio)
-  var ordem = [1,2,3,4,5,6,0];
-  var html = '';
-  ordem.forEach(function(idx) {
-    var dia = BUSINESS_HOURS_BY_DAY[idx] || Object.assign({}, DEFAULT_HORARIO_DIA);
-    var label = DIA_LABELS[idx];
-    var ativo = !!dia.ativo;
-    var ini = dia.inicio || '09:00';
-    var fim = dia.fim || '18:00';
-
-    html += ''
-      + '<div class="hc-day-row ' + (ativo ? '' : 'hc-off') + '" data-dayidx="' + idx + '">'
-      +   '<div class="hc-day-name">' + label + '</div>'
-      +   '<label class="hc-day-toggle" title="Ativar/desativar">'
-      +     '<input type="checkbox" ' + (ativo ? 'checked' : '') + ' onchange="onHorarioToggle(' + idx + ', this.checked)">'
-      +     '<span class="hc-slider"></span>'
-      +   '</label>';
-
-    if (ativo) {
-      html += ''
-        + '<div class="hc-day-times">'
-        +   '<input type="time" step="900" value="' + ini + '" onchange="onHorarioChange(' + idx + ', \'inicio\', this.value)">'
-        +   '<span class="hc-sep">até</span>'
-        +   '<input type="time" step="900" value="' + fim + '" onchange="onHorarioChange(' + idx + ', \'fim\', this.value)">'
-        + '</div>'
-        + '<button type="button" class="hc-day-copy" onclick="copiarHorarioParaProximos(' + idx + ')" title="Copiar este horário para os próximos dias">'
-        +   '<i class="fa-regular fa-copy"></i> copiar'
-        + '</button>';
-    } else {
-      html += '<div class="hc-day-times hc-closed-mobile"><span class="hc-closed-label">Fechado</span></div>';
-    }
-
-    html += '</div>';
-  });
-  root.innerHTML = html;
-}
-
-function onHorarioToggle(idx, ativo) {
-  if (!BUSINESS_HOURS_BY_DAY[idx]) BUSINESS_HOURS_BY_DAY[idx] = Object.assign({}, DEFAULT_HORARIO_DIA);
-  BUSINESS_HOURS_BY_DAY[idx].ativo = !!ativo;
-  if (ativo && !BUSINESS_HOURS_BY_DAY[idx].inicio) BUSINESS_HOURS_BY_DAY[idx].inicio = '09:00';
-  if (ativo && !BUSINESS_HOURS_BY_DAY[idx].fim)    BUSINESS_HOURS_BY_DAY[idx].fim = '18:00';
-  renderHorarioSemanalUI();
-}
-
-function onHorarioChange(idx, campo, valor) {
-  if (!BUSINESS_HOURS_BY_DAY[idx]) BUSINESS_HOURS_BY_DAY[idx] = Object.assign({}, DEFAULT_HORARIO_DIA);
-  BUSINESS_HOURS_BY_DAY[idx][campo] = String(valor || '').slice(0,5);
-}
-
-/* Atalho: aplica o horário da segunda-feira a todos os outros dias */
-function aplicarHorarioParaTodos() {
-  var seg = BUSINESS_HOURS_BY_DAY[1] || Object.assign({}, DEFAULT_HORARIO_DIA);
-  for (var i = 0; i < 7; i++) {
-    if (i === 1) continue;
-    BUSINESS_HOURS_BY_DAY[i] = {
-      ativo: !!seg.ativo,
-      inicio: seg.inicio,
-      fim: seg.fim
-    };
-  }
-  renderHorarioSemanalUI();
-}
-
-/* Copia o horário do dia "idx" para todos os dias seguintes (até sábado) */
-function copiarHorarioParaProximos(idx) {
-  var src = BUSINESS_HOURS_BY_DAY[idx];
-  if (!src) return;
-  // Ordem: seg, ter, qua, qui, sex, sab, dom — copia para os subsequentes nessa ordem
-  var ordem = [1,2,3,4,5,6,0];
-  var pos = ordem.indexOf(idx);
-  if (pos < 0) return;
-  for (var k = pos + 1; k < ordem.length; k++) {
-    var alvo = ordem[k];
-    BUSINESS_HOURS_BY_DAY[alvo] = {
-      ativo: !!src.ativo,
-      inicio: src.inicio,
-      fim: src.fim
-    };
-  }
-  renderHorarioSemanalUI();
-}
-
-/* ============================================================
-   MODAL: Horário comercial
-   - Abre o modal e renderiza a UI semanal dentro dele
-   - Faz snapshot do estado atual; cancelar restaura
-   - Salvar persiste e fecha o modal
-   ============================================================ */
-var __HC_SNAPSHOT = null;
-
-function abrirModalHorarioComercial() {
-  // snapshot defensivo (deep clone simples)
-  try {
-    __HC_SNAPSHOT = JSON.parse(JSON.stringify(BUSINESS_HOURS_BY_DAY));
-  } catch (_) { __HC_SNAPSHOT = null; }
-
-  // limpa feedback anterior
-  var fb = document.getElementById('modal-horario-feedback');
-  if (fb) { fb.style.display = 'none'; fb.textContent = ''; }
-
-  if (typeof openModal === 'function') {
-    openModal('modal-horario-comercial');
-  } else {
-    var ov = document.getElementById('modal-horario-comercial');
-    if (ov) ov.classList.add('active');
-  }
-  // Renderiza após o modal estar visível (garante que o container existe no DOM)
-  setTimeout(function(){ try { renderHorarioSemanalUI(); } catch(_){} }, 0);
-}
-
-function cancelarHorarioComercial() {
-  if (__HC_SNAPSHOT) {
-    try { BUSINESS_HOURS_BY_DAY = JSON.parse(JSON.stringify(__HC_SNAPSHOT)); } catch (_) {}
-    recomputeBusinessEnvelope();
-  }
-  __HC_SNAPSHOT = null;
-  if (typeof closeModal === 'function') {
-    closeModal('modal-horario-comercial');
-  } else {
-    var ov = document.getElementById('modal-horario-comercial');
-    if (ov) ov.classList.remove('active');
-  }
-  // Atualiza resumo (caso já houvesse alterações temporárias)
-  try { renderResumoHorarioComercial(); } catch(_){}
-}
-
-/* Gera resumo legível: "Seg–Sex: 09:00 às 18:00 • Sáb: 09:00 às 13:00 • Dom: Fechado"
-   Agrupa dias consecutivos com o mesmo horário. */
-function renderResumoHorarioComercial() {
-  var el = document.getElementById('hc-resumo-text');
-  if (!el) return;
-
-  var SHORT = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-  // Ordem: Seg(1)..Sáb(6), Dom(0) — mais natural
-  var ORDER = [1,2,3,4,5,6,0];
-
-  function sigOf(idx) {
-    var d = BUSINESS_HOURS_BY_DAY[idx] || { ativo:false };
-    if (!d.ativo) return 'OFF';
-    return (d.inicio || '') + '|' + (d.fim || '');
-  }
-
-  // Agrupa runs consecutivas com mesma assinatura
-  var groups = [];
-  var i = 0;
-  while (i < ORDER.length) {
-    var s = sigOf(ORDER[i]);
-    var j = i;
-    while (j + 1 < ORDER.length && sigOf(ORDER[j+1]) === s) j++;
-    groups.push({ from: ORDER[i], to: ORDER[j], sig: s });
-    i = j + 1;
-  }
-
-  var parts = groups.map(function(g){
-    var label = (g.from === g.to)
-      ? SHORT[g.from]
-      : SHORT[g.from] + '–' + SHORT[g.to];
-    if (g.sig === 'OFF') return label + ': Fechado';
-    var p = g.sig.split('|');
-    return label + ': ' + p[0] + ' às ' + p[1];
-  });
-
-  // Se todos os dias fecharem, mensagem amigável
-  var allOff = groups.every(function(g){ return g.sig === 'OFF'; });
-  el.textContent = allOff ? 'Nenhum dia ativo — estabelecimento fechado.' : parts.join(' • ');
-}
-
-/* Salva horário comercial semanal no banco (tenant_settings.horarios_semanais) */
-async function salvarHorarioComercial() {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
-
-  var btn = document.querySelector('#modal-horario-comercial .btn-salvar-horario')
-         || document.querySelector('.btn-salvar-horario');
-  var fb  = document.getElementById('modal-horario-feedback')
-         || document.getElementById('cfg-horario-feedback');
-
-  function showFb(type, msg) {
-    if (!fb) return;
-    fb.style.display = '';
-    fb.className = 'ac-feedback ' + (type === 'ok' ? 'ok' : 'err');
-    fb.textContent = msg;
-    if (type === 'ok') setTimeout(function () { fb.style.display = 'none'; }, 3000);
-  }
-
-  // Valida cada dia ativo: fim > inicio
-  var payload = {};
-  var menorIni = null;
-  var maiorFim = null;
-  for (var i = 0; i < 7; i++) {
-    var d = BUSINESS_HOURS_BY_DAY[i] || Object.assign({}, DEFAULT_HORARIO_DIA);
-    var key = DIA_KEYS[i];
-    if (!d.ativo) {
-      payload[key] = { ativo: false };
-      continue;
-    }
-    if (!d.inicio || !d.fim) {
-      showFb('err', 'Preencha início e fim em ' + DIA_LABELS[i] + '.');
-      return;
-    }
-    if (d.fim <= d.inicio) {
-      showFb('err', 'Em ' + DIA_LABELS[i] + ', o fechamento deve ser maior que a abertura.');
-      return;
-    }
-    payload[key] = { ativo: true, inicio: d.inicio, fim: d.fim };
-    if (!menorIni || d.inicio < menorIni) menorIni = d.inicio;
-    if (!maiorFim || d.fim > maiorFim)    maiorFim = d.fim;
-  }
-
-  if (btn) btn.disabled = true;
-  try {
-    // Atualiza o jsonb novo + mantém colunas legadas sincronizadas para
-    // qualquer integração antiga (link público, dashboards, etc.)
-    var update = { tenant_id: tenantId, horarios_semanais: payload };
-    if (menorIni) update.horario_inicio = menorIni + ':00';
-    if (maiorFim) update.horario_fim    = maiorFim + ':00';
-
-    var resp = await supabaseClient
-      .from('tenant_settings')
-      .upsert(update, { onConflict: 'tenant_id' });
-    if (resp.error) throw resp.error;
-
-    recomputeBusinessEnvelope();
-    if (typeof populateAgHoraSelect === 'function') populateAgHoraSelect();
-    try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
-
-    // Snapshot consumido (mudanças aceitas) e UI principal atualizada
-    __HC_SNAPSHOT = null;
-    try { renderResumoHorarioComercial(); } catch (_) {}
-
-    showFb('ok', '✓ Horário atualizado com sucesso');
-
-    // Fecha o modal após um pequeno delay para o usuário ver o feedback
-    setTimeout(function () {
-      if (typeof closeModal === 'function') {
-        closeModal('modal-horario-comercial');
-      } else {
-        var ov = document.getElementById('modal-horario-comercial');
-        if (ov) ov.classList.remove('active');
-      }
-    }, 700);
-  } catch (err) {
-    console.error('Erro ao salvar horário comercial:', err);
-    var msg = (err && err.message) ? err.message : '';
-    if (msg.toLowerCase().indexOf('permiss') >= 0 || (err && err.code === '42501')) {
-      showFb('err', 'Você não tem permissão para alterar essa configuração.');
-    } else if (msg.toLowerCase().indexOf('horarios_semanais') >= 0) {
-      showFb('err', 'Coluna horarios_semanais ausente. Rode o SQL de migração.');
-    } else {
-      showFb('err', 'Não foi possível salvar. Tente novamente.');
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-/* Mantida por compatibilidade: aplica um intervalo único como "todos os dias".
-   Usada apenas em código legado (não chamada pela UI nova). */
-function aplicarHorarioComercialGlobal(hIni, hFim) {
-  var hi = parseInt(String(hIni || '07:00').split(':')[0], 10);
-  var hf = parseInt(String(hFim || '21:00').split(':')[0], 10);
-  if (isNaN(hi) || isNaN(hf)) return;
-  var minFim = parseInt(String(hFim || '21:00').split(':')[1] || '0', 10);
-  if (minFim > 0) hf = hf + 1;
-  for (var i = 0; i < 7; i++) {
-    BUSINESS_HOURS_BY_DAY[i] = { ativo: true, inicio: pad(hi) + ':00', fim: pad(hf) + ':00' };
-  }
-  recomputeBusinessEnvelope();
-  try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
-}
-
-async function onTogglePermitirAgendamentoCliente(el) {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) return;
-  var on = !!el.checked;
-  var fb = document.getElementById('cfg-geral-feedback');
-  el.disabled = true;
-  try {
-    // Usa RPC SECURITY DEFINER (não esbarra em RLS) e valida permissão internamente
-    var rpc = await supabaseClient.rpc('set_permitir_agendamento_cliente', {
-      p_tenant: tenantId,
-      p_value: on
-    });
-    if (rpc.error) {
-      // Fallback para upsert direto se a RPC ainda não existir
-      var resp = await supabaseClient
-        .from('tenant_settings')
-        .upsert(
-          { tenant_id: tenantId, permitir_agendamento_cliente: on },
-          { onConflict: 'tenant_id' }
-        );
-      if (resp.error) throw resp.error;
-    }
-    atualizarLinkAgendamentoCliente(on);
-    if (fb) {
-      fb.style.display = '';
-      fb.className = 'ac-feedback ok';
-      fb.textContent = on
-        ? '✓ Agendamento online ativado.'
-        : '✓ Agendamento online desativado.';
-      setTimeout(function () { fb.style.display = 'none'; }, 3000);
-    }
-  } catch (err) {
-    console.error('Erro ao salvar feature flag:', err);
-    el.checked = !on;
-    if (fb) {
-      fb.style.display = '';
-      fb.className = 'ac-feedback err';
-      var msg = (err && err.message) ? err.message : '';
-      if (msg.toLowerCase().indexOf('permiss') >= 0 || (err && err.code === '42501')) {
-        fb.textContent = 'Você não tem permissão para alterar essa configuração.';
-      } else {
-        fb.textContent = 'Não foi possível salvar. Tente novamente.';
-      }
-    }
-  } finally {
-    el.disabled = false;
-  }
-}
-
-function atualizarLinkAgendamentoCliente(on) {
-  var box = document.getElementById('link-cliente-box');
-  var input = document.getElementById('link-cliente-input');
-  if (!box || !input) return;
-  if (on) {
-    var tenantId = getCurrentTenantId();
-    var base = window.location.origin;
-    input.value = base + '/agendamento-cliente.html?tenantId=' + tenantId;
-    box.style.display = '';
-  } else {
-    box.style.display = 'none';
-  }
-}
-
-function copiarLinkAgendamentoCliente() {
-  var input = document.getElementById('link-cliente-input');
-  if (!input || !input.value) return;
-  var fb = document.getElementById('cfg-geral-feedback');
-  navigator.clipboard.writeText(input.value).then(function () {
-    if (fb) {
-      fb.style.display = '';
-      fb.className = 'ac-feedback ok';
-      fb.textContent = '✓ Link copiado para a área de transferência.';
-      setTimeout(function () { fb.style.display = 'none'; }, 2500);
-    }
-  }).catch(function () {
-    input.select();
-    document.execCommand('copy');
-  });
-}
-
-/* ============================================================
-   UPSELL: Sugestão de serviços recomendados (Agendamento interno)
-   ============================================================ */
-function showUpsellSuggestions(servicoId) {
-  if (!servicoId) return;
-  var modal = document.getElementById('modal-upsell-suggest');
-  if (!modal) return;
-  var recs = (typeof getRecommendedServicesFor === 'function') ? getRecommendedServicesFor(servicoId) : [];
-  if (!recs || recs.length === 0) return;
-
-  // Filtrar serviços que já estão no agendamento atual
-  var jaSelecionados = [];
-  document.querySelectorAll('.servico-block .svc-servico').forEach(function(sel) {
-    if (sel.value) jaSelecionados.push(sel.value);
-  });
-  var pendentes = recs.filter(function(s) { return jaSelecionados.indexOf(s.nome) < 0; });
-  if (pendentes.length === 0) return;
-
-  var list = document.getElementById('upsell-list');
-  list.innerHTML = pendentes.map(function(s) {
-    var preco = parseFloat(s.preco || 0).toFixed(0);
-    return '<div class="upsell-item" data-svc-id="' + s.id + '" data-svc-nome="' + escapeHtmlSafe(s.nome) + '">' +
-      '<div class="upsell-item-info">' +
-        '<p class="upsell-item-name">' + escapeHtmlSafe(s.nome) + '</p>' +
-        '<div class="upsell-item-meta">R$' + preco + ' · ' + s.duracao + 'min</div>' +
-      '</div>' +
-      '<button type="button" class="upsell-item-add" onclick="acceptUpsell(this)">Adicionar</button>' +
-    '</div>';
-  }).join('');
-  modal.classList.add('active');
-}
-
-function dismissUpsell() {
-  var modal = document.getElementById('modal-upsell-suggest');
-  if (modal) modal.classList.remove('active');
-}
-
-function acceptUpsell(btn) {
-  var item = btn.closest('.upsell-item');
-  if (!item || item.classList.contains('added')) return;
-  var nome = item.getAttribute('data-svc-nome');
-  if (!nome) return;
-
-  // Reaproveitar o fluxo existente: criar novo bloco e selecionar
-  if (typeof adicionarBlocoServico !== 'function') {
-    console.warn('adicionarBlocoServico não disponível');
-    return;
-  }
-  // ✅ Capturar profissional do bloco anterior (serviço principal) ANTES de criar novo bloco
-  var prevBlocks = document.querySelectorAll('.servico-block');
-  var profAnterior = '';
-  if (prevBlocks.length > 0) {
-    var profSelAnt = prevBlocks[prevBlocks.length - 1].querySelector('.svc-profissional');
-    if (profSelAnt) profAnterior = profSelAnt.value || '';
-  }
-  adicionarBlocoServico();
-  var blocks = document.querySelectorAll('.servico-block');
-  var novo = blocks[blocks.length - 1];
-  if (!novo) return;
-
-  var profSelect = novo.querySelector('.svc-profissional');
-  var svcSelect = novo.querySelector('.svc-servico');
-
-  // Procurar profissionais que atendem este serviço
-  var profsQueAtendem = [];
-  Object.keys(professionals || {}).forEach(function(profNome) {
-    var lista = professionals[profNome] || [];
-    if (lista.some(function(s) { return s.nome === nome; })) profsQueAtendem.push(profNome);
-  });
-
-  // ✅ Estratégia:
-  // 1) Se o profissional do serviço principal também atende → usa ele (continuidade)
-  // 2) Senão, se houver apenas 1 profissional que atende → usa ele
-  var profEscolhido = '';
-  if (profAnterior && profsQueAtendem.indexOf(profAnterior) >= 0) {
-    profEscolhido = profAnterior;
-  } else if (profsQueAtendem.length === 1) {
-    profEscolhido = profsQueAtendem[0];
-  }
-  if (profEscolhido && profSelect) {
-    profSelect.value = profEscolhido;
-    if (typeof onSvcProfChange === 'function') onSvcProfChange(profSelect);
-  }
-  if (svcSelect) {
-    // Garantir que o serviço apareça no select (popula por profissional)
-    var hasOpt = Array.prototype.some.call(svcSelect.options, function(o) { return o.value === nome; });
-    if (!hasOpt) {
-      var opt = document.createElement('option');
-      opt.value = nome; opt.textContent = nome;
-      svcSelect.appendChild(opt);
-    }
-    svcSelect.value = nome;
-    if (typeof onSvcServicoChange === 'function') onSvcServicoChange(svcSelect);
-  }
-
-  item.classList.add('added');
-  btn.textContent = '✓ Adicionado';
-  btn.disabled = true;
-
-  // ✅ FIX (v10): NÃO fechar modal automaticamente. O usuário deve clicar em
-  // "Salvar" / "Concluir" para confirmar — mesmo após marcar todos os serviços.
-}
-
-/* ============================================================
-   TENANT IMAGES — Carrossel do agendamento-cliente
-   - Tabela: public.tenant_images (id, tenant_id, image_url, storage_path, "order")
-   - Storage bucket: 'tenant-images'  (público)
-   - Limites: 1..10 imagens, JPG/PNG, ≤10MB
-   - Cropper: cropperjs (carregado via CDN no agenda.html)
-   ============================================================ */
-(function () {
-  'use strict';
-
-  var BUCKET   = 'tenant-images';
-  var MAX_IMGS = 10;
-  var MAX_MB   = 10;
-  var ASPECT   = 16 / 9; // banner horizontal — combina com o header
-
-  // ===== State =====
-  var state = {
-    serverImages: [],   // imagens já salvas no banco
-    pendingNew:   [],   // novas (ainda como blob/dataURL) aguardando confirm
-    pendingDel:   [],   // ids de imagens a remover ao confirmar
-    cropper:      null,
-    cropTargetUrl:null
-  };
-
-  function tenantId() {
-    if (typeof getCurrentTenantId === 'function') return getCurrentTenantId();
-    return localStorage.getItem('currentTenantId') || null;
-  }
-
-  function fb(msg, kind) {
-    var el = document.getElementById('ti-feedback');
-    if (!el) return;
-    el.style.display = '';
-    el.className = 'ac-feedback ' + (kind === 'err' ? 'err' : 'ok');
-    el.textContent = msg;
-    if (kind !== 'err') setTimeout(function () { el.style.display = 'none'; }, 3000);
-  }
-
-  function uuid() {
-    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
-
-  // ============================================================
-  //  LOAD existing images
-  // ============================================================
-  async function loadExisting() {
-    var tid = tenantId();
-    if (!tid || typeof supabaseClient === 'undefined') return [];
-    var resp = await supabaseClient
-      .from('tenant_images')
-      .select('id, image_url, storage_path, "order"')
-      .eq('tenant_id', tid)
-      .order('order', { ascending: true });
-    if (resp.error) {
-      console.warn('[tenant_images] load erro:', resp.error.message);
-      return [];
-    }
-    return resp.data || [];
-  }
-
-  // Lista compacta dentro da página de configurações (logo abaixo do botão)
-  async function refreshSummary() {
-    var box = document.getElementById('ti-current-thumbs');
-    if (!box) return;
-    var imgs = await loadExisting();
-    state.serverImages = imgs;
-    if (!imgs.length) {
-      box.innerHTML = '<div class="ti-empty">Nenhuma imagem cadastrada ainda.</div>';
-      return;
-    }
-    box.innerHTML = imgs.map(function (im, i) {
-      return '<div class="ti-thumb">' +
-        '<img src="' + im.image_url + '" alt="">' +
-        '<span class="ti-thumb-order">#' + (i + 1) + '</span>' +
-      '</div>';
-    }).join('');
-  }
-  // Expõe pra ser chamado depois de carregarConfigGeral
-  window.refreshTenantImagesSummary = refreshSummary;
-
-  // ============================================================
-  //  MODAL: Galeria
-  // ============================================================
-  async function openModal() {
-    var modal = document.getElementById('modal-tenant-images');
-    if (!modal) return;
-    state.pendingNew = [];
-    state.pendingDel = [];
-    var imgs = await loadExisting();
-    state.serverImages = imgs;
-    renderGrid();
-    modal.classList.add('active');
-  }
-  function closeModal() {
-    var modal = document.getElementById('modal-tenant-images');
-    if (modal) modal.classList.remove('active');
-    // Limpa o input para permitir re-selecionar a mesma foto
-    var inp = document.getElementById('ti-file-input');
-    if (inp) inp.value = '';
-  }
-
-  function renderGrid() {
-    var grid = document.getElementById('ti-grid');
-    if (!grid) return;
-
-    // Lista combinada para exibir: salvas (não-deletadas) + novas pendentes
-    var items = [];
-    state.serverImages.forEach(function (im) {
-      if (state.pendingDel.indexOf(im.id) >= 0) return;
-      items.push({ kind: 'server', id: im.id, url: im.image_url });
-    });
-    state.pendingNew.forEach(function (np, i) {
-      items.push({ kind: 'pending', id: 'p' + i, url: np.dataUrl });
-    });
-
-    if (!items.length) {
-      grid.innerHTML = '<div class="ti-empty">Adicione de 1 a ' + MAX_IMGS + ' imagens para o carrossel.</div>';
-    } else {
-      grid.innerHTML = items.map(function (it, i) {
-        return '<div class="ti-thumb" data-kind="' + it.kind + '" data-id="' + it.id + '">' +
-          '<img src="' + it.url + '" alt="">' +
-          '<span class="ti-thumb-order">#' + (i + 1) + '</span>' +
-          '<button type="button" class="ti-thumb-remove" aria-label="Remover" data-remove="' + it.kind + ':' + it.id + '">' +
-            '<i class="fa-solid fa-trash"></i>' +
-          '</button>' +
-        '</div>';
-      }).join('');
-    }
-
-    // Bind remove
-    grid.querySelectorAll('[data-remove]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        var parts = btn.getAttribute('data-remove').split(':');
-        var kind = parts[0], id = parts[1];
-        if (kind === 'server') {
-          state.pendingDel.push(id);
-        } else if (kind === 'pending') {
-          var idx = parseInt(id.slice(1), 10);
-          state.pendingNew.splice(idx, 1);
-        }
-        renderGrid();
-        updateAddState();
-      });
-    });
-
-    updateAddState();
-  }
-
-  function totalCount() {
-    var serverKept = state.serverImages.filter(function (im) {
-      return state.pendingDel.indexOf(im.id) < 0;
-    }).length;
-    return serverKept + state.pendingNew.length;
-  }
-
-  function updateAddState() {
-    var btn = document.getElementById('ti-btn-select');
-    if (!btn) return;
-    var atMax = totalCount() >= MAX_IMGS;
-    btn.disabled = atMax;
-    btn.style.opacity = atMax ? '0.5' : '';
-    btn.title = atMax ? 'Máximo de ' + MAX_IMGS + ' imagens' : '';
-  }
-
-  // ============================================================
-  //  FILE PICKER → CROPPER
-  // ============================================================
-  function onFilePicked(e) {
-    var file = e.target && e.target.files && e.target.files[0];
-    if (!file) return;
-    if (!/^image\/(jpe?g|png)$/i.test(file.type)) {
-      fb('Formato inválido. Use JPG ou PNG.', 'err');
-      e.target.value = '';
-      return;
-    }
-    if (file.size > MAX_MB * 1024 * 1024) {
-      fb('Imagem muito grande (máx. ' + MAX_MB + 'MB).', 'err');
-      e.target.value = '';
-      return;
-    }
-    if (totalCount() >= MAX_IMGS) {
-      fb('Você já atingiu o limite de ' + MAX_IMGS + ' imagens.', 'err');
-      e.target.value = '';
-      return;
-    }
-    var reader = new FileReader();
-    reader.onload = function () { openCropper(reader.result); };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  }
-
-  // ============================================================
-  //  CROPPER
-  // ============================================================
-  function openCropper(dataUrl) {
-    state.cropTargetUrl = dataUrl;
-    var modal = document.getElementById('modal-tenant-image-crop');
-    var img = document.getElementById('ti-cropper-img');
-    if (!modal || !img) return;
-    img.src = dataUrl;
-    modal.classList.add('active');
-
-    // Cropper precisa da imagem visível — espera 1 frame
-    setTimeout(function () {
-      if (state.cropper) { try { state.cropper.destroy(); } catch (e) {} state.cropper = null; }
-      if (typeof Cropper === 'undefined') {
-        fb('Editor de imagem não carregado. Recarregue a página.', 'err');
-        return;
-      }
-      state.cropper = new Cropper(img, {
-        aspectRatio: ASPECT,
-        viewMode: 1,
-        dragMode: 'move',
-        autoCropArea: 1,
-        background: false,
-        movable: true,
-        zoomable: true,
-        rotatable: false,
-        scalable: false,
-        responsive: true,
-        modal: true,
-        // ✅ WYSIWYG: trava a caixa de crop para que o usuário só
-        // movimente/zoom a IMAGEM dentro de uma área fixa 16:9.
-        // Garante que o que ele vê é exatamente o que o carrossel mostrará.
-        cropBoxMovable:   false,
-        cropBoxResizable: false,
-        toggleDragModeOnDblclick: false,
-        guides: false,
-        center: true
-      });
-    }, 50);
-  }
-
-  function closeCropper() {
-    var modal = document.getElementById('modal-tenant-image-crop');
-    if (modal) modal.classList.remove('active');
-    if (state.cropper) { try { state.cropper.destroy(); } catch (e) {} state.cropper = null; }
-    state.cropTargetUrl = null;
-  }
-
-  function cropperZoom(delta) { if (state.cropper) state.cropper.zoom(delta); }
-  function cropperReset()      { if (state.cropper) state.cropper.reset(); }
-
-  function confirmCropper() {
-    if (!state.cropper) return closeCropper();
-    var canvas = state.cropper.getCroppedCanvas({
-      width: 1600,
-      height: Math.round(1600 / ASPECT),
-      imageSmoothingEnabled: true,
-      imageSmoothingQuality: 'high',
-      fillColor: '#000'
-    });
-    if (!canvas) { fb('Não foi possível recortar a imagem.', 'err'); return; }
-    canvas.toBlob(function (blob) {
-      if (!blob) { fb('Falha ao gerar imagem.', 'err'); return; }
-      var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
-      state.pendingNew.push({ blob: blob, dataUrl: dataUrl });
-      closeCropper();
-      renderGrid();
-    }, 'image/jpeg', 0.9);
-  }
-
-  // ============================================================
-  //  CONFIRMAR (upload + persist)
-  // ============================================================
-  async function confirm() {
-    var tid = tenantId();
-    if (!tid) { fb('Tenant não identificado.', 'err'); return; }
-    if (typeof supabaseClient === 'undefined') { fb('Cliente Supabase não disponível.', 'err'); return; }
-
-    var btn = document.getElementById('ti-btn-confirm');
-    if (btn) { btn.disabled = true; btn.dataset._html = btn.innerHTML; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; }
-
-    try {
-      // 1) DELETE marcadas
-      for (var i = 0; i < state.pendingDel.length; i++) {
-        var delId = state.pendingDel[i];
-        var row = state.serverImages.find(function (im) { return im.id === delId; });
-        if (row && row.storage_path) {
-          try { await supabaseClient.storage.from(BUCKET).remove([row.storage_path]); }
-          catch (e) { console.warn('[tenant_images] remove storage falhou:', e); }
-        }
-        var dr = await supabaseClient.from('tenant_images').delete().eq('id', delId);
-        if (dr.error) throw dr.error;
-      }
-
-      // 2) UPLOAD novos + INSERT
-      var startOrder = state.serverImages.filter(function (im) {
-        return state.pendingDel.indexOf(im.id) < 0;
-      }).length;
-
-      for (var j = 0; j < state.pendingNew.length; j++) {
-        var item = state.pendingNew[j];
-        var path = tid + '/' + uuid() + '.jpg';
-        var up = await supabaseClient.storage.from(BUCKET).upload(path, item.blob, {
-          contentType: 'image/jpeg',
-          upsert: false
-        });
-        if (up.error) throw up.error;
-
-        var pub = supabaseClient.storage.from(BUCKET).getPublicUrl(path);
-        var publicUrl = (pub && pub.data && pub.data.publicUrl) || '';
-
-        var ins = await supabaseClient.from('tenant_images').insert({
-          tenant_id:    tid,
-          image_url:    publicUrl,
-          storage_path: path,
-          order:        startOrder + j
-        });
-        if (ins.error) throw ins.error;
-      }
-
-      fb('✓ Imagens salvas com sucesso.', 'ok');
-      // Atualiza UI
-      await refreshSummary();
-      setTimeout(closeModal, 700);
-    } catch (err) {
-      console.error('[tenant_images] confirm erro:', err);
-      var msg = (err && err.message) || 'Falha ao salvar imagens.';
-      if (msg.toLowerCase().indexOf('máximo de 10') >= 0 || msg.indexOf('Maximo de 10') >= 0) {
-        msg = 'Limite de 10 imagens atingido para este estabelecimento.';
-      } else if (err && err.code === '42501') {
-        msg = 'Você não tem permissão para alterar as imagens.';
-      }
-      fb(msg, 'err');
-    } finally {
-      if (btn) { btn.disabled = false; if (btn.dataset._html) btn.innerHTML = btn.dataset._html; }
-    }
-  }
-
-  // ============================================================
-  //  WIRING
-  // ============================================================
-  document.addEventListener('DOMContentLoaded', function () {
-    var inp = document.getElementById('ti-file-input');
-    if (inp && !inp.dataset.bound) {
-      inp.dataset.bound = '1';
-      inp.addEventListener('change', onFilePicked);
-    }
-    // Recarrega thumbs sempre que entrar em Configurações > Geral
-    setTimeout(refreshSummary, 800);
-  });
-
-  // Funções globais usadas no HTML
-  window.openModalTenantImages  = openModal;
-  window.closeModalTenantImages = closeModal;
-  window.confirmTenantImages    = confirm;
-  window.closeCropper           = closeCropper;
-  window.confirmCropper         = confirmCropper;
-  window.cropperZoom            = cropperZoom;
-  window.cropperReset           = cropperReset;
-})();
-
-// Hook: depois de atualizar o link (toggle ON/OFF), também recarrega a galeria-resumo
-(function () {
-  if (typeof atualizarLinkAgendamentoCliente === 'function') {
-    var _orig = atualizarLinkAgendamentoCliente;
-    atualizarLinkAgendamentoCliente = function (on) {
-      _orig(on);
-      try { if (typeof refreshTenantImagesSummary === 'function') refreshTenantImagesSummary(); } catch (e) {}
-    };
-    window.atualizarLinkAgendamentoCliente = atualizarLinkAgendamentoCliente;
-  }
-})();
-
-
-/* ============================================================
-   FEATURE: BLOQUEIO DE HORÁRIO (Google Calendar like)
-   ============================================================ */
-
-/* ---- Estado ---- */
-var editingBloqueioId = null;
-
-/* ---- Helpers ---- */
-function bloqProfissionaisDisponiveis() {
-  // Colaborador só pode bloquear o próprio profissional
-  if (currentUser.role === 'colaborador') {
-    if (!currentUser.profissionalId) return [];
-    var p = (allProfissionais || []).find(function(x){return x.id === currentUser.profissionalId;});
-    return p ? [p] : [];
-  }
-  return (allProfissionais || []);
-}
-
-function bloqHHMMToMin(s) {
-  var p = String(s||'00:00').split(':');
-  return parseInt(p[0],10) * 60 + parseInt(p[1]||'0', 10);
-}
-
-function bloqOverlapWithAppointments(profId, dateISO, iniHHMM, fimHHMM, ignoreBloqueioId) {
-  var ini = bloqHHMMToMin(iniHHMM), fim = bloqHHMMToMin(fimHHMM);
-  // 1. Sobrepõe agendamento existente?
-  var dayApps = appointments.filter(function(a){ return a.data === dateISO; });
-  for (var i = 0; i < dayApps.length; i++) {
-    var a = dayApps[i];
-    var evs = expandToServiceEvents([a]);
-    for (var j = 0; j < evs.length; j++) {
-      var ev = evs[j];
-      var profMatch = false;
-      // Match por id (se profissional id estiver presente em servicoData)
-      if (ev.servicoData && ev.servicoData.profissional_id) {
-        profMatch = (ev.servicoData.profissional_id === profId);
-      } else {
-        // Fallback por nome
-        var prof = (allProfissionais||[]).find(function(p){return p.id === profId;});
-        if (prof && ev.profissional === prof.nome) profMatch = true;
-      }
-      if (!profMatch) continue;
-      var evIni = bloqHHMMToMin(ev.hora);
-      var evFim = evIni + (ev.duracao || 30);
-      if (ini < evFim && fim > evIni) {
-        return { tipo: 'agendamento', cliente: ev.cliente, hora: ev.hora };
-      }
-    }
-  }
-  return null;
-}
-
-function bloqOverlapWithBloqueios(profId, dateISO, iniHHMM, fimHHMM, ignoreBloqueioId) {
-  var ini = bloqHHMMToMin(iniHHMM), fim = bloqHHMMToMin(fimHHMM);
-  var same = (bloqueios||[]).filter(function(b){
-    return b.data === dateISO && b.profissional_id === profId && b.id !== ignoreBloqueioId;
-  });
-  for (var i = 0; i < same.length; i++) {
-    var b = same[i];
-    var bi = bloqHHMMToMin(b.hora_inicio), bf = bloqHHMMToMin(b.hora_fim);
-    if (ini < bf && fim > bi) return b;
-  }
-  return null;
-}
-
-/* ---- Carregar bloqueios do tenant ---- */
-async function loadBloqueios() {
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) { bloqueios = []; return; }
-  try {
-    var resp = await supabaseClient
-      .from('agenda_bloqueios')
-      .select('*')
-      .eq('tenant_id', tenantId);
-    if (resp.error) { console.error('Erro bloqueios:', resp.error); bloqueios = []; return; }
-    bloqueios = (resp.data || []).map(function(b) {
-      return {
-        id: b.id,
-        tenant_id: b.tenant_id,
-        profissional_id: b.profissional_id,
-        data: b.data,
-        hora_inicio: String(b.hora_inicio || '').slice(0,5),
-        hora_fim: String(b.hora_fim || '').slice(0,5),
-        motivo: b.motivo || '',
-        created_at: b.created_at
-      };
-    });
-  } catch (e) {
-    console.error('loadBloqueios erro:', e);
-    bloqueios = [];
-  }
-}
-
-/* ---- Render: injetar bloqueios na timeline ----
-   Estratégia: ganchos pós-render. Após renderDayDetail() rodar,
-   percorremos `bloqueios` do dia e injetamos blocos visuais. */
-function renderBloqueiosNoDia() {
-  var dateStr = currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay);
-  var profIdToNome = {};
-  (allProfissionais||[]).forEach(function(p){ profIdToNome[p.id] = p.nome; });
-
-  var dayBloqueios = (bloqueios||[]).filter(function(b){
-    if (b.data !== dateStr) return false;
-    var nome = profIdToNome[b.profissional_id];
-    if (!nome) return false;
-    return activeFilters.indexOf(nome) >= 0;
-  });
-  if (!dayBloqueios.length) return;
-
-  var container = document.getElementById('day-appointments');
-  if (!container) return;
-  var hStartAttr = container.dataset.hourStart;
-  var hStart = hStartAttr ? parseInt(hStartAttr, 10) : BUSINESS_HOUR_START;
-
-  var showMultiAgenda = isAdmin() && activeFilters.length > 1;
-
-  if (showMultiAgenda) {
-    // multi: cada coluna tem .multi-agenda-blocks[data-prof-col=NOME]
-    // ✅ FIX: containers .multi-agenda-blocks ocupam a LARGURA TOTAL da timeline
-    // (são empilhados absolutamente no body), por isso precisamos passar
-    // colIdx/totalCols para que o bloco respeite a coluna do profissional.
-    var totalCols = activeFilters.length;
-    dayBloqueios.forEach(function(b){
-      var nome = profIdToNome[b.profissional_id];
-      var colIdx = activeFilters.indexOf(nome);
-      if (colIdx < 0) return;
-      var blocksEl = container.querySelector('.multi-agenda-blocks[data-prof-col="' + nome + '"]');
-      if (!blocksEl) return;
-      injectBloqueioBlock(blocksEl, b, hStart, false, colIdx, totalCols);
-    });
-  } else {
-    var blocks = document.getElementById('timeline-blocks');
-    if (!blocks) return;
-    dayBloqueios.forEach(function(b){
-      injectBloqueioBlock(blocks, b, hStart, true, 0, 1);
-    });
-  }
-}
-
-function injectBloqueioBlock(container, b, hStart, isSingle, colIdx, totalCols) {
-  var iniMin = bloqHHMMToMin(b.hora_inicio);
-  var fimMin = bloqHHMMToMin(b.hora_fim);
-  var dur = Math.max(fimMin - iniMin, 1);
-  var top = (Math.floor(iniMin / 60) - hStart) * 60 + (iniMin % 60);
-
-  var block = document.createElement('div');
-  block.className = 'timeline-block is-bloqueio';
-  block.style.top = top + 'px';
-  block.style.height = dur + 'px';
-  block.style.zIndex = 5;
-  block.style.cursor = 'pointer';
-
-  // ✅ FIX: respeitar a coluna do profissional no modo multi-agenda.
-  // Sem isso, o bloco ocupava 100% da largura (left:4px → right:4px do CSS .timeline-block)
-  // e invadia a coluna dos outros profissionais.
-  if (typeof totalCols === 'number' && totalCols > 1 && typeof colIdx === 'number') {
-    var colW = 100 / totalCols;
-    block.style.left = 'calc(' + (colIdx * colW) + '% + 4px)';
-    block.style.right = 'auto';
-    block.style.width = 'calc(' + colW + '% - 8px)';
-  }
-
-  var label = b.motivo ? b.motivo : 'Bloqueado';
-  var timeLabel = b.hora_inicio + ' – ' + b.hora_fim;
-  var heightPx = dur;
-
-  if (heightPx <= 22) {
-    block.classList.add('tb-tiny');
-    block.title = timeLabel + ' — ' + label;
-    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time"><i class="fa-solid fa-lock"></i></span> <span class="tb-client tb-truncate">' + label + '</span></div>';
-  } else if (heightPx <= 38) {
-    block.innerHTML = '<div class="tb-row-compact"><span class="tb-time"><i class="fa-solid fa-lock"></i> ' + timeLabel + '</span> <span class="tb-client">' + label + '</span></div>';
-  } else {
-    block.innerHTML = '<div class="tb-time"><i class="fa-solid fa-lock"></i> ' + timeLabel + '</div>' +
-                      '<div class="tb-client tb-truncate">' + label + '</div>';
-  }
-  block.addEventListener('click', function(ev){
-    ev.stopPropagation();
-    abrirBloqueioParaEditar(b);
-  });
-  container.appendChild(block);
-}
-
-/* Wrap renderDayDetail para chamar renderBloqueiosNoDia depois */
-(function(){
-  if (typeof renderDayDetail !== 'function') return;
-  var _orig = renderDayDetail;
-  renderDayDetail = function() {
-    _orig.apply(this, arguments);
-    try { renderBloqueiosNoDia(); } catch(e) { console.error('renderBloqueiosNoDia erro', e); }
-    try { wireAgendaQuickMenu(); } catch(e){}
-  };
-})();
-
-/* ---- Modal: popular selects ---- */
-function bloqPopulateProfissionais() {
-  var sel = document.getElementById('bloq-profissional');
-  if (!sel) return;
-  var opts = bloqProfissionaisDisponiveis();
-  sel.innerHTML = '';
-  if (opts.length === 0) {
-    sel.innerHTML = '<option value="">— Sem profissionais —</option>';
-    return;
-  }
-  opts.forEach(function(p){
-    var o = document.createElement('option');
-    o.value = p.id;
-    o.textContent = p.nome;
-    sel.appendChild(o);
-  });
-  // Colaborador: travar
-  if (currentUser.role === 'colaborador') {
-    sel.value = currentUser.profissionalId || '';
-    sel.disabled = true;
-  } else {
-    sel.disabled = false;
-  }
-}
-
-function bloqPopulateHoras() {
-  ['bloq-hora-ini-h', 'bloq-hora-fim-h'].forEach(function(id){
-    var sel = document.getElementById(id);
-    if (!sel) return;
-    var prev = sel.value;
-    var html = '';
-    for (var h = BUSINESS_HOUR_START; h <= BUSINESS_HOUR_END; h++) {
-      html += '<option value="' + pad(h) + '">' + pad(h) + '</option>';
-    }
-    sel.innerHTML = html;
-    if (prev) sel.value = prev;
-  });
-}
-
-/* ---- Abrir modal: novo ---- */
-function abrirModalBloqueio(prefill) {
-  if (currentUser.role === 'colaborador' && !currentUser.profissionalId) {
-    showToast('Seu usuário não está vinculado a um profissional.', 'error');
-    return;
-  }
-  editingBloqueioId = null;
-  document.getElementById('bloq-id').value = '';
-  document.getElementById('modal-bloqueio-titulo').innerHTML = '<i class="fa-solid fa-lock" style="margin-right:6px;"></i> Bloquear horário';
-  document.getElementById('btn-excluir-bloqueio').style.display = 'none';
-
-  bloqPopulateProfissionais();
-  bloqPopulateHoras();
-
-  // Defaults
-  var dataInput = document.getElementById('bloq-data');
-  dataInput.value = (prefill && prefill.data) || formatDateInput(new Date(currentYear, currentMonth, selectedDay));
-
-  var defH = pad(BUSINESS_HOUR_START);
-  document.getElementById('bloq-hora-ini-h').value = (prefill && prefill.iniH) || defH;
-  document.getElementById('bloq-hora-ini-m').value = (prefill && prefill.iniM) || '00';
-  document.getElementById('bloq-hora-fim-h').value = (prefill && prefill.fimH) || pad(Math.min(BUSINESS_HOUR_END, parseInt((prefill && prefill.iniH) || defH, 10) + 1));
-  document.getElementById('bloq-hora-fim-m').value = (prefill && prefill.fimM) || '00';
-
-  if (prefill && prefill.profissionalId && currentUser.role !== 'colaborador') {
-    document.getElementById('bloq-profissional').value = prefill.profissionalId;
-  }
-
-  document.getElementById('bloq-dia-inteiro').checked = false;
-  document.getElementById('bloq-horarios-row').classList.remove('hidden');
-  document.getElementById('bloq-motivo').value = '';
-
-  openModal('modal-bloqueio');
-}
-
-/* ---- Abrir modal: editar (clique em bloco) ---- */
-function abrirBloqueioParaEditar(b) {
-  // Permissões
-  if (currentUser.role === 'colaborador' && b.profissional_id !== currentUser.profissionalId) {
-    showToast('Você não pode editar bloqueios de outros profissionais.', 'error');
-    return;
-  }
-  editingBloqueioId = b.id;
-  document.getElementById('bloq-id').value = b.id;
-  document.getElementById('modal-bloqueio-titulo').innerHTML = '<i class="fa-solid fa-lock" style="margin-right:6px;"></i> Editar bloqueio';
-  document.getElementById('btn-excluir-bloqueio').style.display = 'inline-flex';
-
-  bloqPopulateProfissionais();
-  bloqPopulateHoras();
-
-  document.getElementById('bloq-profissional').value = b.profissional_id;
-  document.getElementById('bloq-data').value = b.data;
-  var iniParts = (b.hora_inicio || '00:00').split(':');
-  var fimParts = (b.hora_fim || '00:00').split(':');
-  document.getElementById('bloq-hora-ini-h').value = iniParts[0];
-  document.getElementById('bloq-hora-ini-m').value = iniParts[1] || '00';
-  document.getElementById('bloq-hora-fim-h').value = fimParts[0];
-  document.getElementById('bloq-hora-fim-m').value = fimParts[1] || '00';
-  document.getElementById('bloq-motivo').value = b.motivo || '';
-
-  // Detecta dia inteiro = se cobre 00:00 → 23:59 OU horario comercial completo
-  var diaInteiro = (b.hora_inicio === '00:00' && (b.hora_fim === '23:59' || b.hora_fim === '23:45'));
-  document.getElementById('bloq-dia-inteiro').checked = diaInteiro;
-  document.getElementById('bloq-horarios-row').classList.toggle('hidden', diaInteiro);
-
-  openModal('modal-bloqueio');
-}
-
-/* ---- Toggle "Dia inteiro" ---- */
-function setupBloqueioListeners() {
-  var diaInt = document.getElementById('bloq-dia-inteiro');
-  if (diaInt && !diaInt.dataset.bound) {
-    diaInt.dataset.bound = '1';
-    diaInt.addEventListener('change', function(){
-      var row = document.getElementById('bloq-horarios-row');
-      if (this.checked) {
-        row.classList.add('hidden');
-      } else {
-        row.classList.remove('hidden');
-      }
-    });
-  }
-  var btn = document.getElementById('btn-bloquear-horario');
-  if (btn && !btn.dataset.bound) {
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', function(){ abrirModalBloqueio(); });
-  }
-}
-
-/* ---- Salvar bloqueio ---- */
-async function salvarBloqueio(e) {
-  e.preventDefault();
-  var tenantId = getCurrentTenantId();
-  if (!tenantId) { showToast('Tenant não definido.', 'error'); return; }
-
-  var profId = document.getElementById('bloq-profissional').value;
-  if (!profId) { showToast('Selecione um profissional.', 'error'); return; }
-
-  // Permissão colaborador
-  if (currentUser.role === 'colaborador' && profId !== currentUser.profissionalId) {
-    showToast('Colaborador só pode bloquear o próprio horário.', 'error');
-    return;
-  }
-
-  var data = document.getElementById('bloq-data').value;
-  if (!data) { showToast('Selecione uma data.', 'error'); return; }
-
-  var diaInteiro = document.getElementById('bloq-dia-inteiro').checked;
-  var iniH, iniM, fimH, fimM;
-  if (diaInteiro) {
-    iniH = '00'; iniM = '00';
-    fimH = '23'; fimM = '59';
-  } else {
-    iniH = document.getElementById('bloq-hora-ini-h').value;
-    iniM = document.getElementById('bloq-hora-ini-m').value;
-    fimH = document.getElementById('bloq-hora-fim-h').value;
-    fimM = document.getElementById('bloq-hora-fim-m').value;
-  }
-  var iniHHMM = iniH + ':' + iniM;
-  var fimHHMM = fimH + ':' + fimM;
-
-  if (bloqHHMMToMin(fimHHMM) <= bloqHHMMToMin(iniHHMM)) {
-    showToast('Horário fim deve ser maior que o início.', 'error');
-    return;
-  }
-
-  // Conflitos
-  var confApt = bloqOverlapWithAppointments(profId, data, iniHHMM, fimHHMM, editingBloqueioId);
-  if (confApt) {
-    showToast('Conflito: já existe agendamento de "' + (confApt.cliente || '') + '" às ' + confApt.hora + '.', 'error');
-    return;
-  }
-  var confBlq = bloqOverlapWithBloqueios(profId, data, iniHHMM, fimHHMM, editingBloqueioId);
-  if (confBlq) {
-    showToast('Conflito: já existe bloqueio neste intervalo (' + confBlq.hora_inicio + '–' + confBlq.hora_fim + ').', 'error');
-    return;
-  }
-
-  var motivo = document.getElementById('bloq-motivo').value.trim();
-  var row = {
-    tenant_id: tenantId,
-    profissional_id: profId,
-    data: data,
-    hora_inicio: iniHHMM + ':00',
-    hora_fim: fimHHMM + ':00',
-    motivo: motivo || null
-  };
-
-  try {
-    var resp;
-    if (editingBloqueioId) {
-      resp = await supabaseClient.from('agenda_bloqueios').update(row).eq('id', editingBloqueioId);
-    } else {
-      resp = await supabaseClient.from('agenda_bloqueios').insert([row]).select();
-    }
-    if (resp.error) {
-      console.error('Erro salvar bloqueio:', resp.error);
-      showToast('Erro ao salvar bloqueio: ' + (resp.error.message || ''), 'error');
-      return;
-    }
-    showToast(editingBloqueioId ? 'Bloqueio atualizado!' : 'Horário bloqueado com sucesso!');
-    closeModal('modal-bloqueio');
-    editingBloqueioId = null;
-    await loadBloqueios();
-    renderCalendar();
-    renderDayDetail();
-  } catch (err) {
-    console.error(err);
-    showToast('Erro inesperado ao salvar bloqueio.', 'error');
-  }
-}
-
-/* ---- Excluir bloqueio ---- */
-function confirmarExclusaoBloqueio() {
-  if (!editingBloqueioId) return;
-  openModal('modal-confirmar-exclusao-bloqueio');
-}
-async function excluirBloqueio() {
-  if (!editingBloqueioId) return;
-  try {
-    var resp = await supabaseClient.from('agenda_bloqueios').delete().eq('id', editingBloqueioId);
-    if (resp.error) {
-      showToast('Erro ao excluir bloqueio.', 'error');
-      console.error(resp.error);
-      return;
-    }
-    showToast('Bloqueio excluído.');
-    closeModal('modal-confirmar-exclusao-bloqueio');
-    closeModal('modal-bloqueio');
-    editingBloqueioId = null;
-    await loadBloqueios();
-    renderCalendar();
-    renderDayDetail();
-  } catch (err) {
-    console.error(err);
-    showToast('Erro inesperado ao excluir.', 'error');
-  }
-}
-
-/* ---- Validação no save de agendamento: não permitir sobre bloqueio ---- */
-(function(){
-  if (typeof saveAppointment !== 'function') return;
-  var _origSave = saveAppointment;
-  saveAppointment = async function(e) {
-    // Pré-validar antes de salvar: percorrer cada serviço/profissional do form e checar bloqueio
-    try {
-      var data = document.getElementById('ag-data').value;
-      var hora = document.getElementById('ag-hora-h').value + ':' + document.getElementById('ag-minuto').value;
-      // Coleta serviços do DOM (mesma lógica de collectServicos)
-      var blocos = document.querySelectorAll('#servicos-container .servico-block');
-      var cursor = bloqHHMMToMin(hora);
-      var profsByName = {};
-      (allProfissionais||[]).forEach(function(p){ profsByName[p.nome] = p.id; });
-      for (var i = 0; i < blocos.length; i++) {
-        var profSel = blocos[i].querySelector('.svc-profissional');
-        var svcSel  = blocos[i].querySelector('.svc-servico');
-        if (!profSel || !svcSel) continue;
-        var profNome = profSel.value;
-        var svcNome  = svcSel.value;
-        var profId = profsByName[profNome];
-        if (!profId || !svcNome) continue;
-        var dur = (servicePrices[svcNome] && servicePrices[svcNome].duracao) || 30;
-        var hh = Math.floor(cursor / 60);
-        var mm = cursor % 60;
-        var iniHHMM = pad(hh) + ':' + pad(mm);
-        var fhh = Math.floor((cursor + dur) / 60);
-        var fmm = (cursor + dur) % 60;
-        var fimHHMM = pad(fhh) + ':' + pad(fmm);
-        var conf = bloqOverlapWithBloqueios(profId, data, iniHHMM, fimHHMM, null);
-        if (conf) {
-          e.preventDefault();
-          showToast('Não é possível agendar: horário bloqueado (' + conf.hora_inicio + '–' + conf.hora_fim + ').', 'error');
-          return;
-        }
-        cursor += dur;
-      }
-    } catch (err) {
-      console.warn('[bloqueio] validação pulada por erro:', err);
-    }
-    return _origSave.apply(this, arguments);
-  };
-})();
-
-/* ---- Proteção contra duplo submit no salvar de agendamento ---- */
-(function(){
-  if (typeof saveAppointment !== 'function') return;
-  var _innerSave = saveAppointment;
-  var isSavingAppointment = false;
-
-  function getSubmitBtn() {
-    var form = document.getElementById('form-agendamento');
-    if (!form) return null;
-    return form.querySelector('button[type="submit"]');
-  }
-
-  saveAppointment = async function(e) {
-    // Bloqueio síncrono — garante idempotência mesmo em cliques rápidos
-    if (isSavingAppointment) {
-      if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      return;
-    }
-    isSavingAppointment = true;
-
-    var btn = getSubmitBtn();
-    var originalText = null;
-    if (btn) {
-      originalText = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerText = 'Salvando...';
-    }
-
-    try {
-      return await _innerSave.apply(this, arguments);
-    } catch (err) {
-      console.error('[saveAppointment] erro:', err);
-      throw err;
-    } finally {
-      // Reabilita após pequeno delay — evita rajadas de clique e
-      // cobre tanto sucesso (modal fecha) quanto erro/validação (form continua aberto).
-      setTimeout(function(){
-        isSavingAppointment = false;
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = originalText || 'Salvar';
-        }
-      }, 250);
-    }
-  };
-})();
-
-/* ---- Menu rápido na agenda: clique em horário vazio ---- */
-function wireAgendaQuickMenu() {
-  var container = document.getElementById('day-appointments');
-  if (!container || container.dataset.quickWired === '1') return;
-  container.dataset.quickWired = '1';
-
-  container.addEventListener('click', function(ev){
-    var slot = ev.target.closest('.timeline-slot, .multi-agenda-cell');
-    if (!slot) return;
-    if (ev.target.closest('.timeline-block')) return;
-
-    var hour = parseInt(slot.dataset.hour, 10);
-    if (isNaN(hour)) return;
-
-    var profNome = slot.dataset.prof || null;
-    var profId = null;
-    if (profNome) {
-      var p = (allProfissionais||[]).find(function(x){return x.nome === profNome;});
-      if (p) profId = p.id;
-    } else if (currentUser.role === 'colaborador') {
-      profId = currentUser.profissionalId;
-    }
-
-    showAgendaQuickMenu(ev.clientX, ev.clientY, {
-      hour: hour,
-      profissionalId: profId,
-      data: currentYear + '-' + pad(currentMonth + 1) + '-' + pad(selectedDay)
-    });
-  });
-
-  // Fechar menu ao clicar fora
-  document.addEventListener('click', function(ev){
-    var m = document.getElementById('agenda-quick-menu');
-    if (!m || m.hidden) return;
-    if (ev.target.closest('#agenda-quick-menu')) return;
-    if (ev.target.closest('.timeline-slot, .multi-agenda-cell')) return;
-    m.hidden = true;
-  });
-}
-
-function showAgendaQuickMenu(x, y, ctx) {
-  var menu = document.getElementById('agenda-quick-menu');
-  if (!menu) return;
-  menu.hidden = false;
-  // Posicionar dentro do viewport
-  var w = 220, h = 100;
-  var left = Math.min(window.innerWidth - w - 8, x);
-  var top = Math.min(window.innerHeight - h - 8, y);
-  menu.style.left = left + 'px';
-  menu.style.top = top + 'px';
-
-  // Bind handlers (rebind a cada abertura)
-  var btns = menu.querySelectorAll('button');
-  btns.forEach(function(b){
-    var clone = b.cloneNode(true);
-    b.parentNode.replaceChild(clone, b);
-  });
-  menu.querySelector('[data-action="novo"]').addEventListener('click', function(){
-    menu.hidden = true;
-    // Abre fluxo padrão de novo agendamento, com hora pré-selecionada após identificação.
-    // Para simplicidade, apenas dispara o fluxo padrão (modal de identificação).
-    resetIdentificacaoModal();
-    openModal('modal-identificacao');
-    // Pré-define a hora padrão no modal de agendamento (será aplicada quando abrir)
-    window.__bloqPrefillHora = pad(ctx.hour);
-  });
-  menu.querySelector('[data-action="bloquear"]').addEventListener('click', function(){
-    menu.hidden = true;
-    abrirModalBloqueio({
-      data: ctx.data,
-      iniH: pad(ctx.hour), iniM: '00',
-      fimH: pad(Math.min(BUSINESS_HOUR_END, ctx.hour + 1)), fimM: '00',
-      profissionalId: ctx.profissionalId
-    });
-  });
-}
-
-/* ---- Setup inicial dos listeners ---- */
-document.addEventListener('DOMContentLoaded', function(){
-  setupBloqueioListeners();
-});
-// Também tentar setup imediato (caso DOM já esteja pronto)
-setTimeout(setupBloqueioListeners, 0);
-
-/* Hook em openAgendamentoModal: aplicar prefill de hora vindo do menu rápido */
-(function(){
-  if (typeof openAgendamentoModal !== 'function') return;
-  var _orig = openAgendamentoModal;
-  openAgendamentoModal = function(agId, clienteNome, clienteTel) {
-    _orig.call(this, agId, clienteNome, clienteTel);
-    if (!agId && window.__bloqPrefillHora) {
-      try {
-        document.getElementById('ag-hora-h').value = window.__bloqPrefillHora;
-        document.getElementById('ag-minuto').value = '00';
-      } catch(_) {}
-      window.__bloqPrefillHora = null;
-    }
-  };
-})();
-
-/* ============================================================
-   COMISSÕES POR PROFISSIONAL
-   - Tabela: comissoes_profissionais (tenant_id, profissional_id,
-     percentual_estabelecimento, percentual_profissional)
-   - Padrão quando não configurado: 50% / 50%
-   - UX: ao digitar em um campo, o outro é ajustado para somar 100
-   - Validação client + DB (CHECK soma = 100)
-   ============================================================ */
-var COMISSOES_CACHE = { tenantId: null, byProfId: {}, loadedAt: 0 };
-var COMISSAO_DEFAULT = { percentual_estabelecimento: 50, percentual_profissional: 50 };
-
-function abrirTelaComissoes() {
-  switchPage('comissoes');
-}
-
-function voltarDaTelaComissoes() {
-  switchPage('configuracoes');
-  // reabrir aba "Geral"
-  setTimeout(function(){
-    var tab = document.querySelector('.config-tab[data-config-tab="geral"]');
-    if (tab) tab.click();
-  }, 30);
-}
-
-async function initComissoesPage() {
-  var sel = document.getElementById('com-prof-select');
-  if (!sel) return;
-  // Popula select de profissionais ativos do tenant
-  sel.innerHTML = '<option value="">Selecione um profissional…</option>';
-  (allProfissionais || []).slice().sort(function(a,b){
-    return String(a.nome||'').localeCompare(String(b.nome||''));
-  }).forEach(function(p){
-    if (p.ativo === false) return;
-    var o = document.createElement('option');
-    o.value = p.id;
-    o.textContent = p.nome;
-    sel.appendChild(o);
-  });
-  document.getElementById('com-fields').style.display = 'none';
-  hideComissaoFeedback();
-
-  // pré-carrega cache
-  try { await loadComissoesCache(true); } catch(_) {}
-}
-
-async function loadComissoesCache(force) {
-  var tenantId = (typeof getCurrentTenantId === 'function' ? getCurrentTenantId() : null)
-                 || currentUser.tenantId
-                 || localStorage.getItem('currentTenantId');
-  if (!tenantId) return COMISSOES_CACHE;
-  var fresh = (Date.now() - COMISSOES_CACHE.loadedAt) < 30000;
-  if (!force && COMISSOES_CACHE.tenantId === tenantId && fresh) return COMISSOES_CACHE;
-
-  COMISSOES_CACHE = { tenantId: tenantId, byProfId: {}, loadedAt: Date.now() };
-  try {
-    var resp = await supabaseClient
-      .from('comissoes_profissionais')
-      .select('profissional_id, percentual_estabelecimento, percentual_profissional')
-      .eq('tenant_id', tenantId);
-    if (resp.error) {
-      console.warn('[comissoes] erro ao carregar:', resp.error.message);
-      return COMISSOES_CACHE;
-    }
-    (resp.data || []).forEach(function(r){
-      COMISSOES_CACHE.byProfId[r.profissional_id] = {
-        percentual_estabelecimento: parseFloat(r.percentual_estabelecimento) || 0,
-        percentual_profissional: parseFloat(r.percentual_profissional) || 0
-      };
-    });
-  } catch(e) {
-    console.warn('[comissoes] exceção ao carregar:', e);
-  }
-  return COMISSOES_CACHE;
-}
-
-function getComissaoForProfId(profId) {
-  if (profId && COMISSOES_CACHE.byProfId[profId]) return COMISSOES_CACHE.byProfId[profId];
-  return COMISSAO_DEFAULT;
-}
-
-async function onComissaoSelectProf() {
-  var sel = document.getElementById('com-prof-select');
-  var profId = sel.value;
-  var fields = document.getElementById('com-fields');
-  hideComissaoFeedback();
-  if (!profId) { fields.style.display = 'none'; return; }
-  fields.style.display = '';
-  await loadComissoesCache(false);
-  var c = getComissaoForProfId(profId);
-  document.getElementById('com-perc-estab').value = formatComPct(c.percentual_estabelecimento);
-  document.getElementById('com-perc-prof').value = formatComPct(c.percentual_profissional);
-}
-
-function formatComPct(n) {
-  var v = parseFloat(n);
-  if (!isFinite(v)) return '';
-  // mantém limpo: inteiro sem casas decimais
-  return (Math.round(v * 100) / 100).toString();
-}
-
-function onComissaoInput(origin) {
-  var elE = document.getElementById('com-perc-estab');
-  var elP = document.getElementById('com-perc-prof');
-  var raw = (origin === 'estab') ? elE.value : elP.value;
-  var v = parseFloat(String(raw).replace(',', '.'));
-  if (!isFinite(v)) v = 0;
-  if (v < 0) v = 0;
-  if (v > 100) v = 100;
-  var other = Math.round((100 - v) * 100) / 100;
-  if (origin === 'estab') {
-    elE.value = formatComPct(v);
-    elP.value = formatComPct(other);
-  } else {
-    elP.value = formatComPct(v);
-    elE.value = formatComPct(other);
-  }
-  hideComissaoFeedback();
-}
-
-function showComissaoFeedback(msg, type) {
-  var el = document.getElementById('com-feedback');
-  if (!el) return;
-  el.textContent = msg;
-  el.style.display = '';
-  el.className = 'com-feedback' + (type === 'error' ? ' is-error' : ' is-success');
-}
-function hideComissaoFeedback() {
-  var el = document.getElementById('com-feedback');
-  if (el) el.style.display = 'none';
-}
-
-async function salvarComissaoProfissional() {
-  var sel = document.getElementById('com-prof-select');
-  var profId = sel ? sel.value : '';
-  if (!profId) { showComissaoFeedback('Selecione um profissional.', 'error'); return; }
-
-  var pe = parseFloat(String(document.getElementById('com-perc-estab').value).replace(',', '.'));
-  var pp = parseFloat(String(document.getElementById('com-perc-prof').value).replace(',', '.'));
-  if (!isFinite(pe) || !isFinite(pp)) {
-    showComissaoFeedback('Preencha os dois percentuais.', 'error'); return;
-  }
-  if (pe < 0 || pp < 0 || pe > 100 || pp > 100) {
-    showComissaoFeedback('Os percentuais devem estar entre 0 e 100.', 'error'); return;
-  }
-  var soma = Math.round((pe + pp) * 100) / 100;
-  if (soma !== 100) {
-    showComissaoFeedback('A soma das comissões deve ser 100% (atual: ' + soma + '%).', 'error'); return;
-  }
-
-  var tenantId = (typeof getCurrentTenantId === 'function' ? getCurrentTenantId() : null)
-                 || currentUser.tenantId
-                 || localStorage.getItem('currentTenantId');
-  if (!tenantId) { showComissaoFeedback('Tenant não identificado.', 'error'); return; }
-
-  var payload = {
-    tenant_id: tenantId,
-    profissional_id: profId,
-    percentual_estabelecimento: pe,
-    percentual_profissional: pp
-  };
-  try {
-    var resp = await supabaseClient
-      .from('comissoes_profissionais')
-      .upsert(payload, { onConflict: 'tenant_id,profissional_id' })
-      .select();
-    if (resp.error) {
-      showComissaoFeedback('Erro ao salvar: ' + resp.error.message, 'error');
-      return;
-    }
-    COMISSOES_CACHE.byProfId[profId] = {
-      percentual_estabelecimento: pe,
-      percentual_profissional: pp
-    };
-    showComissaoFeedback('Comissão configurada com sucesso', 'success');
-    if (typeof showToast === 'function') showToast('Comissão configurada com sucesso', 'success');
-  } catch(e) {
-    showComissaoFeedback('Erro inesperado: ' + (e && e.message || e), 'error');
-  }
-}
-
-/* ===== Box do dashboard: Divisão de comissões =====
-   profData: { [profNome]: { faturamento } }
-   profNomeToId: { [profNome]: profId }
-*/
-async function renderDashComissoes(profData, profNomeToId, totalFaturamento) {
-  var elTotal = document.getElementById('dash-com-total');
-  var elE = document.getElementById('dash-com-estab');
-  var elP = document.getElementById('dash-com-prof');
-  var elEPct = document.getElementById('dash-com-estab-pct');
-  var elPPct = document.getElementById('dash-com-prof-pct');
-  if (!elTotal || !elE || !elP) return;
-
-  await loadComissoesCache(false);
-
-  var totalEstab = 0;
-  var totalProf  = 0;
-  Object.keys(profData || {}).forEach(function(nome){
-    var fat = parseFloat((profData[nome] || {}).faturamento) || 0;
-    if (fat <= 0) return;
-    var profId = profNomeToId ? profNomeToId[nome] : null;
-    var c = getComissaoForProfId(profId);
-    totalEstab += fat * (c.percentual_estabelecimento / 100);
-    totalProf  += fat * (c.percentual_profissional / 100);
-  });
-
-  var total = parseFloat(totalFaturamento) || (totalEstab + totalProf);
-  elTotal.textContent = formatCurrency(total);
-  elE.textContent = formatCurrency(totalEstab);
-  elP.textContent = formatCurrency(totalProf);
-  var pe = total > 0 ? (totalEstab / total) * 100 : 0;
-  var pp = total > 0 ? (totalProf  / total) * 100 : 0;
-  elEPct.textContent = (Math.round(pe * 10) / 10) + '%';
-  elPPct.textContent = (Math.round(pp * 10) / 10) + '%';
-}
-
-/* ============================================================
-   FEATURE FLAG: Comissões (local — localStorage)
-   - Chave: ff_comissoes_ativo  ('1' ativo, '0' inativo)
-   - Off por padrão
-   - Controla:
-     * visibilidade do botão "Configurar comissões" em Config>Geral
-     * visibilidade da box de Divisão de comissões no Dashboard
-     * bloqueio de navegação para a página interna de comissões
-   ============================================================ */
-var FF_COMISSOES_KEY = 'ff_comissoes_ativo';
-
-function isFeatureComissoesAtiva() {
-  try { return localStorage.getItem(FF_COMISSOES_KEY) === '1'; }
-  catch(_) { return false; }
-}
-
-function aplicarFeatureFlagComissoes() {
-  var ativo = isFeatureComissoesAtiva();
-
-  // Toggle UI
-  var chk = document.getElementById('ff-comissoes');
-  if (chk) chk.checked = ativo;
-
-  // Botão de configurar comissões (Config > Geral)
-  var box = document.getElementById('comissoes-trigger-box');
-  if (box) box.style.display = ativo ? '' : 'none';
-
-  // Box do dashboard
-  document.querySelectorAll('.dash-comissoes-box').forEach(function(el){
-    el.style.display = ativo ? '' : 'none';
-  });
-
-  // Se a feature foi desligada e o usuário está na página de comissões, volta
-  if (!ativo) {
-    var page = document.getElementById('page-comissoes');
-    if (page && page.classList.contains('active')) {
-      try { switchPage('configuracoes'); } catch(_) {}
-    }
-  }
-}
-
-function onToggleFeatureComissoes(el) {
-  try {
-    localStorage.setItem(FF_COMISSOES_KEY, el && el.checked ? '1' : '0');
-  } catch(_) {}
-  aplicarFeatureFlagComissoes();
-}
-
-/* Bloqueia abrirTelaComissoes quando a feature está desligada */
-(function(){
-  if (typeof abrirTelaComissoes !== 'function') return;
-  var _orig = abrirTelaComissoes;
-  abrirTelaComissoes = function() {
-    if (!isFeatureComissoesAtiva()) {
-      try { alert('Ative o módulo de comissões em Configurações > Geral.'); } catch(_) {}
-      return;
-    }
-    return _orig.apply(this, arguments);
-  };
-})();
-
-/* Aplica o flag assim que o DOM estiver pronto (e em re-renders de página) */
-document.addEventListener('DOMContentLoaded', function(){
-  aplicarFeatureFlagComissoes();
-});
-setTimeout(aplicarFeatureFlagComissoes, 0);
-
-/* Reaplica após qualquer troca de página, garantindo que a box do dashboard
-   não reapareça quando o dashboard for re-renderizado */
-(function(){
-  if (typeof switchPage !== 'function') return;
-  var _orig = switchPage;
-  switchPage = function(page) {
-    var r = _orig.apply(this, arguments);
-    setTimeout(aplicarFeatureFlagComissoes, 0);
-    return r;
-  };
-})();

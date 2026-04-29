@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#652AF4">
+  <title>Agendar Atendimento | Beauty System</title>
+  <meta name="description" content="Agende seu atendimento no salão de forma rápida e prática.">
+
+  <!-- IMPORTANTE: base href absoluto para que assets relativos funcionem em /agendar/{tenantId} -->
+  <script>
+    (function () {
+      // Detecta se está rodando sob /agendar/<id> e força <base href="/"> para que
+      // agendamento-cliente.css, config.js, agendamento-cliente.js sejam buscados na raiz.
+      try {
+        var p = window.location.pathname;
+        if (/^\/agendar\//i.test(p)) {
+          var b = document.createElement('base');
+          b.setAttribute('href', '/');
+          document.head ? document.head.appendChild(b) : document.write('<base href="/">');
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="agendamento-cliente.css">
+</head>
+<body>
+
+  <!-- Estado: feature desligada / tenant inválido -->
+  <div class="ac-disabled" id="ac-disabled" hidden>
+    <div class="ac-disabled-card">
+      <i class="fa-regular fa-circle-xmark"></i>
+      <h2>Agendamento indisponível</h2>
+      <p id="ac-disabled-msg">O estabelecimento não está aceitando agendamentos online no momento.</p>
+    </div>
+  </div>
+
+  <!-- Loader inicial -->
+  <div class="ac-boot-loader" id="ac-boot-loader">
+    <i class="fas fa-spinner fa-spin"></i>
+    <span>Carregando...</span>
+  </div>
+
+  <!-- ============================================================
+       APP SHELL - Container principal da feature
+       ============================================================ -->
+  <div class="ac-app" id="ac-app" hidden>
+
+    <!-- HEADER do estabelecimento -->
+    <header class="ac-header">
+      <!-- ============================================================
+           CARROSSEL DO HEADER (até 10 imagens do tenant)
+           Fallback: se não houver imagens, .ac-carousel fica vazio e
+           o gradiente padrão do .ac-header-cover é exibido.
+           ============================================================ -->
+      <div class="ac-header-cover" id="ac-header-cover">
+        <!-- Mantido por compat: se algum tenant ainda usa cover_url única -->
+        <img id="ac-cover" src="" alt="Capa do estabelecimento" />
+
+        <div class="ac-carousel" id="ac-carousel" data-empty="true">
+          <ul class="ac-carousel-track" id="ac-carousel-track" aria-live="polite"></ul>
+
+          <button type="button" class="ac-carousel-nav prev" id="ac-carousel-prev" aria-label="Imagem anterior" hidden>
+            <i class="fas fa-chevron-left"></i>
+          </button>
+          <button type="button" class="ac-carousel-nav next" id="ac-carousel-next" aria-label="Próxima imagem" hidden>
+            <i class="fas fa-chevron-right"></i>
+          </button>
+
+          <div class="ac-carousel-dots" id="ac-carousel-dots" role="tablist" aria-label="Selecionar imagem"></div>
+        </div>
+
+        <div class="ac-header-overlay"></div>
+      </div>
+      <div class="ac-header-info">
+        <div id="ac-logo-wrap" class="ac-logo">B</div>
+        <div class="ac-header-text">
+          <h1 id="ac-tenant-nome">Salão</h1>
+          <p id="ac-tenant-endereco"><i class="fas fa-map-marker-alt"></i> <span></span></p>
+        </div>
+      </div>
+    </header>
+
+    <!-- STEPPER -->
+    <nav class="ac-stepper" aria-label="Progresso do agendamento">
+      <button type="button" class="ac-step active" data-step="1">
+        <span class="ac-step-num">1</span>
+        <span class="ac-step-label">Serviço</span>
+      </button>
+      <span class="ac-step-divider"></span>
+      <button type="button" class="ac-step" data-step="2">
+        <span class="ac-step-num">2</span>
+        <span class="ac-step-label">Profissional</span>
+      </button>
+      <span class="ac-step-divider"></span>
+      <button type="button" class="ac-step" data-step="3">
+        <span class="ac-step-num">3</span>
+        <span class="ac-step-label">Data e horário</span>
+      </button>
+    </nav>
+
+    <!-- MAIN -->
+    <main class="ac-main">
+
+      <!-- ===== STEP 1: SERVIÇOS ===== -->
+      <section class="ac-step-content active" data-step-content="1">
+        <div class="ac-section-head">
+          <h2>Escolha um serviço</h2>
+          <p class="ac-section-sub">Selecione o serviço que deseja agendar</p>
+        </div>
+
+        <div class="ac-search">
+          <i class="fas fa-search"></i>
+          <input type="text" id="ac-search-servico" placeholder="Pesquisar serviço..." autocomplete="off" />
+        </div>
+
+        <div class="ac-list" id="ac-servicos-list"></div>
+
+        <div class="ac-empty" id="ac-servicos-empty" hidden>
+          <i class="far fa-folder-open"></i>
+          <p>Nenhum serviço encontrado</p>
+        </div>
+      </section>
+
+      <!-- ===== STEP 2: PROFISSIONAL ===== -->
+      <section class="ac-step-content" data-step-content="2">
+        <div class="ac-section-head">
+          <button type="button" class="ac-back" data-back-to="1">
+            <i class="fas fa-arrow-left"></i> Voltar
+          </button>
+          <h2>Selecione o profissional</h2>
+          <p class="ac-section-sub" id="ac-prof-sub">Profissional para o serviço selecionado</p>
+        </div>
+
+        <div class="ac-prof-grid" id="ac-prof-grid"></div>
+      </section>
+
+      <!-- ===== STEP 3: DATA E HORÁRIO ===== -->
+      <section class="ac-step-content" data-step-content="3">
+        <div class="ac-section-head">
+          <button type="button" class="ac-back" data-back-to="2">
+            <i class="fas fa-arrow-left"></i> Voltar
+          </button>
+          <h2>Data e horário</h2>
+          <p class="ac-section-sub" id="ac-dh-sub">Escolha quando deseja ser atendido</p>
+        </div>
+
+        <div class="ac-calendar-wrap">
+          <div class="ac-calendar-head">
+            <button type="button" class="ac-cal-nav" id="ac-cal-prev" aria-label="Mês anterior">
+              <i class="fas fa-chevron-left"></i>
+            </button>
+            <span class="ac-cal-month" id="ac-cal-month">—</span>
+            <button type="button" class="ac-cal-nav" id="ac-cal-next" aria-label="Próximo mês">
+              <i class="fas fa-chevron-right"></i>
+            </button>
+          </div>
+          <div class="ac-calendar" id="ac-calendar"></div>
+        </div>
+
+        <div class="ac-slots" id="ac-slots"></div>
+
+        <div class="ac-empty" id="ac-slots-empty" hidden>
+          <i class="far fa-clock"></i>
+          <p>Selecione uma data para ver os horários disponíveis</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================================================
+       MODAL DE CONFIRMAÇÃO (com nome + telefone)
+       ============================================================ -->
+  <div class="ac-modal" id="ac-modal-confirm" hidden>
+    <div class="ac-modal-backdrop" data-close-modal></div>
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-labelledby="ac-modal-title">
+      <button type="button" class="ac-modal-close" data-close-modal aria-label="Fechar">
+        <i class="fas fa-times"></i>
+      </button>
+
+      <div class="ac-modal-icon">
+        <i class="far fa-calendar-check"></i>
+      </div>
+
+      <h3 id="ac-modal-title">Confirmar agendamento</h3>
+      <p class="ac-modal-sub">Revise os detalhes e informe seus dados</p>
+
+      <div class="ac-modal-resume">
+        <div class="ac-resume-row">
+          <span class="ac-resume-label"><i class="fas fa-spa"></i> Serviço</span>
+          <span class="ac-resume-value" id="ac-r-servico">—</span>
+        </div>
+        <div class="ac-resume-row">
+          <span class="ac-resume-label"><i class="fas fa-user"></i> Profissional</span>
+          <span class="ac-resume-value" id="ac-r-prof">—</span>
+        </div>
+        <div class="ac-resume-row">
+          <span class="ac-resume-label"><i class="far fa-calendar"></i> Data</span>
+          <span class="ac-resume-value" id="ac-r-data">—</span>
+        </div>
+        <div class="ac-resume-row">
+          <span class="ac-resume-label"><i class="far fa-clock"></i> Horário</span>
+          <span class="ac-resume-value" id="ac-r-hora">—</span>
+        </div>
+        <div class="ac-resume-row">
+          <span class="ac-resume-label"><i class="fas fa-hourglass-half"></i> Duração</span>
+          <span class="ac-resume-value" id="ac-r-duracao">—</span>
+        </div>
+        <div class="ac-resume-row total">
+          <span class="ac-resume-label"><i class="fas fa-tag"></i> Valor</span>
+          <span class="ac-resume-value" id="ac-r-valor">—</span>
+        </div>
+      </div>
+
+      <div class="ac-form">
+        <label class="ac-field">
+          <span>Seu nome</span>
+          <input type="text" id="ac-input-nome" placeholder="Nome completo" autocomplete="name" />
+        </label>
+        <label class="ac-field">
+          <span>Telefone (WhatsApp)</span>
+          <input type="tel" id="ac-input-tel" placeholder="(11) 99999-9999" autocomplete="tel" />
+        </label>
+      </div>
+
+      <p class="ac-feedback" id="ac-feedback" hidden></p>
+
+      <div class="ac-modal-actions">
+        <button type="button" class="ac-btn ac-btn-ghost" data-close-modal>Cancelar</button>
+        <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-confirmar">
+          <i class="fas fa-check"></i> Confirmar agendamento
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL DE SUCESSO -->
+  <div class="ac-modal" id="ac-modal-success" hidden>
+    <div class="ac-modal-backdrop" data-close-modal></div>
+    <div class="ac-modal-card success" role="dialog" aria-modal="true">
+      <div class="ac-success-icon">
+        <i class="fas fa-check"></i>
+      </div>
+      <h3>Agendamento confirmado!</h3>
+      <p class="ac-modal-sub" id="ac-success-msg">Seu horário foi reservado com sucesso.</p>
+      <div class="ac-modal-actions single">
+        <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-novo">
+          Fazer novo agendamento
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="ac-toast" id="ac-toast"></div>
+
+  <!-- Supabase via CDN (não-módulo) — funciona standalone, sem precisar de bundler -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js" onerror="window.__noConfig=true"></script>
+  <script src="agendamento-cliente.js"></script>
+
+  <!-- ============================================================
+       MODAL: Sugestão de serviços (Upsell)
+       ============================================================ -->
+  <div class="ac-modal" id="ac-modal-upsell" hidden>
+    <div class="ac-modal-backdrop" data-close-upsell></div>
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-labelledby="ac-upsell-title">
+      <button type="button" class="ac-modal-close" data-close-upsell aria-label="Fechar">
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="ac-modal-icon">
+        <i class="fas fa-magic-sparkles"></i>
+      </div>
+      <h3 id="ac-upsell-title">Deseja adicionar também?</h3>
+      <p class="ac-modal-sub">Aproveite e complete seu atendimento com:</p>
+
+      <div class="ac-upsell-list" id="ac-upsell-list"></div>
+
+      <div class="ac-modal-actions">
+        <button type="button" class="ac-btn ac-btn-ghost" data-close-upsell>Agora não</button>
+        <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-upsell-continue">
+          Continuar
+        </button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#652AF4">
+  <title>Editor de Tema da Agenda | Beauty System</title>
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ===== TEMA EDITOR - ESTILOS ISOLADOS ===== */
+    .tema-editor-page {
+      min-height: 100vh;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      font-family: 'Inter', sans-serif;
+      padding: 24px;
+    }
+
+    .tema-header { margin-bottom: 24px; }
+    .tema-header h1 { font-size: 1.25rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .tema-header .back-link { font-size: 0.75rem; color: #888; cursor: pointer; text-decoration: none; }
+    .tema-header .back-link:hover { color: #fff; }
+
+    .tema-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .tema-grid { grid-template-columns: 1fr; }
+    }
+
+    .tema-panel {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 28px;
+    }
+
+    .tema-section { margin-bottom: 28px; }
+    .tema-section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tema-section-desc {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 14px;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .color-row label {
+      font-size: 0.8rem;
+      color: #aaa;
+      min-width: 180px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .color-row input[type="color"] {
+      width: 48px;
+      height: 48px;
+      min-width: 48px;
+      min-height: 48px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      cursor: pointer;
+      background: transparent;
+      padding: 3px;
+      flex-shrink: 0;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+    }
+    .color-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+    .color-row input[type="color"]::-webkit-color-swatch { border-radius: 4px; border: none; }
+    .color-row input[type="color"]::-moz-color-swatch { border-radius: 4px; border: none; }
+    .color-row .hex-display {
+      font-size: 0.75rem;
+      color: #666;
+      font-family: monospace;
+    }
+
+    /* Tooltip */
+    .tt-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .tt-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #888;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: help;
+      flex-shrink: 0;
+      font-weight: 700;
+      margin-left: 4px;
+    }
+    .tt-box {
+      display: none;
+      position: absolute;
+      left: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.72rem;
+      color: #ddd;
+      width: 240px;
+      z-index: 999;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      line-height: 1.5;
+      pointer-events: none;
+    }
+    .tt-wrapper:hover .tt-box { display: block; }
+
+    .color-chips {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #222;
+      margin: 24px 0;
+    }
+
+    /* Logo upload */
+    .logo-drop {
+      border: 2px dashed #333;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .logo-drop:hover { border-style: solid; }
+    .logo-drop img {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 12px;
+    }
+    .logo-drop .initials-circle {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: rgba(255,255,255,0.03);
+      margin-bottom: 12px;
+    }
+    .logo-drop .upload-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid;
+      background: transparent;
+      margin-bottom: 6px;
+    }
+    .logo-drop .upload-hint {
+      font-size: 0.6rem;
+      color: #666;
+    }
+
+    /* Font selector */
+    .font-options {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .font-option {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: transparent;
+      color: #ccc;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .font-option:hover { border-color: #555; }
+    .font-option.active {
+      border-color: var(--te-gold, #7c3aed);
+      color: var(--te-gold, #7c3aed);
+      background: rgba(124,58,237,0.08);
+    }
+
+    /* Action buttons */
+    .tema-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn-reset {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-save-theme {
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      color: #fff;
+      transition: all 0.2s;
+    }
+    .btn-save-theme:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Feedback */
+    .tema-feedback {
+      display: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      margin-top: 12px;
+      text-align: center;
+    }
+
+    /* ===== PREVIEW ===== */
+    .preview-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .preview-frame {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #222;
+    }
+
+    .preview-sidebar {
+      display: flex;
+      min-height: 500px;
+    }
+
+    .preview-side {
+      width: 200px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .preview-side .side-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .preview-side .side-logo img {
+      width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+    }
+    .preview-side .side-logo .side-initials {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700;
+    }
+    .preview-side .side-logo span { font-size: 0.8rem; font-weight: 600; }
+
+    .side-item {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.6);
+      cursor: default;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+    .side-item.active {
+      font-weight: 600;
+    }
+
+    .preview-main {
+      flex: 1;
+      padding: 20px;
+    }
+
+    .preview-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .preview-topbar h2 {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .preview-topbar .topbar-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border: none;
+      cursor: default;
+    }
+
+    .preview-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .preview-card {
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid;
+    }
+    .preview-card .card-time {
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .preview-card .card-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .preview-card .card-service {
+      font-size: 0.7rem;
+      color: #888;
+    }
+
+    /* Preview Calendar */
+    .preview-cal-wrapper {
+      border-radius: 10px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .preview-cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .preview-cal-header .cal-nav {
+      font-size: 0.85rem;
+      cursor: default;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .preview-cal-header .cal-month {
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .preview-calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .preview-calendar .cal-day {
+      text-align: center;
+      padding: 6px 4px;
+      font-size: 0.65rem;
+      border-radius: 6px;
+    }
+    .preview-calendar .cal-day.header {
+      font-weight: 700;
+      font-size: 0.6rem;
+    }
+    .preview-calendar .cal-day.today {
+      font-weight: 700;
+    }
+
+    @media (max-width: 700px) {
+      .preview-side { display: none; }
+      .preview-cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="tema-editor-page">
+    <!-- Header -->
+    <div class="tema-header">
+      <h1>🎨 Editor de Tema da Agenda</h1>
+      <a href="agenda.html" class="back-link">‹ Voltar para Agenda</a>
+    </div>
+
+    <div class="tema-grid">
+      <!-- LEFT: Editor Panel -->
+      <div class="tema-panel">
+        <!-- Cor Principal -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🎨 Cor Principal
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cor destaque do sistema. Usada em botões, links, itens ativos do menu e destaques visuais. As variações (clara, escura, fundo, borda) são geradas automaticamente.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Defina a cor destaque usada em botões, links e destaques.</div>
+          <div class="color-row">
+            <label>Cor principal</label>
+            <input type="color" id="tema-gold" value="#7c3aed">
+            <input type="text" id="tema-gold-hex" value="#7c3aed" maxlength="7" style="width:80px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;padding:6px 8px;font-family:monospace;font-size:0.8rem;" oninput="syncColorFromHex()">
+          </div>
+          <div class="color-chips" id="tema-color-chips"></div>
+        </div>
+
+        <!-- Cor do Texto -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            ✏️ Cor do Texto
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cor padrão de todos os textos e títulos da interface da agenda. Ajuste para garantir contraste com o fundo.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Cor padrão dos textos e títulos da interface.</div>
+          <div class="color-row">
+            <label>Cor do texto</label>
+            <input type="color" id="tema-text-color" value="#ffffff">
+            <input type="text" id="tema-text-color-hex" value="#ffffff" maxlength="7" style="width:80px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;padding:6px 8px;font-family:monospace;font-size:0.8rem;" oninput="syncTextColorFromHex()">
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Cores de Fundo -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🖌️ Cores de Fundo
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cores das áreas de fundo da interface. Inclui o fundo da página, cartões de agendamento, efeito hover e menu lateral.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Personalize os fundos da interface.</div>
+
+          <div class="color-row">
+            <label>
+              Fundo da página
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo principal de toda a tela da agenda. É a cor que aparece atrás de todos os elementos.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-bg" value="#0f0a1a">
+            <span class="hex-display" id="tema-bg-label">#0f0a1a</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Cartão
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo dos cartões de agendamento — os blocos que mostram horário, nome do cliente e serviço.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-card" value="#1a1030">
+            <span class="hex-display" id="tema-card-label">#1a1030</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Cartão ao passar o mouse
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do cartão quando você passa o mouse por cima. Dá feedback visual de interação ao usuário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-card-hover" value="#241540">
+            <span class="hex-display" id="tema-card-hover-label">#241540</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Menu lateral
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo do menu de navegação à esquerda, onde ficam os links como Agenda, Clientes, Serviços, etc.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-sidebar-bg" value="#1e1145">
+            <span class="hex-display" id="tema-sidebar-bg-label">#1e1145</span>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Cores do Calendário -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            📅 Calendário
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cores específicas do mini-calendário mensal da agenda. Controle borda, texto dos dias, título do mês e aparência do dia selecionado.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Cores específicas do mini-calendário da agenda.</div>
+
+          <div class="color-row">
+            <label>
+              Borda do calendário
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor da borda ao redor do bloco do calendário mensal.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-border" value="#333333">
+            <span class="hex-display" id="tema-cal-border-label">#333333</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Texto dos dias
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor dos números dos dias e dos nomes dos dias da semana (Dom, Seg, Ter…).</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-text" value="#888888">
+            <span class="hex-display" id="tema-cal-text-label">#888888</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Título do mês
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do texto do mês e ano exibido no topo do calendário (ex: "Abril 2026").</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-month" value="#ffffff">
+            <span class="hex-display" id="tema-cal-month-label">#ffffff</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Dia selecionado (fundo)
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo do dia atualmente selecionado no calendário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-selected-bg" value="#7c3aed">
+            <span class="hex-display" id="tema-cal-selected-bg-label">#7c3aed</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Dia selecionado (texto)
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do número do dia selecionado no calendário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-selected-text" value="#ffffff">
+            <span class="hex-display" id="tema-cal-selected-text-label">#ffffff</span>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Logo -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🖼️ Logo do Menu
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Altera apenas a logo exibida no menu lateral da agenda. Não afeta a logo cadastral do tenant em Dados Cadastrais.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Altera apenas a logo exibida no menu lateral. Não afeta a logo cadastral do tenant.</div>
+          <div class="logo-drop" id="te-logo-drop" onclick="document.getElementById('tema-logo-input').click()">
+            <img id="tema-logo-img" src="" style="display:none;">
+            <div class="initials-circle" id="tema-logo-icon">BS</div>
+            <br>
+            <span class="upload-btn">Enviar Imagem</span>
+            <br>
+            <span class="upload-hint">256×256 PNG Transparente</span>
+          </div>
+          <input type="file" id="tema-logo-input" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onTemaLogoChange(this)">
+          <button id="btn-remover-tema-logo" style="display:none;margin-top:8px;background:none;border:1px solid #555;color:#ccc;padding:6px 14px;border-radius:6px;font-size:0.7rem;cursor:pointer;" onclick="removerTemaLogo()">Remover Logo</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Fonte -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🔤 Tipografia
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Fonte usada em toda a interface da agenda. Escolha entre as opções disponíveis.</span>
+            </span>
+          </div>
+          <div class="font-options" id="te-font-options">
+            <button class="font-option active" data-font="Inter" style="font-family:'Inter'" onclick="selecionarFonte(this)">Inter</button>
+            <button class="font-option" data-font="Poppins" style="font-family:'Poppins'" onclick="selecionarFonte(this)">Poppins</button>
+            <button class="font-option" data-font="Playfair Display" style="font-family:'Playfair Display'" onclick="selecionarFonte(this)">Playfair</button>
+          </div>
+          <input type="hidden" id="tema-font" value="Inter">
+          <div id="tema-font-preview" style="margin-top:10px;font-size:0.8rem;color:#888;">Exemplo de texto com a fonte selecionada</div>
+        </div>
+
+        <!-- Ações -->
+        <div class="tema-actions">
+          <button class="btn-reset" id="te-btn-reset" onclick="resetarTema()">Restaurar Padrão</button>
+          <button class="btn-save-theme" id="te-btn-save" onclick="salvarTema()">Salvar Tema da Agenda</button>
+        </div>
+        <div class="tema-feedback" id="tema-feedback"></div>
+      </div>
+
+      <!-- RIGHT: Preview -->
+      <div>
+        <div class="preview-label">
+          <span>👁️</span>
+          <span>Veja como ficará a agenda.</span>
+        </div>
+        <div class="preview-frame" id="te-preview">
+          <div class="preview-sidebar">
+            <!-- Sidebar -->
+            <div class="preview-side" id="tp-sidebar">
+              <div class="side-logo">
+                <div class="side-initials" id="tp-logo">BS</div>
+                <span id="tp-brand-name">Beauty Salon</span>
+              </div>
+              <div class="side-item active" id="tp-side-active">📅 Agenda</div>
+              <div class="side-item">👥 Clientes</div>
+              <div class="side-item">💇 Serviços</div>
+              <div class="side-item">📊 Relatórios</div>
+              <div class="side-item">⚙️ Configurações</div>
+            </div>
+
+            <!-- Main content -->
+            <div class="preview-main" id="tp-body">
+              <div class="preview-topbar">
+                <h2 id="tp-title">Hoje, 14 Abril</h2>
+                <button class="topbar-btn" id="tp-btn1">+ Novo</button>
+              </div>
+
+              <div class="preview-cards">
+                <div class="preview-card" id="tp-card1">
+                  <div class="card-time" id="tp-card-time1">09:00</div>
+                  <div class="card-name">Maria Silva</div>
+                  <div class="card-service">Corte + Escova</div>
+                </div>
+                <div class="preview-card" id="tp-card2">
+                  <div class="card-time" id="tp-card-time2">10:30</div>
+                  <div class="card-name">Ana Santos</div>
+                  <div class="card-service">Coloração</div>
+                </div>
+              </div>
+
+              <!-- Calendar preview -->
+              <div class="preview-cal-wrapper" id="tp-cal-wrapper">
+                <div class="preview-cal-header">
+                  <span class="cal-nav" id="tp-cal-nav-l">&lt;</span>
+                  <span class="cal-month" id="tp-cal-month">Abril 2026</span>
+                  <span class="cal-nav" id="tp-cal-nav-r">&gt;</span>
+                </div>
+                <div class="preview-calendar" id="tp-cal-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+  <script src="tema-agenda-script.js"></script>
+</body>
+</html>
