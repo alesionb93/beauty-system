@@ -1,3 +1,112 @@
+/* ============================================================
+   SCRIPT.JS — VERSÃO v5-realtime-toast-som  (build 2026-04-29)
+   Se você NÃO vê o log "✅ SCRIPT.JS v5 INICIOU" no console,
+   significa que o navegador/servidor está entregando uma versão
+   ANTIGA em cache. Force reload (Ctrl+F5) ou suba CACHE_VERSION
+   no service-worker.js.
+   ============================================================ */
+window.__SCRIPT_JS_VERSION__ = 'v10-bcast-instant-toast';
+console.log('✅ SCRIPT.JS v10 INICIOU', window.__SCRIPT_JS_VERSION__);
+
+/* ============================================================
+   FALLBACKS EARLY — showToast / playAppointmentSound
+   Garantem que o callback do Realtime SEMPRE ache as funções,
+   mesmo antes das versões "ricas" definidas mais abaixo.
+   As versões abaixo (function declarations) farão hoist e
+   sobrescreverão estas — mas se algo quebrar, estas continuam.
+   ============================================================ */
+(function () {
+  if (typeof window.showToast !== 'function') {
+    window.showToast = function (msg, type) {
+      try {
+        type = type || 'success';
+        var colors = { success: '#16a34a', error: '#dc2626', warning: '#d97706', info: '#2563eb' };
+        var bg = colors[type] || colors.success;
+        var prev = document.querySelector('.toast-fallback');
+        if (prev) prev.remove();
+        var div = document.createElement('div');
+        div.className = 'toast-fallback';
+        div.textContent = String(msg == null ? '' : msg);
+        div.style.cssText =
+          'position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-20px);' +
+          'background:' + bg + ';color:#fff;border-radius:10px;padding:14px 22px;' +
+          'font:500 0.95rem system-ui,-apple-system,sans-serif;z-index:99999;opacity:0;' +
+          'transition:opacity .25s ease, transform .25s ease;' +
+          'box-shadow:0 10px 30px rgba(0,0,0,.18);max-width:calc(100vw - 32px);';
+        (document.body || document.documentElement).appendChild(div);
+        requestAnimationFrame(function () {
+          div.style.opacity = '1';
+          div.style.transform = 'translateX(-50%) translateY(0)';
+        });
+        setTimeout(function () {
+          div.style.opacity = '0';
+          div.style.transform = 'translateX(-50%) translateY(-20px)';
+          setTimeout(function () { div.remove(); }, 300);
+        }, 3000);
+      } catch (e) { console.warn('[toast-fallback] erro:', e); }
+    };
+  }
+
+  // ----- Som -----
+  var __earlyAudio = null;
+  var __earlyAudioUnlocked = false;
+  var __lastSoundAt = 0;
+
+  function ensureAudio() {
+    if (!__earlyAudio) {
+      try {
+        __earlyAudio = new Audio('sounds/appointment.mp3');
+        __earlyAudio.volume = 0.5;
+        __earlyAudio.preload = 'auto';
+      } catch (e) { console.warn('[som] new Audio falhou:', e); }
+    }
+    return __earlyAudio;
+  }
+
+  // Desbloqueia o autoplay na primeira interação real do usuário
+  function unlockAudio() {
+    if (__earlyAudioUnlocked) return;
+    var a = ensureAudio();
+    if (!a) return;
+    try {
+      a.muted = true;
+      var p = a.play();
+      if (p && typeof p.then === 'function') {
+        p.then(function () {
+          a.pause(); a.currentTime = 0; a.muted = false;
+          __earlyAudioUnlocked = true;
+          console.log('[som] autoplay desbloqueado');
+        }).catch(function () { a.muted = false; });
+      } else {
+        a.pause(); a.currentTime = 0; a.muted = false;
+        __earlyAudioUnlocked = true;
+      }
+    } catch (e) { /* noop */ }
+  }
+  ['click', 'keydown', 'touchstart', 'pointerdown'].forEach(function (ev) {
+    window.addEventListener(ev, unlockAudio, { once: false, passive: true });
+  });
+
+  if (typeof window.playAppointmentSound !== 'function') {
+    window.playAppointmentSound = function () {
+      try {
+        var now = Date.now();
+        if (now - __lastSoundAt < 1500) return; // debounce
+        __lastSoundAt = now;
+        var a = ensureAudio();
+        if (!a) return;
+        a.currentTime = 0;
+        var p = a.play();
+        if (p && typeof p.catch === 'function') {
+          p.catch(function (err) {
+            console.warn('[som] bloqueado/autoplay — clique em qualquer lugar para liberar:', err && err.name);
+          });
+        }
+      } catch (e) { console.warn('[som] erro:', e); }
+    };
+  }
+})();
+
 /* ===== DATA (agora dinâmico — carregado do Supabase) ===== */
 var professionals = {};
 var servicePrices = {};
@@ -177,6 +286,424 @@ async function getUserTenant() {
 function getCurrentTenantId() {
   return localStorage.getItem('currentTenantId') || currentUser.tenantId;
 }
+
+/* ============================================================
+   REALTIME + REFETCH ON FOCUS (v4 - isolado e estável)
+   ------------------------------------------------------------
+   Objetivos desta versão:
+   - Inicializar cedo, sem depender do final do script.js.
+   - Não quebrar a UI caso realtime falhe.
+   - Não envolver o script global em try/catch amplo.
+   - Emitir logs obrigatórios e motivos claros quando não iniciar.
+   ============================================================ */
+(function beautyAgendaRealtimeModule() {
+  'use strict';
+
+  if (window.__BEAUTY_AGENDA_REALTIME_V4__) return;
+  window.__BEAUTY_AGENDA_REALTIME_V4__ = true;
+
+  console.log('[realtime] módulo carregado');
+
+  var channel = null;
+  var subscribedTenantId = null;
+  var dependencyTimer = null;
+  var reconnectTimer = null;
+  var refetchTimer = null;
+  var focusListenersBound = false;
+  var lastFocusRefetchAt = 0;
+  var lastDependencyLogAt = 0;
+
+  function logRealtimeError(err) {
+    console.error('[realtime] erro', err);
+  }
+
+  function getRealtimeClient() {
+    try {
+      if (typeof supabaseClient !== 'undefined' && supabaseClient && typeof supabaseClient.channel === 'function') {
+        return supabaseClient;
+      }
+      if (window.supabaseClient && typeof window.supabaseClient.channel === 'function') {
+        return window.supabaseClient;
+      }
+    } catch (err) {
+      logRealtimeError(err);
+    }
+    return null;
+  }
+
+  function getRealtimeTenantId() {
+    try {
+      var tenantId = null;
+      if (typeof getCurrentTenantId === 'function') tenantId = getCurrentTenantId();
+      if (!tenantId && typeof currentUser !== 'undefined' && currentUser) tenantId = currentUser.tenantId;
+      if (!tenantId) tenantId = localStorage.getItem('currentTenantId');
+      tenantId = tenantId == null ? '' : String(tenantId).trim();
+      return tenantId || null;
+    } catch (err) {
+      logRealtimeError(err);
+      return null;
+    }
+  }
+
+  function logMissingDependencies(tenantId, client) {
+    var now = Date.now();
+    if (now - lastDependencyLogAt < 5000) return;
+    lastDependencyLogAt = now;
+    console.warn(
+      '[realtime] aguardando dependências',
+      'tenantId=' + (tenantId ? 'ok' : 'ausente'),
+      'supabaseClient=' + (client ? 'ok' : 'ausente')
+    );
+  }
+
+  function clearReconnectTimer() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  }
+
+  function teardownChannel() {
+    clearReconnectTimer();
+    if (!channel) {
+      subscribedTenantId = null;
+      return;
+    }
+
+    var oldChannel = channel;
+    channel = null;
+    subscribedTenantId = null;
+
+    try {
+      var client = getRealtimeClient();
+      if (client && typeof client.removeChannel === 'function') {
+        client.removeChannel(oldChannel);
+      }
+    } catch (err) {
+      logRealtimeError(err);
+    }
+  }
+
+  function renderAgendaAfterRefetch() {
+    // [realtime] Re-render completo após refetch — usa funções REAIS do projeto.
+    // renderAgenda() não existe; as views ativas da agenda são:
+    //   renderCalendar    -> grade do mês
+    //   renderDayDetail   -> detalhe do dia (que internamente chama renderMultiAgenda)
+    try { if (typeof renderCalendar === 'function') renderCalendar(); } catch (err) { logRealtimeError(err); }
+    try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (err) { logRealtimeError(err); }
+    // Dispara evento global para qualquer outra view interessada
+    try { window.dispatchEvent(new CustomEvent('agenda:updated')); } catch (err) {}
+    console.log('[realtime] UI re-renderizada');
+  }
+
+  function refetchAgenda(reason) {
+    if (refetchTimer) clearTimeout(refetchTimer);
+
+    refetchTimer = setTimeout(function () {
+      refetchTimer = null;
+
+      try {
+        if (typeof loadAppointments !== 'function') {
+          logRealtimeError(new Error('loadAppointments indisponível para refetch: ' + reason));
+          return;
+        }
+
+        Promise.resolve(loadAppointments())
+          .then(function () {
+            if (typeof loadBloqueios === 'function') return loadBloqueios();
+          })
+          .then(renderAgendaAfterRefetch)
+          .catch(function (err) {
+            logRealtimeError(err);
+          });
+      } catch (err) {
+        logRealtimeError(err);
+      }
+    }, 350);
+  }
+
+  function scheduleReconnect(reason) {
+    teardownChannel();
+    if (reconnectTimer) return;
+
+    reconnectTimer = setTimeout(function () {
+      reconnectTimer = null;
+      startRealtime();
+    }, 5000);
+
+    if (reason) {
+      logRealtimeError(reason instanceof Error ? reason : new Error(String(reason)));
+    }
+  }
+
+  function bindFocusRefetch() {
+    if (focusListenersBound) return;
+    focusListenersBound = true;
+
+    function refetchOnReturn(reason) {
+      var now = Date.now();
+      if (now - lastFocusRefetchAt < 10000) return;
+      lastFocusRefetchAt = now;
+
+      var currentTenant = getRealtimeTenantId();
+      if (currentTenant && subscribedTenantId && currentTenant !== subscribedTenantId) {
+        teardownChannel();
+        startRealtime();
+      }
+      refetchAgenda(reason);
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') refetchOnReturn('visibilitychange');
+    });
+
+    window.addEventListener('focus', function () {
+      refetchOnReturn('focus');
+    });
+
+    window.addEventListener('online', function () {
+      refetchAgenda('online');
+      startRealtime();
+    });
+
+    window.addEventListener('storage', function (event) {
+      if (event && event.key === 'currentTenantId') {
+        teardownChannel();
+        startRealtime();
+      }
+    });
+  }
+
+  function startDependencyLoop() {
+    if (dependencyTimer) return;
+    dependencyTimer = setInterval(function () {
+      if (startRealtime()) {
+        clearInterval(dependencyTimer);
+        dependencyTimer = null;
+      }
+    }, 1000);
+  }
+
+
+
+  // ============================================================
+  // [v10] NOTIFICAÇÃO IMEDIATA + BROADCAST ENTRE ABAS + POLLING SAFETY NET
+  // ============================================================
+  var __notifyDedup = Object.create(null);
+  function notifyNovoAgendamento(nomeCli, agId, origem) {
+    try {
+      // dedup por id (mesmo evento pode chegar via Realtime + BroadcastChannel)
+      var key = String(agId || ('anon:' + Date.now()));
+      var now = Date.now();
+      if (__notifyDedup[key] && (now - __notifyDedup[key]) < 5000) {
+        console.log('[realtime] notify dedup ignorado', key, origem);
+        return;
+      }
+      __notifyDedup[key] = now;
+      var msg = nomeCli ? ('Novo agendamento: ' + nomeCli) : 'Novo agendamento recebido';
+      console.log('[realtime] notificando UI (' + origem + '):', msg,
+        '| showToast?', typeof window.showToast,
+        '| playSound?', typeof window.playAppointmentSound);
+      if (typeof window.showToast === 'function') window.showToast(msg, 'success');
+      if (typeof window.playAppointmentSound === 'function') window.playAppointmentSound();
+    } catch (err) {
+      console.error('[realtime] notifyNovoAgendamento quebrou:', err);
+    }
+  }
+  // expor globalmente para o agendamento-cliente.js (mesma origem) e debug
+  window.notifyNovoAgendamento = notifyNovoAgendamento;
+
+  function refetchAgendaNow(reason) {
+    // Versão sem debounce — usada para INSERT (precisa aparecer já).
+    try {
+      if (typeof loadAppointments !== 'function') {
+        logRealtimeError(new Error('loadAppointments indisponível p/ refetchNow: ' + reason));
+        return;
+      }
+      Promise.resolve(loadAppointments())
+        .then(function () {
+          if (typeof loadBloqueios === 'function') return loadBloqueios();
+        })
+        .then(renderAgendaAfterRefetch)
+        .catch(function (err) { logRealtimeError(err); });
+    } catch (err) {
+      logRealtimeError(err);
+    }
+  }
+  window.refetchAgendaNow = refetchAgendaNow;
+
+  // ---- BroadcastChannel (mesma origem, abas diferentes) ----
+  // Garante toast/som/refetch INSTANTÂNEO mesmo se o Realtime do Supabase
+  // atrasar ou descartar o evento por RLS no broadcast.
+  var __bc = null;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      __bc = new BroadcastChannel('beauty-agenda');
+      __bc.onmessage = function (ev) {
+        var data = ev && ev.data;
+        if (!data || data.type !== 'novo-agendamento') return;
+        var meuTenant = getRealtimeTenantId();
+        if (data.tenantId && meuTenant && String(data.tenantId) !== String(meuTenant)) {
+          console.log('[bcast] ignorado (outro tenant)');
+          return;
+        }
+        console.log('🔔 EVENTO BRUTO (bcast):', data);
+        notifyNovoAgendamento(data.cliente_nome, data.agendamento_id, 'bcast');
+        refetchAgendaNow('bcast:novo-agendamento');
+      };
+      console.log('[realtime] BroadcastChannel "beauty-agenda" ativo');
+    }
+  } catch (e) {
+    console.warn('[realtime] BroadcastChannel indisponível:', e);
+  }
+
+  // ---- Polling safety net (25s, só com aba visível) ----
+  // Última linha de defesa: se Realtime cair sem CHANNEL_ERROR e o BroadcastChannel
+  // não estiver disponível (ex.: outra máquina), garante que a agenda não fique
+  // congelada por mais de ~25s. Custo: 1 SELECT pequeno por tenant.
+  setInterval(function () {
+    try {
+      if (document.visibilityState !== 'visible') return;
+      if (typeof loadAppointments !== 'function') return;
+      Promise.resolve(loadAppointments())
+        .then(function () { if (typeof loadBloqueios === 'function') return loadBloqueios(); })
+        .then(renderAgendaAfterRefetch)
+        .catch(function (err) { console.warn('[realtime] polling falhou:', err); });
+    } catch (err) { console.warn('[realtime] polling erro:', err); }
+  }, 25000);
+
+  // ---- Re-subscribe automático quando tenant aparecer ----
+  // Se a página carregou ANTES do login resolver currentUser.tenantId,
+  // o startRealtime cai no dependencyLoop. Esse loop já tenta a cada 1s,
+  // então ok. Mas ALÉM disso, escutamos eventos de auth.
+  try {
+    if (typeof supabaseClient !== 'undefined' && supabaseClient && supabaseClient.auth
+        && typeof supabaseClient.auth.onAuthStateChange === 'function') {
+      supabaseClient.auth.onAuthStateChange(function (event) {
+        console.log('[realtime] auth event:', event);
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+          // Pequeno delay p/ currentUser.tenantId terminar de popular
+          setTimeout(function () {
+            teardownChannel();
+            startRealtime();
+          }, 800);
+        }
+      });
+    }
+  } catch (e) { console.warn('[realtime] auth listener falhou:', e); }
+
+  function startRealtime() {
+    var client = getRealtimeClient();
+    var tenantId = getRealtimeTenantId();
+
+    if (!client || !tenantId) {
+      logMissingDependencies(tenantId, client);
+      startDependencyLoop();
+      return false;
+    }
+
+    bindFocusRefetch();
+
+    if (channel && subscribedTenantId === tenantId) return true;
+    if (channel && subscribedTenantId !== tenantId) teardownChannel();
+
+    console.log('[realtime] iniciando subscribe', tenantId);
+
+    try {
+      channel = client.channel('beauty-agenda-' + tenantId);
+
+      // ✅ FIX v9: SEM filter server-side (causava descarte silencioso de eventos
+      // por mismatch de tipo/RLS no Realtime). Filtramos client-side abaixo.
+      // Segurança: RLS continua aplicando no SELECT do refetchAgenda.
+      function matchesTenant(payload) {
+        try {
+          var rec = (payload && (payload.new || payload.old)) || null;
+          if (!rec) return true;
+          if (!rec.tenant_id) return true;
+          return String(rec.tenant_id) === String(tenantId);
+        } catch (e) { return true; }
+      }
+
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agendamentos' },
+        function (payload) {
+          console.log('🔔 EVENTO BRUTO:', payload && payload.eventType, 'agendamentos', payload);
+          if (!matchesTenant(payload)) {
+            console.log('[realtime] evento ignorado (outro tenant)');
+            return;
+          }
+          console.log('🔥 EVENTO RECEBIDO REALTIME:', payload);
+
+          if (payload && payload.eventType === 'INSERT') {
+            var rec = payload && payload.new ? payload.new : null;
+            var nomeCli = rec ? (rec.cliente_nome || rec.nome_cliente || rec.cliente || '') : '';
+            notifyNovoAgendamento(nomeCli, rec && rec.id, 'realtime');
+            // INSERT: refetch IMEDIATO (sem debounce) — UI precisa refletir já
+            refetchAgendaNow('agendamentos:INSERT');
+            return;
+          }
+
+          refetchAgenda('agendamentos:' + ((payload && payload.eventType) || 'unknown'));
+        }
+      );
+
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agendamento_servicos' },
+        function (payload) {
+          console.log('🔔 EVENTO BRUTO:', payload && payload.eventType, 'agendamento_servicos', payload);
+          if (!matchesTenant(payload)) return;
+          console.log('🔥 EVENTO RECEBIDO REALTIME:', payload);
+          refetchAgenda('agendamento_servicos:' + ((payload && payload.eventType) || 'unknown'));
+        }
+      );
+
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agenda_bloqueios' },
+        function (payload) {
+          console.log('🔔 EVENTO BRUTO:', payload && payload.eventType, 'agenda_bloqueios', payload);
+          if (!matchesTenant(payload)) return;
+          console.log('🔥 EVENTO RECEBIDO REALTIME:', payload);
+          refetchAgenda('agenda_bloqueios:' + ((payload && payload.eventType) || 'unknown'));
+        }
+      );
+
+      channel.subscribe(function (status, err) {
+        console.log('[realtime] status:', status);
+        if (err) console.error('[realtime] subscribe error:', err);
+
+        if (status === 'SUBSCRIBED') {
+          subscribedTenantId = tenantId;
+          console.log('[realtime] agenda conectada', tenantId);
+          return;
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          scheduleReconnect(err || status);
+        }
+      });
+
+      subscribedTenantId = tenantId;
+      return true;
+    } catch (err) {
+      logRealtimeError(err);
+      scheduleReconnect(err);
+      return false;
+    }
+  }
+
+
+  setTimeout(startRealtime, 0);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startRealtime);
+  } else {
+    setTimeout(startRealtime, 0);
+  }
+  window.addEventListener('load', startRealtime);
+})();
+
 
 async function applyPermissions() {
   var role = await getUserRole();
@@ -4323,6 +4850,29 @@ function showToast(msg, type) {
   }, 3000);
 }
 
+/* ===== SOM DE NOTIFICAÇÃO (novo agendamento via realtime) =====
+   - Lazy init: só cria o Audio na primeira chamada (evita custo no boot)
+   - Debounce de 1.5s: vários eventos seguidos não disparam vários sons
+   - play() pode ser bloqueado pelo browser até o usuário interagir;
+     usamos catch silencioso para não poluir o console. */
+var __appointmentAudio = null;
+var __lastAppointmentSoundAt = 0;
+function playAppointmentSound() {
+  var now = Date.now();
+  if (now - __lastAppointmentSoundAt < 1500) return; // debounce
+  __lastAppointmentSoundAt = now;
+  try {
+    if (!__appointmentAudio) {
+      __appointmentAudio = new Audio('sounds/appointment.mp3');
+      __appointmentAudio.volume = 0.5;
+      __appointmentAudio.preload = 'auto';
+    }
+    __appointmentAudio.currentTime = 0;
+    var p = __appointmentAudio.play();
+    if (p && typeof p.catch === 'function') p.catch(function(){});
+  } catch (_) {}
+}
+
 /* ===== UTILS ===== */
 function pad(n) { return n < 10 ? '0' + n : '' + n; }
 function formatDateInput(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
@@ -4333,34 +4883,46 @@ var currentAuthUser = null;
 var currentUsuarioDb = null;
 
 async function initConfiguracoes() {
-  var sessionResp = await supabaseClient.auth.getSession();
-  if (sessionResp.data.session) { currentAuthUser = sessionResp.data.session.user; }
-  await loadCurrentUsuario();
-  renderMeuPerfil();
+  // A aba Geral precisa ser resiliente: ela não pode depender de qualquer
+  // outra consulta da tela de configurações. Renderiza primeiro com defaults
+  // e só depois tenta atualizar dados remotos.
+  try { if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI(); } catch (e) { console.error('[config] renderHorarioSemanalUI falhou:', e); }
+  try { if (typeof renderResumoHorarioComercial === 'function') renderResumoHorarioComercial(); } catch (e) { console.error('[config] renderResumoHorarioComercial falhou:', e); }
+  try { if (typeof aplicarFeatureFlagComissoes === 'function') aplicarFeatureFlagComissoes(); } catch (e) { console.error('[config] aplicarFeatureFlagComissoes falhou:', e); }
 
-  var tabUsuarios = document.querySelector('.config-tab[data-config-tab="usuarios"]');
-  if (tabUsuarios) { tabUsuarios.style.display = isAdmin() ? '' : 'none'; }
-
-  document.querySelectorAll('.master-only-tab').forEach(function(el) {
-    el.style.display = isMasterAdmin() ? '' : 'none';
-  });
-  document.querySelectorAll('.master-only-panel').forEach(function(el) {
-    el.style.display = isMasterAdmin() ? '' : 'none';
-  });
-
-  if (isAdmin()) { await loadUsuarios(); renderUsuarios(); }
-
-  // ✅ FIX: garantir que a aba "Geral" (Horário comercial + feature flag)
-  // seja sempre carregada quando o usuário entra em Configurações.
-  // 1) Renderiza a UI semanal IMEDIATAMENTE com os defaults (não depende
-  //    de ida ao banco) — assim o usuário sempre vê os 7 dias na tela.
-  // 2) Em seguida tenta carregar do banco para sobrescrever com os valores reais.
   try {
-    if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI();
-  } catch (_) {}
-  if (typeof carregarConfigGeral === 'function') {
-    try { await carregarConfigGeral(); } catch (_) {}
+    var sessionResp = await supabaseClient.auth.getSession();
+    if (sessionResp.data.session) { currentAuthUser = sessionResp.data.session.user; }
+  } catch (e) {
+    console.error('[config] erro ao obter sessão:', e);
   }
+
+  try { await loadCurrentUsuario(); } catch (e) { console.error('[config] loadCurrentUsuario falhou:', e); }
+  try { renderMeuPerfil(); } catch (e) { console.error('[config] renderMeuPerfil falhou:', e); }
+
+  try {
+    var tabUsuarios = document.querySelector('.config-tab[data-config-tab="usuarios"]');
+    if (tabUsuarios) { tabUsuarios.style.display = isAdmin() ? '' : 'none'; }
+
+    document.querySelectorAll('.master-only-tab').forEach(function(el) {
+      el.style.display = isMasterAdmin() ? '' : 'none';
+    });
+    document.querySelectorAll('.master-only-panel').forEach(function(el) {
+      el.style.display = isMasterAdmin() ? '' : 'none';
+    });
+  } catch (e) {
+    console.error('[config] erro ao aplicar permissões visuais:', e);
+  }
+
+  if (isAdmin()) {
+    try { await loadUsuarios(); renderUsuarios(); } catch (e) { console.error('[config] usuários falhou:', e); }
+  }
+
+  try { if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI(); } catch (e) { console.error('[config] render final horário falhou:', e); }
+  if (typeof carregarConfigGeral === 'function') {
+    try { await carregarConfigGeral(); } catch (e) { console.error('[config] carregarConfigGeral falhou:', e); }
+  }
+  try { if (typeof aplicarFeatureFlagComissoes === 'function') aplicarFeatureFlagComissoes(); } catch (e) { console.error('[config] feature flag comissões falhou:', e); }
 }
 
 async function loadCurrentUsuario() {
@@ -4589,7 +5151,10 @@ async function confirmToggleUsuarioAtivo() {
   try {
     await loadProfissionais();
     if (typeof renderProfessionals === 'function') renderProfessionals();
-    if (typeof renderAgenda === 'function') renderAgenda();
+    // [fix] renderAgenda nunca existiu; usar funções reais de render
+    if (typeof renderCalendar === 'function') renderCalendar();
+    if (typeof renderDayDetail === 'function') renderDayDetail();
+    if (typeof renderMultiAgenda === 'function') renderMultiAgenda();
   } catch (e) {
     console.warn('Falha ao recarregar profissionais após toggle:', e);
   }
@@ -7522,9 +8087,16 @@ function aplicarFeatureFlagComissoes() {
   var chk = document.getElementById('ff-comissoes');
   if (chk) chk.checked = ativo;
 
-  // Botão de configurar comissões (Config > Geral)
+  // Botão de configurar comissões + texto descritivo (Config > Geral).
+  // Quando a feature está DESATIVADA, escondemos completamente o botão e
+  // o texto "Defina o split por profissional", evitando confusão visual.
   var box = document.getElementById('comissoes-trigger-box');
-  if (box) box.style.display = ativo ? '' : 'none';
+  if (box) {
+    box.style.display = ativo ? '' : 'none';
+    box.setAttribute('data-feature-active', ativo ? '1' : '0');
+    var btnCom = box.querySelector('button');
+    if (btnCom) btnCom.title = ativo ? 'Configurar comissões' : 'Ative o módulo para configurar comissões';
+  }
 
   // Box do dashboard
   document.querySelectorAll('.dash-comissoes-box').forEach(function(el){
@@ -7562,9 +8134,13 @@ function onToggleFeatureComissoes(el) {
 
 /* Aplica o flag assim que o DOM estiver pronto (e em re-renders de página) */
 document.addEventListener('DOMContentLoaded', function(){
-  aplicarFeatureFlagComissoes();
+  try { aplicarFeatureFlagComissoes(); } catch (e) { console.error('[config] aplicarFeatureFlagComissoes DOMContentLoaded falhou:', e); }
+  try { if (typeof renderHorarioSemanalUI === 'function') renderHorarioSemanalUI(); } catch (e) { console.error('[config] renderHorarioSemanalUI DOMContentLoaded falhou:', e); }
+  try { if (typeof renderResumoHorarioComercial === 'function') renderResumoHorarioComercial(); } catch (e) { console.error('[config] renderResumoHorarioComercial DOMContentLoaded falhou:', e); }
 });
-setTimeout(aplicarFeatureFlagComissoes, 0);
+setTimeout(function(){
+  try { aplicarFeatureFlagComissoes(); } catch (e) { console.error('[config] aplicarFeatureFlagComissoes inicial falhou:', e); }
+}, 0);
 
 /* Reaplica após qualquer troca de página, garantindo que a box do dashboard
    não reapareça quando o dashboard for re-renderizado */

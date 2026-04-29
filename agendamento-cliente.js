@@ -686,6 +686,25 @@
       );
       if (rAS.error) throw rAS.error;
 
+      // [v10] Notifica a agenda interna (mesma origem, outras abas) via BroadcastChannel.
+      // Rota redundante ao Realtime do Supabase: garante toast/som/refetch instantâneo
+      // no cenário "abas no mesmo navegador" (caso de teste do usuário).
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          var bc = new BroadcastChannel('beauty-agenda');
+          bc.postMessage({
+            type: 'novo-agendamento',
+            tenantId: this.tenantId,
+            agendamento_id: rAg.data.id,
+            cliente_nome: payload.cliente_nome
+          });
+          bc.close();
+          console.log('[ac] broadcast novo-agendamento enviado');
+        }
+      } catch (e) {
+        console.warn('[ac] BroadcastChannel falhou:', e);
+      }
+
       return rAg.data.id;
     }
   };

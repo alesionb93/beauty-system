@@ -1,22 +1,22 @@
 /**
- * Service Worker - Beauty System PWA
+ * Service Worker - Beauty System PWA  (v2 - Realtime safe)
  * --------------------------------------------------
- * Estratégia:
- *  - Pre-cache do "app shell" (HTML, CSS, JS, ícones) na instalação.
- *  - Para navegação (HTML): network-first com fallback para cache (offline).
- *  - Para estáticos (CSS/JS/imagens): stale-while-revalidate.
- *  - Limpeza automática de caches antigos quando o CACHE_VERSION muda.
+ * MUDANÇAS vs v1:
+ *  - CACHE_VERSION bump → invalida TODOS os caches antigos no activate.
+ *  - JS/CSS agora usam NETWORK-FIRST (timeout 3s) em vez de stale-while-revalidate.
+ *    Isso resolve o "código velho carregando até dar Ctrl+F5".
+ *  - Imagens/ícones continuam stale-while-revalidate (são imutáveis na prática).
+ *  - Navegação HTML continua network-first com fallback para cache (offline).
+ *  - Nunca intercepta requisições para Supabase / outras origens.
  *
- * IMPORTANTE: Sempre que publicar uma nova versão dos arquivos,
- * incremente CACHE_VERSION para forçar atualização nos clientes.
+ * REGRA DE DEPLOY: a cada release que mude script.js / pwa.js / estilos.css,
+ * incremente CACHE_VERSION abaixo. É a única coisa obrigatória.
  */
 
-const CACHE_VERSION = 'beauty-system-v1';
-const STATIC_CACHE = `${CACHE_VERSION}-static`;
+const CACHE_VERSION = 'beauty-system-v3-bcast';
+const STATIC_CACHE  = `${CACHE_VERSION}-static`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
-// Arquivos essenciais para o app funcionar offline (App Shell).
-// Use caminhos RELATIVOS para funcionar em qualquer subpasta.
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -28,96 +28,104 @@ const PRECACHE_URLS = [
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png',
-  './icons/apple-touch-icon.png',
 ];
 
 // ---------- Install ----------
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches
-      .open(STATIC_CACHE)
-      .then((cache) =>
-        // addAll falha se UM arquivo falhar; usamos add individual tolerante.
-        Promise.all(
-          PRECACHE_URLS.map((url) =>
-            cache.add(url).catch((err) => {
-              console.warn('[SW] Falha ao pré-cachear', url, err);
-            }),
-          ),
-        ),
+    caches.open(STATIC_CACHE).then((cache) =>
+      Promise.all(
+        PRECACHE_URLS.map((url) =>
+          cache.add(url).catch((err) => console.warn('[SW] precache falhou', url, err))
+        )
       )
-      .then(() => self.skipWaiting()),
+    ).then(() => self.skipWaiting())
   );
 });
 
 // ---------- Activate ----------
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => !key.startsWith(CACHE_VERSION))
-            .map((key) => caches.delete(key)),
-        ),
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.filter((k) => !k.startsWith(CACHE_VERSION)).map((k) => caches.delete(k))
       )
-      .then(() => self.clients.claim()),
+    ).then(() => self.clients.claim())
   );
 });
+
+// ---------- Helpers ----------
+function networkFirst(request, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      caches.match(request).then((cached) => resolve(cached || fetch(request)));
+    }, timeoutMs);
+
+    fetch(request).then((resp) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (resp && resp.status === 200 && resp.type === 'basic') {
+        const copy = resp.clone();
+        caches.open(RUNTIME_CACHE).then((c) => c.put(request, copy));
+      }
+      resolve(resp);
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      caches.match(request).then((cached) =>
+        resolve(cached || new Response('Offline', { status: 503, statusText: 'Offline' }))
+      );
+    });
+  });
+}
+
+function staleWhileRevalidate(request) {
+  return caches.match(request).then((cached) => {
+    const networkFetch = fetch(request).then((resp) => {
+      if (resp && resp.status === 200 && resp.type === 'basic') {
+        const copy = resp.clone();
+        caches.open(RUNTIME_CACHE).then((c) => c.put(request, copy));
+      }
+      return resp;
+    }).catch(() => cached);
+    return cached || networkFetch;
+  });
+}
 
 // ---------- Fetch ----------
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-
-  // Só interceptamos GET.
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
 
-  // Ignora requisições para outras origens (ex.: APIs externas, Supabase).
-  // Assim não interferimos em chamadas de backend.
+  // Não interceptar outras origens (Supabase, fonts, cdnjs, jsdelivr...)
   if (url.origin !== self.location.origin) return;
 
-  // Estratégia para navegação (páginas HTML): network-first.
+  // 1) Navegação HTML → network-first 3s
   if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
-          return response;
-        })
-        .catch(() =>
-          caches.match(request).then(
-            (cached) =>
-              cached ||
-              caches.match('./index.html') ||
-              new Response('Offline', { status: 503, statusText: 'Offline' }),
-          ),
-        ),
-    );
+    event.respondWith(networkFirst(request, 3000));
     return;
   }
 
-  // Estratégia para estáticos: stale-while-revalidate.
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const copy = response.clone();
-            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    }),
-  );
+  const dest = request.destination;
+
+  // 2) Scripts e estilos → network-first 3s (CRÍTICO p/ não servir script.js velho)
+  if (dest === 'script' || dest === 'style' || /\.(?:js|css)(?:\?|$)/i.test(url.pathname)) {
+    event.respondWith(networkFirst(request, 3000));
+    return;
+  }
+
+  // 3) Imagens / fontes / outros estáticos → stale-while-revalidate
+  event.respondWith(staleWhileRevalidate(request));
 });
 
-// Permite que a página force atualização imediata após novo deploy.
+// Permite que o cliente force ativação imediata
 self.addEventListener('message', (event) => {
   if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
