@@ -30,6 +30,9 @@
   --transition: 0.2s ease;
   --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04);
+  /* === RGB helpers (preenchidos dinamicamente pelo applySidebarThemeRGB) === */
+  --gold-rgb: 108, 58, 237;
+  --sidebar-bg-rgb: 27, 19, 64;
 }
 
 html, body {
@@ -127,8 +130,52 @@ body {
   text-align: left; width: 100%;
 }
 
-.nav-btn:hover { background: rgba(255,255,255,0.08); color: #FFFFFF; }
-.nav-btn.active { background: var(--sidebar-active); color: #FFFFFF; border-left: 3px solid var(--gold-light); }
+/* === MENU LATERAL: hover + selecionado UNIFICADOS (cor de destaque) ===
+   Estrutura real: <button class="nav-btn"><i class="fa-..."></i> Texto</button>
+   Texto = text node direto do <button>. Por isso a regra precisa estar no
+   PRÓPRIO .nav-btn (não em filhos). Cobrimos também i/svg/span por garantia. */
+.nav-btn {
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  border-left: 3px solid transparent;
+}
+.nav-btn:hover,
+.nav-btn.active {
+  background: rgba(var(--gold-rgb), 0.18) !important;
+  border-left: 3px solid var(--gold) !important;
+  font-weight: 600 !important;
+  color: var(--gold) !important;
+  -webkit-text-fill-color: var(--gold) !important; /* Safari/iOS */
+  text-shadow: none !important;
+}
+/* Filhos diretos: ícones FA (<i>), SVG e qualquer span/strong/p herdam */
+.nav-btn:hover i,
+.nav-btn:hover span,
+.nav-btn:hover strong,
+.nav-btn:hover p,
+.nav-btn.active i,
+.nav-btn.active span,
+.nav-btn.active strong,
+.nav-btn.active p {
+  color: var(--gold) !important;
+  -webkit-text-fill-color: var(--gold) !important;
+}
+.nav-btn:hover svg,
+.nav-btn.active svg,
+.nav-btn:hover svg *,
+.nav-btn.active svg * {
+  fill: var(--gold) !important;
+  stroke: var(--gold) !important;
+  color: var(--gold) !important;
+}
+/* Override de seletores mais específicos do escopo .sidebar (caso existam) */
+.sidebar .nav-btn:hover,
+.sidebar .nav-btn.active,
+.sidebar-nav .nav-btn:hover,
+.sidebar-nav .nav-btn.active { color: var(--gold) !important; -webkit-text-fill-color: var(--gold) !important; }
+.sidebar .nav-btn:hover i,
+.sidebar .nav-btn.active i,
+.sidebar-nav .nav-btn:hover i,
+.sidebar-nav .nav-btn.active i { color: var(--gold) !important; }
 .nav-btn i { width: 20px; text-align: center; font-size: 1rem; }
 
 .sidebar-footer { padding: 20px; border-top: 1px solid rgba(255,255,255,0.1); }

@@ -89,6 +89,32 @@
     .color-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
     .color-row input[type="color"]::-webkit-color-swatch { border-radius: 4px; border: none; }
     .color-row input[type="color"]::-moz-color-swatch { border-radius: 4px; border: none; }
+
+    /* ========== FIX: desbloqueio dos inputs de cor ==========
+       Causa: vários <label> englobam <span class="tt-wrapper"><span class="tt-box">
+       com position:absolute, sobrepondo o <input type="color"> ao lado.
+       Além disso, <label> sem 'for' captura cliques sem repassar ao input.
+       Solução: garantir que o input fique sempre acima e clicável,
+       e que o label/tooltip não roubem cliques. ==========================*/
+    .color-row { position: relative; z-index: 1; }
+    .color-row label {
+      pointer-events: none; /* texto do label não captura clique */
+      z-index: 0;
+    }
+    .color-row label .tt-wrapper {
+      pointer-events: auto; /* tooltip continua hoverable */
+    }
+    .color-row input[type="color"],
+    .color-row input[type="text"] {
+      position: relative;
+      z-index: 5;
+      pointer-events: auto !important;
+      cursor: pointer;
+    }
+    .color-row input[type="text"] { cursor: text; }
+    /* tooltip não pode cobrir o swatch */
+    .color-row .tt-box { z-index: 10; pointer-events: none; }
+
     .color-row .hex-display {
       font-size: 0.75rem;
       color: #666;

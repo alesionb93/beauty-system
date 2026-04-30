@@ -9,6 +9,54 @@ window.__SCRIPT_JS_VERSION__ = 'v10-bcast-instant-toast';
 console.log('✅ SCRIPT.JS v10 INICIOU', window.__SCRIPT_JS_VERSION__);
 
 /* ============================================================
+   SIDEBAR THEME RGB SYNC (v1)
+   Lê --gold e --sidebar-bg do :root, converte HEX/rgb()→"r,g,b"
+   e expõe como --gold-rgb / --sidebar-bg-rgb para usar em
+   rgba(var(--gold-rgb), 0.x). Reage a mudanças de tema.
+   ============================================================ */
+(function () {
+  function hexToRgbStr(input) {
+    if (!input) return null;
+    var v = String(input).trim();
+    // rgb()/rgba()
+    var m = v.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (m) return m[1] + ',' + m[2] + ',' + m[3];
+    // #rgb / #rrggbb
+    v = v.replace('#','');
+    if (v.length === 3) v = v.split('').map(function(c){return c+c;}).join('');
+    if (!/^[0-9a-f]{6}$/i.test(v)) return null;
+    var n = parseInt(v, 16);
+    return ((n>>16)&255) + ',' + ((n>>8)&255) + ',' + (n&255);
+  }
+  function readVar(name) {
+    try { return getComputedStyle(document.documentElement).getPropertyValue(name); }
+    catch(e){ return ''; }
+  }
+  function applySidebarThemeRGB() {
+    var root = document.documentElement;
+    var gold = hexToRgbStr(readVar('--gold')) || hexToRgbStr(readVar('--primary'));
+    var sbg  = hexToRgbStr(readVar('--sidebar-bg'));
+    if (gold) root.style.setProperty('--gold-rgb', gold);
+    if (sbg)  root.style.setProperty('--sidebar-bg-rgb', sbg);
+  }
+  // expõe global para chamar manualmente após salvar tema
+  window.applySidebarThemeRGB = applySidebarThemeRGB;
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applySidebarThemeRGB);
+  } else {
+    applySidebarThemeRGB();
+  }
+  // Reaplica quando o <html> ou <body> trocam style/class (ex: trocar tema)
+  try {
+    var mo = new MutationObserver(function(){ applySidebarThemeRGB(); });
+    mo.observe(document.documentElement, { attributes:true, attributeFilter:['style','class','data-theme'] });
+    if (document.body) mo.observe(document.body, { attributes:true, attributeFilter:['style','class','data-theme'] });
+  } catch(e){}
+})();
+
+
+/* ============================================================
    FALLBACKS EARLY — showToast / playAppointmentSound
    Garantem que o callback do Realtime SEMPRE ache as funções,
    mesmo antes das versões "ricas" definidas mais abaixo.
