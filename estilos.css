@@ -4349,3 +4349,328 @@ body {
   .dash-prof-metric.faturamento  .dash-prof-metric-bar > span { background: #10B981; }
   .dash-prof-metric.comissao     .dash-prof-metric-bar > span { background: #3B82F6; }
 }
+
+/* ============================================================
+   🎁 PACOTE-FIX (BUG 3) — indicador visual no calendário
+   Diferencia agendamentos cuja sessão veio de um pacote_uso.
+   ============================================================ */
+.timeline-block.is-package {
+  background: linear-gradient(135deg, rgba(108,58,237,0.18), rgba(139,92,246,0.10));
+  border-left: 4px solid var(--gold, #6C3AED);
+  box-shadow: inset 0 0 0 1px rgba(108,58,237,0.25);
+}
+.timeline-block.is-package:hover {
+  background: linear-gradient(135deg, rgba(108,58,237,0.28), rgba(139,92,246,0.18));
+}
+.tb-pkg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .7em;
+  font-weight: 600;
+  padding: 1px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--gold, #6C3AED);
+  color: #fff;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tb-pkg-badge i { font-size: .85em; }
+.tb-pkg-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold, #6C3AED);
+  margin-left: 4px;
+  vertical-align: middle;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.6);
+}
+
+/* ===== HISTÓRICO: badge "Adquiriu pacote" ===== */
+.hist-pacote-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--gold, #6C3AED);
+  background: var(--gold-bg, rgba(108,58,237,0.08));
+  border: 1px solid var(--gold-border, rgba(108,58,237,0.20));
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-right: 4px;
+  letter-spacing: 0.2px;
+}
+
+/* ============================================================
+   📦 OPÇÃO A — DASHBOARD: badges de uso de pacote em Top Serviços
+   e card "Pacotes Vendidos" (vendas separadas dos atendimentos)
+   ============================================================ */
+.dash-pacote-uso-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #fff7e6, #ffe8b3);
+  color: #8a5a00;
+  border: 1px solid #f0c97a;
+  vertical-align: middle;
+  cursor: help;
+}
+
+#dash-card-pacotes-vendidos {
+  margin-top: 16px;
+  padding: 18px 20px;
+  background: linear-gradient(135deg, #fffaf0 0%, #fff4dc 100%);
+  border: 1px solid #f0c97a;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(212, 160, 23, 0.08);
+}
+#dash-card-pacotes-vendidos .dash-pacotes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#dash-card-pacotes-vendidos h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #6b4400;
+  font-weight: 700;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-resumo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-qtd {
+  color: #8a5a00;
+  background: #fff;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid #f0c97a;
+  font-weight: 600;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-receita {
+  font-weight: 700;
+  color: #6b4400;
+  font-size: 15px;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-hint {
+  font-size: 12px;
+  color: #8a6d3b;
+  margin-bottom: 12px;
+  font-style: italic;
+  line-height: 1.4;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 8px;
+  overflow: hidden;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #8a6d3b;
+  background: rgba(240, 201, 122, 0.18);
+  border-bottom: 1px solid #f0c97a;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-table td {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #4a3300;
+  border-bottom: 1px solid rgba(240, 201, 122, 0.3);
+}
+#dash-card-pacotes-vendidos .dash-pacotes-table tr:last-child td {
+  border-bottom: none;
+}
+#dash-card-pacotes-vendidos .dash-pacotes-table th:nth-child(2),
+#dash-card-pacotes-vendidos .dash-pacotes-table td:nth-child(2),
+#dash-card-pacotes-vendidos .dash-pacotes-table th:nth-child(3),
+#dash-card-pacotes-vendidos .dash-pacotes-table td:nth-child(3) {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   📱 RESPONSIVIDADE — badges de pacote, card "Pacotes Vendidos"
+   e badge de aquisição de pacote no histórico do cliente
+   ============================================================ */
+@media (max-width: 768px) {
+  .dash-pacote-uso-badge {
+    margin-left: 4px;
+    padding: 1px 6px;
+    font-size: 10px;
+    border-radius: 8px;
+    /* Mantém na mesma linha do número, mas quebra se necessário */
+    white-space: nowrap;
+  }
+
+  /* Top Serviços e Top Clientes: garante que a célula de qtd não estoure */
+  #dash-top-servicos td:nth-child(2),
+  #dash-top-clientes td:nth-child(2) {
+    white-space: normal;
+    line-height: 1.6;
+  }
+
+  #dash-card-pacotes-vendidos {
+    margin-top: 12px;
+    padding: 14px 14px;
+    border-radius: 10px;
+  }
+  #dash-card-pacotes-vendidos .dash-pacotes-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  #dash-card-pacotes-vendidos h3 { font-size: 15px; }
+  #dash-card-pacotes-vendidos .dash-pacotes-resumo {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+  #dash-card-pacotes-vendidos .dash-pacotes-receita { font-size: 14px; }
+  #dash-card-pacotes-vendidos .dash-pacotes-hint {
+    font-size: 11px;
+    margin-bottom: 10px;
+  }
+
+  /* Tabela ocupa 100% da largura do card no mobile (sem scroll horizontal,
+     que estava criando uma área em branco à direita). */
+  #dash-card-pacotes-vendidos .dash-pacotes-table {
+    display: table;
+    width: 100%;
+    table-layout: auto;
+    overflow: visible;
+    white-space: normal;
+  }
+  #dash-card-pacotes-vendidos .dash-pacotes-table th,
+  #dash-card-pacotes-vendidos .dash-pacotes-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+  /* Primeira coluna (Pacote) pode quebrar nome longo;
+     colunas Qtd e Receita ficam compactas e alinhadas à direita. */
+  #dash-card-pacotes-vendidos .dash-pacotes-table th:first-child,
+  #dash-card-pacotes-vendidos .dash-pacotes-table td:first-child {
+    white-space: normal;
+    word-break: break-word;
+    width: auto;
+  }
+  #dash-card-pacotes-vendidos .dash-pacotes-table th:nth-child(2),
+  #dash-card-pacotes-vendidos .dash-pacotes-table td:nth-child(2) {
+    width: 1%;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  #dash-card-pacotes-vendidos .dash-pacotes-table th:nth-child(3),
+  #dash-card-pacotes-vendidos .dash-pacotes-table td:nth-child(3) {
+    width: 1%;
+    padding-right: 4px;
+  }
+
+  /* Badge "Adquiriu pacote" no histórico — quebra de linha amigável */
+  .hist-pacote-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 2px 7px;
+    margin-right: 3px;
+    margin-bottom: 2px;
+    max-width: 100%;
+    white-space: normal;
+    line-height: 1.3;
+  }
+}
+
+@media (max-width: 420px) {
+  .dash-pacote-uso-badge {
+    font-size: 9.5px;
+    padding: 1px 5px;
+  }
+  #dash-card-pacotes-vendidos { padding: 12px 12px; }
+  #dash-card-pacotes-vendidos h3 { font-size: 14px; }
+}
+
+/* ============================================================
+   📐 ALINHAMENTO — célula QTD com número + badge "📦 N"
+   - Top Serviços (3 colunas): badge ancorado à DIREITA da célula
+     QTD, no vão antes da coluna VALOR TOTAL.
+   - Top Clientes (2 colunas): não há vão à direita, então o badge
+     fica ancorado à ESQUERDA, logo após o número, em posição fixa
+     para todas as linhas (independente do número ter 1 ou 2 dígitos).
+   ============================================================ */
+#dash-top-servicos td:nth-child(2),
+#dash-top-clientes td:nth-child(2) {
+  position: relative;
+  vertical-align: middle;
+}
+.dash-qtd-cell {
+  display: inline-block;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+.dash-qtd-num {
+  display: inline-block;
+  min-width: 1.5ch;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Top Serviços — badge à direita (vão entre QTD e VALOR) */
+#dash-top-servicos td:nth-child(2) {
+  padding-right: 56px;
+}
+#dash-top-servicos td:nth-child(2) .dash-pacote-uso-badge {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Top Clientes — badge à esquerda, logo após o número.
+   Usa left fixo a partir do início da célula para que TODAS as
+   linhas tenham o badge na mesma posição X. */
+#dash-top-clientes td:nth-child(2) .dash-pacote-uso-badge {
+  position: absolute;
+  left: 44px;             /* início da célula + espaço do número */
+  top: 50%;
+  transform: translateY(-50%);
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  #dash-top-servicos td:nth-child(2) {
+    padding-right: 48px;
+  }
+  #dash-top-servicos td:nth-child(2) .dash-pacote-uso-badge {
+    right: 4px;
+  }
+  #dash-top-clientes td:nth-child(2) .dash-pacote-uso-badge {
+    left: 38px;
+  }
+}
+@media (max-width: 420px) {
+  #dash-top-servicos td:nth-child(2) {
+    padding-right: 42px;
+  }
+  #dash-top-clientes td:nth-child(2) .dash-pacote-uso-badge {
+    left: 34px;
+  }
+}

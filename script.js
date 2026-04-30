@@ -828,7 +828,7 @@ async function loadAppointments() {
   var tenantId = getCurrentTenantId();
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
   // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
-  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) { console.error('Erro agendamentos:', resp.error); return; }
@@ -881,9 +881,16 @@ async function loadAppointments() {
         cor: coresArr.length > 0 ? coresArr[0] : (as.cores ? as.cores.nome : ''),
         bases: bases,
         pigmentacoes: pigmentacoes,
-        cores: coresArr
+        cores: coresArr,
+        cliente_pacote_id: as.cliente_pacote_id || null,
+        origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso')
       };
     });
+    // Linhas com origem='pacote_venda' representam APENAS receita da venda do pacote,
+    // não devem aparecer como serviço executável na agenda/listas. Separamos para
+    // o dashboard usar (faturamento) sem poluir o restante da UI.
+    var vendaItems = svcs.filter(function(s){ return s.origem === 'pacote_venda'; });
+    svcs = svcs.filter(function(s){ return s.origem !== 'pacote_venda'; });
     var firstSvc = svcs.length > 0 ? svcs[0] : null;
     return {
       id: a.id,
@@ -898,7 +905,9 @@ async function loadAppointments() {
       hora: (a.hora || '').substring(0, 5),
       observacoes: a.observacoes || '',
       status: a.status || 'agendado',
-      servicos: svcs.length > 0 ? svcs : null
+      servicos: svcs.length > 0 ? svcs : null,
+      // ✅ PACOTE-FIX: linhas de venda de pacote (faturamento puro), usadas só no dashboard
+      _pacoteVendaItems: vendaItems
     };
   });
 }
@@ -2322,7 +2331,9 @@ function expandToServiceEvents(apps) {
         servicoData: s,
         idx: idx,
         totalSvcs: servicos.length,
-        status: a.status
+        status: a.status,
+        // 🎁 PACOTE-FIX: indicador visual de uso de pacote no calendário
+        isPackage: (s && (s.origem === 'pacote_uso' || !!s.cliente_pacote_id)) || false
       });
       cursor += dur;
     });
@@ -2629,22 +2640,27 @@ function buildBlockContent(block, ev, heightPx, endTime, serviceNames) {
   var partTag = (ev.totalSvcs && ev.totalSvcs > 1)
     ? ' <span class="tb-part" style="opacity:.7;font-size:.75em;">(' + (ev.idx + 1) + '/' + ev.totalSvcs + ')</span>'
     : '';
+  // 🎁 PACOTE-FIX: badge "Pacote" quando o serviço veio de um pacote_uso
+  var pkgBadge = ev.isPackage
+    ? ' <span class="tb-pkg-badge" title="Sessão de pacote"><i class="fa-solid fa-box"></i> Pacote</span>'
+    : '';
+  if (ev.isPackage) block.classList.add('is-package');
   block.style.display = 'flex';
   block.style.flexDirection = 'column';
   block.style.justifyContent = 'center';
   // ✅ FIX 2: Boxes muito curtos (ex: 10min) — exibe apenas horário inicial em fonte mínima
   if (heightPx <= 22) {
     block.classList.add('tb-tiny');
-    block.title = timeRange + ' — ' + ev.cliente + (serviceNames ? ' (' + serviceNames + ')' : '');
-    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time">' + ev.hora + '</span> <span class="tb-client tb-truncate">' + ev.cliente + '</span></div>';
+    block.title = timeRange + ' — ' + ev.cliente + (serviceNames ? ' (' + serviceNames + ')' : '') + (ev.isPackage ? ' [Pacote]' : '');
+    block.innerHTML = '<div class="tb-row-tiny"><span class="tb-time">' + ev.hora + '</span> <span class="tb-client tb-truncate">' + ev.cliente + '</span>' + (ev.isPackage ? '<span class="tb-pkg-dot" title="Pacote"></span>' : '') + '</div>';
   } else if (heightPx <= 38) {
     block.innerHTML = '<div class="tb-row-compact">' +
-      '<span class="tb-time">' + timeRange + '</span> <span class="tb-client">' + ev.cliente + '</span><span class="tb-service">' + serviceText + '</span>' + partTag + '</div>';
+      '<span class="tb-time">' + timeRange + '</span> <span class="tb-client">' + ev.cliente + '</span><span class="tb-service">' + serviceText + '</span>' + partTag + pkgBadge + '</div>';
   } else if (heightPx <= 55) {
-    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + partTag + '</div>' +
+    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + partTag + pkgBadge + '</div>' +
       '<div class="tb-row-compact"><span class="tb-client">' + ev.cliente + '</span><span class="tb-service">' + serviceText + '</span></div>';
   } else {
-    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + partTag + '</div>' +
+    block.innerHTML = '<div class="tb-time tb-truncate">' + timeRange + partTag + pkgBadge + '</div>' +
       '<div class="tb-client tb-truncate">' + ev.cliente + '</div>' +
       '<div class="tb-service tb-truncate">' + serviceNames + '</div>';
   }
@@ -3422,7 +3438,7 @@ async function openHistorico(cliente) {
   }
   async function fetchAgendamentos() {
     // ✅ FIX ORDEM SERVIÇOS (v10): incluir id+created_at p/ ordenar serviços conforme cadastro
-    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
+    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, origem, cliente_pacote_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
     var results = [];
     var seen = {};
     if (cliente.id) {
@@ -3472,7 +3488,7 @@ async function openHistorico(cliente) {
           });
         }
         if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && as.cores) coresArr.push(as.cores.nome);
-        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr };
+        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr, origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso') };
       });
     }
   });
@@ -3535,7 +3551,11 @@ async function openHistorico(cliente) {
       var svcs = h.servicos ? (typeof h.servicos === 'string' ? JSON.parse(h.servicos) : h.servicos) : null;
       if (svcs && svcs.length > 0) {
         svcs.forEach(function(s) {
-          var svcLine = s.servico + ' com ' + s.profissional;
+          // 🎁 PACOTE: linha de venda exibe "Adquiriu pacote de [Serviço]"
+          var isVenda = s.origem === 'pacote_venda';
+          var svcLine = isVenda
+            ? '<span class="hist-pacote-badge">📦 Adquiriu pacote de</span> ' + s.servico
+            : s.servico + ' com ' + s.profissional;
           if (s.bases && s.bases.length > 0) {
             svcLine += ' — Base: ';
             s.bases.forEach(function(b, idx) {
@@ -4706,6 +4726,13 @@ async function loadDashboard() {
   var servicoCount = {};
   var clienteCount = {};
   var profHoraFat = {};
+  // 📦 OPÇÃO A — Vendas de pacote são transações financeiras, NÃO atendimentos.
+  // Coletadas separadamente para um card próprio "Pacotes Vendidos".
+  var pacotesVendidos = {}; // { [svcNome]: { qtd, valor } }
+  var totalPacotesVendidos = 0;
+  var totalReceitaPacotes = 0;
+  // Conta quantos usos de pacote (preço 0) cada serviço tem, para anotar no Top Serviços
+  var usosPacotePorServico = {}; // { [svcNome]: qtd }
 
   if (selectedProfId === '__all__') {
     (activeFilters || []).forEach(function(nome) { profHoraFat[nome] = {}; });
@@ -4718,7 +4745,8 @@ async function loadDashboard() {
     totalAg++;
     var hora = (a.hora || '').substring(0, 2);
     var clienteNomeDash = a.cliente || a.cliente_nome || '';
-    clienteCount[clienteNomeDash] = (clienteCount[clienteNomeDash] || 0) + 1;
+    if (!clienteCount[clienteNomeDash]) clienteCount[clienteNomeDash] = { qtd: 0, usosPacote: 0 };
+    clienteCount[clienteNomeDash].qtd++;
 
     var servicos = getAppointmentServicos(a);
     var profsDoAgendamento = getAppointmentProfessionals(a);
@@ -4726,6 +4754,41 @@ async function loadDashboard() {
 
     if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
     profData[profPrincipal].atendimentos++;
+
+    // ============================================================
+    // 💰 PACOTE-FIX — RECEITA da VENDA de pacote
+    // Linhas com origem='pacote_venda' (separadas em loadAppointments
+    // como _pacoteVendaItems) representam APENAS receita: o cliente
+    // pagou o valor TOTAL do pacote agora. Não contam como serviço
+    // executado e não entram em ticket médio de execução.
+    // ============================================================
+    var vendaItems = a._pacoteVendaItems || [];
+    if (vendaItems.length > 0) {
+      console.log('[dash] pacote_venda detectado em ag', a.id, '— itens:', vendaItems.length, 'total:', vendaItems.reduce(function(s,v){return s+(parseFloat(v.preco)||0);},0));
+    }
+    vendaItems.forEach(function(v) {
+      var profNome = v.profissional || profPrincipal || '';
+      var svcProfId = profNomeToId[profNome] || null;
+      // 💰 PACOTE-FIX (BUG 2): se o filtro do dash é por profissional específico e
+      // o profissional da venda não bate, ainda assim consideramos a receita
+      // quando o agendamento principal pertence ao profissional filtrado.
+      if (selectedProfId && selectedProfId !== '__all__'
+          && svcProfId !== selectedProfId
+          && profNomeToId[profPrincipal] !== selectedProfId) return;
+      var precoVenda = parseFloat(v.preco) || 0;
+      // 📦 OPÇÃO A — A venda do pacote ENTRA no Faturamento Total (é receita real),
+      // mas NÃO é atribuída como atendimento/faturamento do profissional, pois
+      // venda ≠ atendimento. Vai para o card "Pacotes Vendidos".
+      totalFaturamento += precoVenda;
+      var nomePac = v.servico || 'Pacote';
+      if (!pacotesVendidos[nomePac]) pacotesVendidos[nomePac] = { qtd: 0, valor: 0 };
+      pacotesVendidos[nomePac].qtd++;
+      pacotesVendidos[nomePac].valor += precoVenda;
+      totalPacotesVendidos++;
+      totalReceitaPacotes += precoVenda;
+      // ⚠️ NÃO incrementa profData (atendimentos/faturamento), totalServicos,
+      // servicoCount nem profHoraFat — venda é transação, não execução.
+    });
 
     if (!servicos || servicos.length === 0) return;
 
@@ -4738,7 +4801,10 @@ async function loadDashboard() {
       }
 
       var svcNome = s.servico || '';
-      var preco = parseFloat(s.preco) || 0;
+      // 🎯 PACOTE-FIX — CONSUMO de pacote NÃO gera receita por execução.
+      // A receita já foi contabilizada na venda. Aqui só conta o serviço.
+      var ehUsoPacote = (s.origem === 'pacote_uso') || !!s.cliente_pacote_id;
+      var preco = ehUsoPacote ? 0 : (parseFloat(s.preco) || 0);
 
       if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
       totalFaturamento += preco;
@@ -4755,6 +4821,13 @@ async function loadDashboard() {
         if (!servicoCount[svcNome]) servicoCount[svcNome] = { qtd: 0, valor: 0 };
         servicoCount[svcNome].qtd++;
         servicoCount[svcNome].valor += preco;
+        if (ehUsoPacote) {
+          usosPacotePorServico[svcNome] = (usosPacotePorServico[svcNome] || 0) + 1;
+          // 📦 Top Clientes: contabiliza usos de pacote por cliente
+          if (clienteCount[clienteNomeDash]) {
+            clienteCount[clienteNomeDash].usosPacote++;
+          }
+        }
       }
     });
   });
@@ -4835,24 +4908,101 @@ async function loadDashboard() {
   if (svcArr.length === 0) {
     topSvc.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:16px;">Sem dados no mês visível da agenda</td></tr>';
   } else {
-    svcArr.slice(0, 10).forEach(function(s) { topSvc.innerHTML += '<tr><td>' + s.nome + '</td><td>' + s.qtd + '</td><td>' + formatCurrency(s.valor) + '</td></tr>'; });
+    svcArr.slice(0, 10).forEach(function(s) {
+      // 📦 OPÇÃO A — Anota quantos atendimentos vieram de uso de pacote (R$ 0)
+      var usos = usosPacotePorServico[s.nome] || 0;
+      var qtdHtml = '<span class="dash-qtd-cell">'
+        + '<span class="dash-qtd-num">' + s.qtd + '</span>'
+        + (usos > 0
+            ? '<span class="dash-pacote-uso-badge" title="Inclui ' + usos + ' uso(s) de pacote (sem receita por execução, já paga na venda)">📦 ' + usos + '</span>'
+            : '')
+        + '</span>';
+      topSvc.innerHTML += '<tr><td>' + s.nome + '</td><td>' + qtdHtml + '</td><td>' + formatCurrency(s.valor) + '</td></tr>';
+    });
   }
+
+  // 📦 OPÇÃO A — Card "Pacotes Vendidos" (transações financeiras separadas)
+  try { renderDashPacotesVendidos(pacotesVendidos, totalPacotesVendidos, totalReceitaPacotes); } catch(e) { console.warn('[dash pacotes vendidos] falhou', e); }
 
   var topCli = document.getElementById('dash-top-clientes');
   if (topCli) {
     topCli.innerHTML = '';
     var cliArr = Object.keys(clienteCount)
       .filter(function(nome) { return nome && nome.trim() !== ''; })
-      .map(function(nome) { return { nome: nome, qtd: clienteCount[nome] }; });
+      .map(function(nome) {
+        return { nome: nome, qtd: clienteCount[nome].qtd, usosPacote: clienteCount[nome].usosPacote || 0 };
+      });
     cliArr.sort(function(a, b) { return b.qtd - a.qtd; });
     if (cliArr.length === 0) {
       topCli.innerHTML = '<tr><td colspan="2" style="text-align:center;color:var(--text-muted);padding:16px;">Sem dados no mês visível da agenda</td></tr>';
     } else {
       cliArr.slice(0, 10).forEach(function(c) {
-        topCli.innerHTML += '<tr><td>' + c.nome + '</td><td>' + c.qtd + '</td></tr>';
+        var qtdHtml = '<span class="dash-qtd-cell">'
+          + '<span class="dash-qtd-num">' + c.qtd + '</span>'
+          + (c.usosPacote > 0
+              ? '<span class="dash-pacote-uso-badge" title="' + c.usosPacote + ' atendimento(s) via uso de pacote">📦 ' + c.usosPacote + '</span>'
+              : '')
+          + '</span>';
+        topCli.innerHTML += '<tr><td>' + c.nome + '</td><td>' + qtdHtml + '</td></tr>';
       });
     }
   }
+}
+
+// ============================================================
+// 📦 OPÇÃO A — DASHBOARD: Card "Pacotes Vendidos"
+// Vendas de pacote são transações financeiras (entram no Faturamento Total),
+// mas NÃO são atendimentos — então saem do Top Serviços e do Por Profissional
+// e ganham um card próprio injetado dinamicamente ao lado do Top Serviços.
+// ============================================================
+function renderDashPacotesVendidos(pacotes, totalQtd, totalReceita) {
+  var pacArr = Object.keys(pacotes || {}).map(function(k) {
+    return { nome: k, qtd: pacotes[k].qtd, valor: pacotes[k].valor };
+  });
+  pacArr.sort(function(a, b) { return b.valor - a.valor; });
+
+  var card = document.getElementById('dash-card-pacotes-vendidos');
+  var topSvcTbody = document.getElementById('dash-top-servicos');
+  if (!topSvcTbody) return;
+  // Sobe até o container do card "Top Serviços" para inserir o novo card ao lado
+  var topSvcCard = topSvcTbody.closest('.dash-card, .card, section');
+  if (!topSvcCard) {
+    // fallback: pega o pai mais próximo razoável
+    topSvcCard = topSvcTbody.parentNode && topSvcTbody.parentNode.parentNode;
+  }
+  if (!topSvcCard || !topSvcCard.parentNode) return;
+
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'dash-card-pacotes-vendidos';
+    card.className = topSvcCard.className || '';
+    card.classList.add('dash-card-pacotes-vendidos');
+    topSvcCard.parentNode.insertBefore(card, topSvcCard.nextSibling);
+  }
+
+  if (pacArr.length === 0) {
+    card.style.display = 'none';
+    card.innerHTML = '';
+    return;
+  }
+  card.style.display = '';
+
+  var rows = pacArr.map(function(p) {
+    return '<tr><td>' + p.nome + '</td><td>' + p.qtd + '</td><td>' + formatCurrency(p.valor) + '</td></tr>';
+  }).join('');
+
+  card.innerHTML =
+    '<div class="dash-pacotes-header">' +
+      '<h3>📦 Pacotes Vendidos</h3>' +
+      '<div class="dash-pacotes-resumo">' +
+        '<span class="dash-pacotes-qtd">' + totalQtd + ' venda' + (totalQtd === 1 ? '' : 's') + '</span>' +
+        '<span class="dash-pacotes-receita">' + formatCurrency(totalReceita) + '</span>' +
+      '</div>' +
+    '</div>' +
+    '<div class="dash-pacotes-hint">Vendas geram receita mas não contam como atendimento. O uso aparece em "Top Serviços" marcado com 📦.</div>' +
+    '<table class="dash-pacotes-table"><thead><tr><th>Pacote</th><th>Qtd</th><th>Receita</th></tr></thead><tbody>' +
+    rows +
+    '</tbody></table>';
 }
 
 function renderLineChart(profHoraFat) {
@@ -6091,13 +6241,23 @@ async function criarClientePacoteParaAgendamento(pacoteDefId, clienteId, dataAge
   };
   var ins = await supabaseClient.from('cliente_pacotes').insert([row]).select().single();
   if (ins.error || !ins.data) throw new Error('Não foi possível vender o pacote.');
-  return { id: ins.data.id, preco_unitario: Number(ins.data.preco_unitario || 0) };
+  return {
+    id: ins.data.id,
+    preco_unitario: Number(ins.data.preco_unitario || 0),
+    preco_total: Number(ins.data.preco_total || 0)
+  };
 }
 
 async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
   if (!agendamentoId) return true;
   var tenantId = getCurrentTenantId();
-  var query = supabaseClient.from('agendamento_servicos').select('cliente_pacote_id').eq('agendamento_id', agendamentoId).not('cliente_pacote_id', 'is', null);
+  // ✅ PACOTE-FIX: só devolver crédito por linhas de USO (pacote_uso).
+  // Linhas de VENDA (pacote_venda) representam receita registrada e
+  // não geram crédito a devolver — elas apenas criaram o saldo.
+  var query = supabaseClient.from('agendamento_servicos')
+    .select('cliente_pacote_id, origem')
+    .eq('agendamento_id', agendamentoId)
+    .not('cliente_pacote_id', 'is', null);
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) {
@@ -6105,7 +6265,10 @@ async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
     return false;
   }
   for (var i = 0; i < (resp.data || []).length; i++) {
-    var cpId = resp.data[i].cliente_pacote_id;
+    var linha = resp.data[i];
+    // pula linhas de venda — não consumiram crédito
+    if (linha.origem === 'pacote_venda') continue;
+    var cpId = linha.cliente_pacote_id;
     var cpQuery = supabaseClient.from('cliente_pacotes').select('*').eq('id', cpId).maybeSingle();
     if (tenantId) cpQuery = cpQuery.eq('tenant_id', tenantId);
     var cpResp = await cpQuery;
@@ -6113,6 +6276,100 @@ async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
     var novoSaldo = Math.min(Number(cpResp.data.quantidade_restante || 0) + 1, Number(cpResp.data.quantidade_total || 0));
     await supabaseClient.from('cliente_pacotes').update({ quantidade_restante: novoSaldo, status: 'ativo' }).eq('id', cpId);
   }
+  return true;
+}
+
+/* ============================================================
+   PACOTE-FIX: helper para gravar linhas de agendamento_servicos
+   aplicando a NOVA REGRA financeiro x operacional:
+
+   - avulso       → 1 linha, preco normal,  origem='avulso'
+   - pacote_uso   → 1 linha, preco=0,       origem='pacote_uso'  (consumo)
+   - pacote_venda → 2 linhas no mesmo agendamento:
+        a) origem='pacote_venda', preco=preco_total do pacote,
+           duracao=0, sem cores  (RECEITA da venda — não conta serviço)
+        b) origem='pacote_uso',   preco=0  (CONSUMO da 1ª sessão)
+   ============================================================ */
+async function inserirLinhasServicoAgendamento(opts) {
+  // opts: { agId, s, svcObj, svcProfId, clienteId, dataAg, tenantId }
+  var s = opts.s, svcObj = opts.svcObj;
+  var precoAvulso = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
+
+  // Caso 1: usar pacote existente
+  if (s.pacote && s.pacote.acao === 'usar') {
+    var usado = await consumirPacoteExistente(s.pacote.clientePacoteId);
+    var rowUso = {
+      agendamento_id: opts.agId,
+      servico_id: svcObj.id,
+      profissional_id: opts.svcProfId,
+      preco: 0,                       // ⚠️ consumo NÃO gera receita
+      duracao: svcObj.duracao,
+      cor_id: null,
+      cliente_pacote_id: usado.id,
+      origem: 'pacote_uso',
+      tenant_id: opts.tenantId
+    };
+    var r = await supabaseClient.from('agendamento_servicos').insert([rowUso]).select();
+    if (r.error) { console.error('Erro inserir uso de pacote:', r.error); return false; }
+    await saveServiceColors(r.data[0].id, s, opts.tenantId);
+    return true;
+  }
+
+  // Caso 2: vender pacote (gera receita TOTAL + 1 consumo da 1ª sessão)
+  if (s.pacote && s.pacote.acao === 'vender') {
+    var vendido = await criarClientePacoteParaAgendamento(s.pacote.pacoteDefId, opts.clienteId, opts.dataAg);
+
+    // (a) Linha de RECEITA — venda do pacote
+    var rowVenda = {
+      agendamento_id: opts.agId,
+      servico_id: svcObj.id,
+      profissional_id: opts.svcProfId,
+      preco: Number(vendido.preco_total || 0),  // 💰 valor TOTAL pago pelo pacote
+      // ⚠️ duracao=1 (mínimo válido p/ CHECK constraint duracao>0).
+      // Linha pacote_venda é filtrada da agenda em loadAppointments(), então
+      // esse valor nunca afeta horário/visualização — é apenas registro contábil.
+      duracao: 1,                               // não ocupa horário (filtrado da agenda)
+      cor_id: null,
+      cliente_pacote_id: vendido.id,
+      origem: 'pacote_venda',
+      tenant_id: opts.tenantId
+    };
+    var rv = await supabaseClient.from('agendamento_servicos').insert([rowVenda]).select();
+    if (rv.error) { console.error('Erro inserir venda de pacote:', rv.error); return false; }
+
+    // (b) Linha de CONSUMO — 1ª sessão usada agora (sem receita)
+    var rowUso2 = {
+      agendamento_id: opts.agId,
+      servico_id: svcObj.id,
+      profissional_id: opts.svcProfId,
+      preco: 0,
+      duracao: svcObj.duracao,
+      cor_id: null,
+      cliente_pacote_id: vendido.id,
+      origem: 'pacote_uso',
+      tenant_id: opts.tenantId
+    };
+    var ru = await supabaseClient.from('agendamento_servicos').insert([rowUso2]).select();
+    if (ru.error) { console.error('Erro inserir uso pós-venda:', ru.error); return false; }
+    await saveServiceColors(ru.data[0].id, s, opts.tenantId);
+    return true;
+  }
+
+  // Caso 3: avulso
+  var rowAv = {
+    agendamento_id: opts.agId,
+    servico_id: svcObj.id,
+    profissional_id: opts.svcProfId,
+    preco: precoAvulso,
+    duracao: svcObj.duracao,
+    cor_id: null,
+    cliente_pacote_id: null,
+    origem: 'avulso',
+    tenant_id: opts.tenantId
+  };
+  var ra = await supabaseClient.from('agendamento_servicos').insert([rowAv]).select();
+  if (ra.error) { console.error('Erro inserir agendamento_servicos:', ra.error); return false; }
+  await saveServiceColors(ra.data[0].id, s, opts.tenantId);
   return true;
 }
 
@@ -6145,37 +6402,17 @@ insertAppointment = async function(apt) {
     if (!svcObj) continue;
     var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
     var svcProfId = svcProfObj ? svcProfObj.id : profId;
-    // Precedência: pacote > preço variável escolhido > preço base do serviço
-    var precoServico = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
-    var clientePacoteId = null;
     try {
-      if (s.pacote && s.pacote.acao === 'usar') {
-        var usado = await consumirPacoteExistente(s.pacote.clientePacoteId);
-        precoServico = usado.preco_unitario;
-        clientePacoteId = usado.id;
-      } else if (s.pacote && s.pacote.acao === 'vender') {
-        var vendido = await criarClientePacoteParaAgendamento(s.pacote.pacoteDefId, clienteId, apt.data);
-        precoServico = vendido.preco_unitario;
-        clientePacoteId = vendido.id;
-      }
+      var ok = await inserirLinhasServicoAgendamento({
+        agId: agId, s: s, svcObj: svcObj, svcProfId: svcProfId,
+        clienteId: clienteId, dataAg: apt.data, tenantId: tenantId
+      });
+      if (!ok) return false;
     } catch (err) {
       console.error(err);
       showToast(err.message || 'Erro ao aplicar pacote.', 'error');
       return false;
     }
-    var svcRow = {
-      agendamento_id: agId,
-      servico_id: svcObj.id,
-      profissional_id: svcProfId,
-      preco: precoServico,
-      duracao: svcObj.duracao,
-      cor_id: null,
-      cliente_pacote_id: clientePacoteId,
-      tenant_id: tenantId
-    };
-    var svcResp = await supabaseClient.from('agendamento_servicos').insert([svcRow]).select();
-    if (svcResp.error) { console.error('Erro inserir agendamento_servicos:', svcResp.error); return false; }
-    await saveServiceColors(svcResp.data[0].id, s, tenantId);
   }
   return true;
 };
@@ -6204,37 +6441,17 @@ updateAppointment = async function(id, apt) {
     if (!svcObj) continue;
     var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
     var svcProfId = svcProfObj ? svcProfObj.id : profId;
-    // Precedência: pacote > preço variável escolhido > preço base do serviço
-    var precoServico = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
-    var clientePacoteId = null;
     try {
-      if (s.pacote && s.pacote.acao === 'usar') {
-        var usado = await consumirPacoteExistente(s.pacote.clientePacoteId);
-        precoServico = usado.preco_unitario;
-        clientePacoteId = usado.id;
-      } else if (s.pacote && s.pacote.acao === 'vender') {
-        var vendido = await criarClientePacoteParaAgendamento(s.pacote.pacoteDefId, clienteId, apt.data);
-        precoServico = vendido.preco_unitario;
-        clientePacoteId = vendido.id;
-      }
+      var ok2 = await inserirLinhasServicoAgendamento({
+        agId: id, s: s, svcObj: svcObj, svcProfId: svcProfId,
+        clienteId: clienteId, dataAg: apt.data, tenantId: tenantId
+      });
+      if (!ok2) return false;
     } catch (err) {
       console.error(err);
       showToast(err.message || 'Erro ao aplicar pacote.', 'error');
       return false;
     }
-    var svcRow = {
-      agendamento_id: id,
-      servico_id: svcObj.id,
-      profissional_id: svcProfId,
-      preco: precoServico,
-      duracao: svcObj.duracao,
-      cor_id: null,
-      cliente_pacote_id: clientePacoteId,
-      tenant_id: tenantId
-    };
-    var svcResp = await supabaseClient.from('agendamento_servicos').insert([svcRow]).select();
-    if (svcResp.error) { console.error('Erro inserir agendamento_servicos:', svcResp.error); return false; }
-    await saveServiceColors(svcResp.data[0].id, s, tenantId);
   }
   return true;
 };
@@ -6246,7 +6463,7 @@ deleteAppointment = async function(id) {
 };
 
 saveAppointment = async function(e) {
-  e.preventDefault();
+  if (e && typeof e.preventDefault === 'function') e.preventDefault();
   if (currentUser.role === 'colaborador' && !currentUser.profissionalNome) {
     showToast('Seu usuário não está vinculado a um profissional. Contate o administrador.');
     return;
@@ -6263,13 +6480,35 @@ saveAppointment = async function(e) {
     servicos: servicos
   };
   if (!apt.cliente || !apt.data || !apt.hora) return;
-  var ok = editingAppointmentId ? await updateAppointment(editingAppointmentId, apt) : await insertAppointment(apt);
+
+  var ok = false;
+  try {
+    ok = editingAppointmentId
+      ? await updateAppointment(editingAppointmentId, apt)
+      : await insertAppointment(apt);
+  } catch (err) {
+    console.error('[saveAppointment] erro inesperado:', err);
+    showToast('Erro ao salvar: ' + (err && err.message ? err.message : 'desconhecido'), 'error');
+    return;
+  }
+
   if (!ok) { showToast('Erro ao salvar!'); return; }
+
   showToast(editingAppointmentId ? 'Agendamento atualizado!' : 'Agendamento criado!');
-  closeModal('modal-agendamento');
-  await loadAppointments();
-  renderCalendar();
-  renderDayDetail();
+
+  // 🔒 PACOTE-FIX (BUG 1): garante fechamento do modal mesmo após fluxo de pacote
+  // (que faz 2 inserts). Forçamos remoção da classe .active e liberação do scroll.
+  try { closeModal('modal-agendamento'); } catch (_) {}
+  try {
+    var __m = document.getElementById('modal-agendamento');
+    if (__m) __m.classList.remove('active');
+    if (!document.querySelector('.modal-overlay.active')) document.body.style.overflow = '';
+  } catch (_) {}
+  editingAppointmentId = null;
+
+  try { await loadAppointments(); } catch (err) { console.warn('[saveAppointment] loadAppointments falhou:', err); }
+  try { renderCalendar(); } catch (_) {}
+  try { renderDayDetail(); } catch (_) {}
 };
 
 /* ===== CRUD PACOTES ===== */
