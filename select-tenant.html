@@ -74,6 +74,30 @@
   .bs-toast.error { background: #DC2626; }
   .bs-toast.warning { background: #E67E22; }
   .bs-toast i { font-size: 1.1rem; }
+
+  /* === Responsividade dos botões do header (mobile) === */
+  @media (max-width: 640px) {
+    .select-tenant-header {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 16px;
+    }
+    .select-tenant-header-left {
+      text-align: center;
+    }
+    .select-tenant-header-right {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      width: 100%;
+      gap: 10px;
+    }
+    .select-tenant-header-right > button {
+      width: 100%;
+      justify-content: center;
+      white-space: normal;
+    }
+  }
 </style>
 
 
@@ -96,6 +120,9 @@
           <div class="select-tenant-header-right">
             <button class="btn-criar-tenant" id="btn-criar-tenant" onclick="openCriarTenantModal()">
               <i class="fa-solid fa-plus"></i> CRIAR TENANT
+            </button>
+            <button class="btn-criar-tenant" id="btn-criar-master" onclick="openCriarMasterModal()" style="background:#1B1340;color:#fff;">
+              <i class="fa-solid fa-user-shield"></i> + CRIAR MASTER ADMIN
             </button>
             <button class="btn-continuar" id="btn-continuar" onclick="continuarParaAgenda()" disabled>
               CONTINUAR
@@ -127,6 +154,43 @@
           </button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Master Admin -->
+  <div class="modal-overlay" id="modal-criar-master">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-user-shield"></i> Criar Master Admin</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-master')">&times;</button>
+      </div>
+      <form onsubmit="criarMasterAdmin(event)">
+        <div class="form-group">
+          <label>Nome *</label>
+          <input type="text" id="new-master-nome" required placeholder="Nome completo" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label>E-mail *</label>
+          <input type="email" id="new-master-email" required placeholder="email@exemplo.com" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label>Senha temporária * <small style="color:var(--text-muted)">(mínimo 8 caracteres)</small></label>
+          <input type="password" id="new-master-pass" required minlength="8" placeholder="********" autocomplete="new-password">
+        </div>
+
+        <div class="form-group" style="background: rgba(220, 38, 38, 0.06); border: 1px solid rgba(220, 38, 38, 0.25); border-radius: 8px; padding: 12px 14px;">
+          <p style="margin: 0; color: var(--text-muted); font-size: 0.85rem; line-height: 1.5;">
+            <i class="fa-solid fa-triangle-exclamation" style="color: #DC2626; margin-right: 6px;"></i>
+            O usuário criado terá <strong>acesso total</strong> a todos os tenants. Compartilhe a senha de forma segura — recomenda-se que ele a altere no primeiro acesso.
+          </p>
+        </div>
+
+        <div id="criar-master-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-master')">Cancelar</button>
+          <button type="submit" class="btn-submit" id="btn-submit-master">Criar usuário</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -546,6 +610,111 @@
       } catch (err) {
         feedback.style.color = '#DC2626';
         feedback.textContent = 'Erro de rede: ' + err.message;
+      }
+    }
+
+    /* ============================================================
+       CRIAR MASTER ADMIN
+       ============================================================ */
+    function openCriarMasterModal() {
+      document.getElementById('new-master-nome').value = '';
+      document.getElementById('new-master-email').value = '';
+      document.getElementById('new-master-pass').value = '';
+      var fb = document.getElementById('criar-master-feedback');
+      fb.style.display = 'none';
+      fb.textContent = '';
+      openModal('modal-criar-master');
+    }
+
+    function playSuccessBeep() {
+      try {
+        var Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        var ctx = new Ctx();
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(880, ctx.currentTime);
+        o.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.18);
+        g.gain.setValueAtTime(0.0001, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(); o.stop(ctx.currentTime + 0.4);
+      } catch (e) { /* silencioso */ }
+    }
+
+    async function criarMasterAdmin(e) {
+      e.preventDefault();
+      var btn = document.getElementById('btn-submit-master');
+      var fb = document.getElementById('criar-master-feedback');
+      var nome = document.getElementById('new-master-nome').value.trim();
+      var email = document.getElementById('new-master-email').value.trim().toLowerCase();
+      var password = document.getElementById('new-master-pass').value;
+
+      if (!nome || !email || !password) {
+        fb.style.display = 'block';
+        fb.style.color = '#DC2626';
+        fb.textContent = 'Preencha todos os campos.';
+        return;
+      }
+      if (password.length < 8) {
+        fb.style.display = 'block';
+        fb.style.color = '#DC2626';
+        fb.textContent = 'A senha deve ter no mínimo 8 caracteres.';
+        return;
+      }
+
+      btn.disabled = true;
+      var oldLabel = btn.textContent;
+      btn.textContent = 'Criando...';
+      fb.style.display = 'block';
+      fb.style.color = 'var(--text-muted)';
+      fb.textContent = 'Criando master admin...';
+
+      try {
+        var { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) {
+          fb.style.color = '#DC2626';
+          fb.textContent = 'Sessão expirada. Faça login novamente.';
+          btn.disabled = false; btn.textContent = oldLabel;
+          return;
+        }
+
+        var resp = await fetch(SUPABASE_URL + '/functions/v1/create-master-admin', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + session.access_token,
+            'apikey': window.SUPABASE_ANON_KEY
+          },
+          body: JSON.stringify({ nome: nome, email: email, password: password })
+        });
+
+        var result = await resp.json().catch(function() { return {}; });
+
+        if (!resp.ok) {
+          fb.style.color = '#DC2626';
+          fb.textContent = result.error || ('Erro HTTP ' + resp.status);
+          btn.disabled = false; btn.textContent = oldLabel;
+          showToast(result.error || 'Falha ao criar master admin', 'error');
+          return;
+        }
+
+        // Sucesso
+        playSuccessBeep();
+        document.getElementById('new-master-nome').value = '';
+        document.getElementById('new-master-email').value = '';
+        document.getElementById('new-master-pass').value = '';
+        fb.style.display = 'none';
+        closeModal('modal-criar-master');
+        showToast('Master admin criado com sucesso', 'success');
+        btn.disabled = false; btn.textContent = oldLabel;
+      } catch (err) {
+        fb.style.color = '#DC2626';
+        fb.textContent = 'Erro de rede: ' + err.message;
+        btn.disabled = false; btn.textContent = oldLabel;
+        showToast('Erro de rede ao criar master admin', 'error');
       }
     }
 
