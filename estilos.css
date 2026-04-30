@@ -4279,3 +4279,73 @@ body {
 @media (max-width: 720px) {
   .dash-comissoes-grid { grid-template-columns: 1fr; }
 }
+
+/* =========================================================
+   DASHBOARD — "Por Profissional" cards (mobile only)
+   Desktop: mantém a tabela original. Mobile (<=768px):
+   esconde a tabela e exibe cards verticais por profissional.
+   ========================================================= */
+.dash-prof-cards-mobile { display: none; }
+
+@media (max-width: 768px) {
+  .dash-prof-table-wrapper { display: none !important; }
+
+  .dash-prof-cards-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .dash-prof-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 14px 12px;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .dash-prof-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .dash-prof-card-avatar {
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--gold-bg);
+    color: var(--gold);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.95rem; flex: 0 0 auto;
+  }
+  .dash-prof-card-name {
+    font-weight: 600;
+    font-size: 0.98rem;
+    color: var(--text);
+    line-height: 1.2;
+    word-break: break-word;
+  }
+
+  .dash-prof-metric { margin-bottom: 10px; }
+  .dash-prof-metric:last-child { margin-bottom: 0; }
+  .dash-prof-metric-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-bottom: 5px; font-size: 0.85rem; gap: 8px;
+  }
+  .dash-prof-metric-label { color: var(--text-muted); }
+  .dash-prof-metric-value { font-weight: 600; color: var(--text); white-space: nowrap; }
+  .dash-prof-metric-bar {
+    height: 6px; background: var(--surface-input);
+    border-radius: 999px; overflow: hidden;
+  }
+  .dash-prof-metric-bar > span {
+    display: block; height: 100%; border-radius: 999px;
+    transition: width .35s ease;
+  }
+  .dash-prof-metric.atendimentos .dash-prof-metric-bar > span { background: #6C3AED; }
+  .dash-prof-metric.servicos     .dash-prof-metric-bar > span { background: #F59E0B; }
+  .dash-prof-metric.faturamento  .dash-prof-metric-bar > span { background: #10B981; }
+  .dash-prof-metric.comissao     .dash-prof-metric-bar > span { background: #3B82F6; }
+}

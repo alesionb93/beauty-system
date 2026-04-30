@@ -4507,6 +4507,19 @@ function getCalendarVisibleDateRange() {
 
 function getCalendarVisibleAppointments(selectedProfId) {
   var range = getCalendarVisibleDateRange();
+  return getAppointmentsForDashboard(selectedProfId, range);
+}
+
+/* ============================================================
+   Versão genérica usada pelo Dashboard com filtros aplicados.
+   Mantém EXATAMENTE a mesma regra de negócio de
+   getCalendarVisibleAppointments — apenas permite passar um
+   range customizado (datas escolhidas pelo usuário no filtro).
+   ============================================================ */
+function getAppointmentsForDashboard(selectedProfId, range) {
+  if (!range || !range.start || !range.end) {
+    range = getCalendarVisibleDateRange();
+  }
   var profNomeToId = {};
   (allProfissionais || []).forEach(function(p) { profNomeToId[p.nome] = p.id; });
 
@@ -4528,17 +4541,98 @@ function getCalendarVisibleAppointments(selectedProfId) {
 }
 
 /* ===== DASHBOARD ===== */
+/* ============================================================
+   Estados de filtro do Dashboard (UX).
+   - filtrosTemp:      o que o usuário está EDITANDO na UI.
+   - filtrosAplicados: o que está REALMENTE filtrando os dados.
+   Só viram iguais quando o usuário clica em "Aplicar".
+   ============================================================ */
+var filtrosTemp = { dataInicio: null, dataFim: null, profissionalId: null };
+var filtrosAplicados = { dataInicio: null, dataFim: null, profissionalId: null };
+
 function initDashboard() {
   var range = getCalendarVisibleDateRange();
-  document.getElementById('dash-inicio').value = range.start;
-  document.getElementById('dash-fim').value = range.end;
+  var dashInicio = document.getElementById('dash-inicio');
+  var dashFim = document.getElementById('dash-fim');
+  if (dashInicio) dashInicio.value = range.start;
+  if (dashFim) dashFim.value = range.end;
 
   // Popula select de profissionais respeitando o role.
   // O dashboard espelha a agenda: o select apenas refina o que já está visível nela.
   populateDashProfSelect();
 
+  // Inicializa AMBOS os estados com o mesmo valor, para que o primeiro load
+  // já reflita o mês visível da agenda (comportamento anterior preservado).
+  var selectEl = document.getElementById('dash-prof-select');
+  var profIdInicial = selectEl ? selectEl.value : '__all__';
+  filtrosTemp = { dataInicio: range.start, dataFim: range.end, profissionalId: profIdInicial };
+  filtrosAplicados = { dataInicio: range.start, dataFim: range.end, profissionalId: profIdInicial };
+
+  // Liga os listeners de "edição" (sem disparar fetch) e o botão Aplicar.
+  bindDashFiltrosUI();
+
   loadDashboard();
 }
+
+/* ============================================================
+   Liga os inputs de filtro à edição de filtrosTemp (sem fetch)
+   e o botão "Aplicar" à promoção de filtrosTemp → filtrosAplicados.
+   Idempotente: usa dataset.bound para não duplicar listeners.
+   ============================================================ */
+function bindDashFiltrosUI() {
+  var dashInicio = document.getElementById('dash-inicio');
+  var dashFim    = document.getElementById('dash-fim');
+  var selectEl   = document.getElementById('dash-prof-select');
+
+  if (dashInicio && !dashInicio.dataset.boundFiltro) {
+    dashInicio.addEventListener('change', function(){ filtrosTemp.dataInicio = dashInicio.value || null; });
+    dashInicio.addEventListener('input',  function(){ filtrosTemp.dataInicio = dashInicio.value || null; });
+    dashInicio.dataset.boundFiltro = '1';
+  }
+  if (dashFim && !dashFim.dataset.boundFiltro) {
+    dashFim.addEventListener('change', function(){ filtrosTemp.dataFim = dashFim.value || null; });
+    dashFim.addEventListener('input',  function(){ filtrosTemp.dataFim = dashFim.value || null; });
+    dashFim.dataset.boundFiltro = '1';
+  }
+  // O bind do select já existe em populateDashProfSelect, mas agora
+  // ele NÃO dispara mais loadDashboard — apenas atualiza filtrosTemp.
+  if (selectEl && !selectEl.dataset.boundFiltro) {
+    selectEl.addEventListener('change', function(){ filtrosTemp.profissionalId = selectEl.value; });
+    selectEl.dataset.boundFiltro = '1';
+  }
+}
+
+/* ============================================================
+   Chamado pelo botão "Aplicar". Promove filtrosTemp → filtrosAplicados
+   e recarrega o dashboard.
+   ============================================================ */
+function aplicarFiltrosDashboard() {
+  var dashInicio = document.getElementById('dash-inicio');
+  var dashFim    = document.getElementById('dash-fim');
+  var selectEl   = document.getElementById('dash-prof-select');
+
+  // Garante que filtrosTemp reflete o estado atual da UI (caso o change
+  // não tenha disparado, ex.: usuário digitou e clicou direto em Aplicar).
+  if (dashInicio) filtrosTemp.dataInicio = dashInicio.value || null;
+  if (dashFim)    filtrosTemp.dataFim    = dashFim.value || null;
+  if (selectEl)   filtrosTemp.profissionalId = selectEl.value;
+
+  // Validação simples: data fim não pode ser menor que data início
+  if (filtrosTemp.dataInicio && filtrosTemp.dataFim && filtrosTemp.dataFim < filtrosTemp.dataInicio) {
+    if (typeof showToast === 'function') showToast('Data fim não pode ser anterior à data início.', 'error');
+    return;
+  }
+
+  filtrosAplicados = {
+    dataInicio: filtrosTemp.dataInicio,
+    dataFim: filtrosTemp.dataFim,
+    profissionalId: filtrosTemp.profissionalId
+  };
+
+  loadDashboard();
+}
+// Expõe para o onclick="aplicarFiltrosDashboard()" do HTML
+window.aplicarFiltrosDashboard = aplicarFiltrosDashboard;
 
 function populateDashProfSelect() {
   var select = document.getElementById('dash-prof-select');
@@ -4574,27 +4668,19 @@ function populateDashProfSelect() {
     select.value = '__all__';
   }
 
-  // Liga o change uma única vez para recarregar automaticamente
-  if (!select.dataset.bound) {
-    select.addEventListener('change', function() { loadDashboard(); });
-    select.dataset.bound = '1';
-  }
+  // IMPORTANTE: NÃO ligamos mais o change para chamar loadDashboard automaticamente.
+  // A atualização agora só acontece ao clicar em "Aplicar".
+  // O bind de filtrosTemp é feito em bindDashFiltrosUI().
 }
 
 async function loadDashboard() {
-  // IMPORTANTE: os campos de data passam a refletir o mês visível da agenda.
-  // Mesmo que o usuário altere manualmente, o dashboard é recalculado com base
-  // no calendário para garantir consistência absoluta entre as duas telas.
-  var range = getCalendarVisibleDateRange();
-  var inicio = range.start;
-  var fim = range.end;
-  var dashInicio = document.getElementById('dash-inicio');
-  var dashFim = document.getElementById('dash-fim');
-  if (dashInicio) dashInicio.value = inicio;
-  if (dashFim) dashFim.value = fim;
-
-  var selectEl = document.getElementById('dash-prof-select');
-  var selectedProfId = selectEl ? selectEl.value : '__all__';
+  // O dashboard usa SOMENTE filtrosAplicados (definidos em "Aplicar").
+  // Os inputs da UI não são mais sobrescritos aqui, então o usuário pode
+  // continuar editando livremente sem perder o que digitou.
+  var fallback = getCalendarVisibleDateRange();
+  var inicio = filtrosAplicados.dataInicio || fallback.start;
+  var fim    = filtrosAplicados.dataFim    || fallback.end;
+  var selectedProfId = filtrosAplicados.profissionalId || '__all__';
 
   if (currentUser.role === 'colaborador') {
     if (!currentUser.profissionalId) {
@@ -4611,7 +4697,7 @@ async function loadDashboard() {
     profNomeToId[p.nome] = p.id;
   });
 
-  var appointmentsInRange = getCalendarVisibleAppointments(selectedProfId);
+  var appointmentsInRange = getAppointmentsForDashboard(selectedProfId, { start: inicio, end: fim });
 
   var totalAg = 0;
   var totalFaturamento = 0;
@@ -4700,12 +4786,16 @@ async function loadDashboard() {
     try { await loadComissoesCache(false); } catch(_) {}
   }
 
+  // Coleta dos dados para renderizar também os CARDS MOBILE (sem alterar regra de negócio)
+  var __profRows = [];
+
   Object.keys(profData).forEach(function(name) {
     if (!name) return;
     var d = profData[name];
     if ((d.atendimentos || 0) === 0 && (d.servicos || 0) === 0 && (d.faturamento || 0) === 0) return;
 
     var comissaoCell = '';
+    var __comissaoValor = null;
     if (comissoesAtivas) {
       var profId = profNomeToId ? profNomeToId[name] : null;
       var c = (typeof getComissaoForProfId === 'function')
@@ -4715,6 +4805,7 @@ async function loadDashboard() {
       if (!isFinite(pctProf)) pctProf = 50; // default 50/50
       var comissaoProf = (parseFloat(d.faturamento) || 0) * (pctProf / 100);
       comissaoCell = '<td>' + formatCurrency(comissaoProf) + '</td>';
+      __comissaoValor = comissaoProf;
     }
 
     profTbody.innerHTML +=
@@ -4724,7 +4815,18 @@ async function loadDashboard() {
       '<td>' + formatCurrency(d.faturamento) + '</td>' +
       comissaoCell +
       '</tr>';
+
+    __profRows.push({
+      nome: name,
+      atendimentos: Number(d.atendimentos) || 0,
+      servicos: Number(d.servicos) || 0,
+      faturamento: parseFloat(d.faturamento) || 0,
+      comissao: __comissaoValor
+    });
   });
+
+  // ===== Render dos CARDS MOBILE (somente layout; mostrado via CSS @media <=768px) =====
+  try { renderDashProfCardsMobile(__profRows, comissoesAtivas); } catch(e) { console.warn('[dash mobile cards] falhou', e); }
 
   var svcArr = Object.keys(servicoCount).map(function(k) { return { nome: k, qtd: servicoCount[k].qtd, valor: servicoCount[k].valor }; });
   svcArr.sort(function(a, b) { return b.qtd - a.qtd; });
@@ -8201,3 +8303,100 @@ setTimeout(function(){
     return r;
   };
 })();
+
+/* ============================================================
+   DASHBOARD — Render "Por Profissional" como CARDS no MOBILE
+   Não altera regras de negócio. Apenas espelha os dados já
+   calculados na tabela em um layout vertical (visível só em
+   telas <= 768px via CSS .dash-prof-cards-mobile).
+   ============================================================ */
+function renderDashProfCardsMobile(rows, comissoesAtivas) {
+  var box = document.getElementById('dash-prof-cards-mobile');
+  if (!box) return;
+
+  if (!rows || !rows.length) {
+    box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:16px;font-size:0.9rem;">Sem dados no mês visível da agenda</div>';
+    return;
+  }
+
+  var maxAtend = 1, maxServ = 1, maxFat = 1, maxCom = 1;
+  rows.forEach(function(r){
+    if (r.atendimentos > maxAtend) maxAtend = r.atendimentos;
+    if (r.servicos     > maxServ)  maxServ  = r.servicos;
+    if (r.faturamento  > maxFat)   maxFat   = r.faturamento;
+    if (r.comissao != null && r.comissao > maxCom) maxCom = r.comissao;
+  });
+
+  function pct(val, max) {
+    if (!max || max <= 0) return 0;
+    var p = (Number(val) / Number(max)) * 100;
+    if (!isFinite(p) || p < 0) p = 0;
+    if (p > 100) p = 100;
+    return p;
+  }
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function initials(nome) {
+    var parts = String(nome || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
+    return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+  }
+
+  var fmtMoney = (typeof formatCurrency === 'function')
+    ? formatCurrency
+    : function(v){ return 'R$ ' + (Number(v)||0).toFixed(2); };
+
+  var html = rows.map(function(r){
+    var comissaoBlock = '';
+    if (comissoesAtivas && r.comissao != null) {
+      comissaoBlock =
+        '<div class="dash-prof-metric comissao">' +
+          '<div class="dash-prof-metric-row">' +
+            '<span class="dash-prof-metric-label">Comissão</span>' +
+            '<span class="dash-prof-metric-value">' + fmtMoney(r.comissao) + '</span>' +
+          '</div>' +
+          '<div class="dash-prof-metric-bar"><span style="width:' + pct(r.comissao, maxCom) + '%"></span></div>' +
+        '</div>';
+    }
+
+    return '' +
+      '<div class="dash-prof-card">' +
+        '<div class="dash-prof-card-header">' +
+          '<div class="dash-prof-card-avatar">' + escapeHtml(initials(r.nome)) + '</div>' +
+          '<div class="dash-prof-card-name">' + escapeHtml(r.nome) + '</div>' +
+        '</div>' +
+
+        '<div class="dash-prof-metric atendimentos">' +
+          '<div class="dash-prof-metric-row">' +
+            '<span class="dash-prof-metric-label">Atendimentos</span>' +
+            '<span class="dash-prof-metric-value">' + r.atendimentos + '</span>' +
+          '</div>' +
+          '<div class="dash-prof-metric-bar"><span style="width:' + pct(r.atendimentos, maxAtend) + '%"></span></div>' +
+        '</div>' +
+
+        '<div class="dash-prof-metric servicos">' +
+          '<div class="dash-prof-metric-row">' +
+            '<span class="dash-prof-metric-label">Serviços</span>' +
+            '<span class="dash-prof-metric-value">' + r.servicos + '</span>' +
+          '</div>' +
+          '<div class="dash-prof-metric-bar"><span style="width:' + pct(r.servicos, maxServ) + '%"></span></div>' +
+        '</div>' +
+
+        '<div class="dash-prof-metric faturamento">' +
+          '<div class="dash-prof-metric-row">' +
+            '<span class="dash-prof-metric-label">Faturamento</span>' +
+            '<span class="dash-prof-metric-value">' + fmtMoney(r.faturamento) + '</span>' +
+          '</div>' +
+          '<div class="dash-prof-metric-bar"><span style="width:' + pct(r.faturamento, maxFat) + '%"></span></div>' +
+        '</div>' +
+
+        comissaoBlock +
+      '</div>';
+  }).join('');
+
+  box.innerHTML = html;
+}

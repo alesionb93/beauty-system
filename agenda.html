@@ -425,7 +425,7 @@
               <option value="__all__">Todos os profissionais</option>
             </select>
           </div>
-          <button class="btn-submit btn-dash-apply" onclick="loadDashboard()">Aplicar</button>
+          <button class="btn-submit btn-dash-apply" onclick="aplicarFiltrosDashboard()">Aplicar</button>
         </div>
         <div class="dash-grid">
           <div class="dash-card">
@@ -482,12 +482,13 @@
 
         <div class="dash-section">
           <h3>Por Profissional</h3>
-          <div class="dash-table-wrapper">
+          <div class="dash-table-wrapper dash-prof-table-wrapper">
             <table class="dash-table">
               <thead><tr><th>Profissional</th><th>Atendimentos</th><th>Serviços</th><th>Faturamento</th><th class="dash-prof-col-comissao" style="display:none;">Comissões</th></tr></thead>
               <tbody id="dash-prof-tbody"></tbody>
             </table>
           </div>
+          <div class="dash-prof-cards-mobile" id="dash-prof-cards-mobile"></div>
         </div>
 
         <div class="dash-row">
