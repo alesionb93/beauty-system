@@ -87,18 +87,23 @@
 
     <!-- STEPPER -->
     <nav class="ac-stepper" aria-label="Progresso do agendamento">
-      <button type="button" class="ac-step active" data-step="1">
+      <button type="button" class="ac-step active" data-step="0">
         <span class="ac-step-num">1</span>
+        <span class="ac-step-label">Identificação</span>
+      </button>
+      <span class="ac-step-divider"></span>
+      <button type="button" class="ac-step" data-step="1">
+        <span class="ac-step-num">2</span>
         <span class="ac-step-label">Serviço</span>
       </button>
       <span class="ac-step-divider"></span>
       <button type="button" class="ac-step" data-step="2">
-        <span class="ac-step-num">2</span>
+        <span class="ac-step-num">3</span>
         <span class="ac-step-label">Profissional</span>
       </button>
       <span class="ac-step-divider"></span>
       <button type="button" class="ac-step" data-step="3">
-        <span class="ac-step-num">3</span>
+        <span class="ac-step-num">4</span>
         <span class="ac-step-label">Data e horário</span>
       </button>
     </nav>
@@ -106,8 +111,42 @@
     <!-- MAIN -->
     <main class="ac-main">
 
+
+      <!-- ===== STEP 0: IDENTIFICAÇÃO DO CLIENTE ===== -->
+      <section class="ac-step-content active" data-step-content="0">
+        <div class="ac-section-head">
+          <h2>Olá! Vamos começar</h2>
+          <p class="ac-section-sub">Informe seu telefone para identificarmos seu cadastro</p>
+        </div>
+
+        <div class="ac-identify-card">
+          <label class="ac-field">
+            <span>Telefone (WhatsApp)</span>
+            <input type="tel" id="ac-id-tel" placeholder="(11) 99999-9999" autocomplete="tel" inputmode="numeric" />
+          </label>
+          <p class="ac-feedback" id="ac-id-feedback" hidden></p>
+          <button type="button" class="ac-btn ac-btn-primary ac-btn-full" id="ac-id-continuar">
+            <i class="fas fa-arrow-right"></i> Continuar
+          </button>
+        </div>
+
+        <!-- Bloco mostrado quando o cliente JÁ existe -->
+        <div class="ac-identify-card ac-identify-found" id="ac-id-found" hidden>
+          <div class="ac-identify-greet">
+            <i class="fas fa-circle-check"></i>
+            <div>
+              <strong>Olá, <span id="ac-id-nome">—</span>!</strong>
+              <small>Seu cadastro foi encontrado. Vamos seguir.</small>
+            </div>
+          </div>
+          <button type="button" class="ac-btn ac-btn-primary ac-btn-full" id="ac-id-seguir">
+            <i class="fas fa-arrow-right"></i> Escolher serviço
+          </button>
+        </div>
+      </section>
+
       <!-- ===== STEP 1: SERVIÇOS ===== -->
-      <section class="ac-step-content active" data-step-content="1">
+      <section class="ac-step-content" data-step-content="1">
         <div class="ac-section-head">
           <h2>Escolha um serviço</h2>
           <p class="ac-section-sub">Selecione o serviço que deseja agendar</p>
@@ -217,16 +256,8 @@
         </div>
       </div>
 
-      <div class="ac-form">
-        <label class="ac-field">
-          <span>Seu nome</span>
-          <input type="text" id="ac-input-nome" placeholder="Nome completo" autocomplete="name" />
-        </label>
-        <label class="ac-field">
-          <span>Telefone (WhatsApp)</span>
-          <input type="tel" id="ac-input-tel" placeholder="(11) 99999-9999" autocomplete="tel" />
-        </label>
-      </div>
+      <!-- Bloco de pacote (saldo OU venda). Preenchido em runtime. -->
+      <div class="ac-pacote-box" id="ac-pacote-box" hidden></div>
 
       <p class="ac-feedback" id="ac-feedback" hidden></p>
 
@@ -251,6 +282,46 @@
       <div class="ac-modal-actions single">
         <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-novo">
           Fazer novo agendamento
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================================================
+       MODAL: Cadastro de novo cliente (quando telefone não existe)
+       ============================================================ -->
+  <div class="ac-modal" id="ac-modal-cadastro" hidden>
+    <div class="ac-modal-backdrop" data-close-cadastro></div>
+    <div class="ac-modal-card" role="dialog" aria-modal="true" aria-labelledby="ac-cad-title">
+      <button type="button" class="ac-modal-close" data-close-cadastro aria-label="Fechar">
+        <i class="fas fa-times"></i>
+      </button>
+      <div class="ac-modal-icon"><i class="fas fa-user-plus"></i></div>
+      <h3 id="ac-cad-title">Bem-vindo(a)! Vamos te cadastrar</h3>
+      <p class="ac-modal-sub">Preencha seus dados para concluir o cadastro</p>
+
+      <div class="ac-form">
+        <label class="ac-field">
+          <span>Nome completo</span>
+          <input type="text" id="ac-cad-nome" placeholder="Seu nome completo" autocomplete="name" />
+        </label>
+        <label class="ac-field">
+          <span>Telefone (WhatsApp)</span>
+          <input type="tel" id="ac-cad-tel" placeholder="(11) 99999-9999" autocomplete="tel" readonly />
+        </label>
+        <label class="ac-field">
+          <span>Data de nascimento (opcional)</span>
+          <input type="date" id="ac-cad-nasc" />
+        </label>
+      </div>
+
+      <p class="ac-feedback" id="ac-cad-feedback" hidden></p>
+
+      <div class="ac-modal-actions">
+        <button type="button" class="ac-btn ac-btn-ghost" data-close-cadastro>Cancelar</button>
+        <button type="button" class="ac-btn ac-btn-primary" id="ac-btn-cadastrar">
+          <i class="fas fa-check"></i> Cadastrar e continuar
         </button>
       </div>
     </div>

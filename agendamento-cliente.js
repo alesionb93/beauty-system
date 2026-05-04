@@ -19,6 +19,171 @@
       .toLowerCase();
   }
 
+  /* ============================================================
+     TEMA DINÂMICO POR TENANT (agenda_themes)
+     ============================================================ */
+  function _hexToRgbStr(hex) {
+    if (!hex) return null;
+    var v = String(hex).trim().replace('#','');
+    if (v.length === 3) v = v.split('').map(function(c){return c+c;}).join('');
+    if (!/^[0-9a-fA-F]{6}$/.test(v)) return null;
+    var n = parseInt(v, 16);
+    return ((n>>16)&255)+','+((n>>8)&255)+','+(n&255);
+  }
+  function _rgba(hex, a) { var r = _hexToRgbStr(hex); return r ? 'rgba('+r+','+a+')' : null; }
+  function _shadeHex(hex, pct) {
+    var rgb = _hexToRgbStr(hex); if (!rgb) return hex;
+    var p = rgb.split(',').map(Number);
+    var f = pct < 0 ? 0 : 255, t = Math.abs(pct)/100;
+    var out = p.map(function(c){ return Math.round((f - c) * t + c); });
+    return '#' + out.map(function(c){ return ('0'+c.toString(16)).slice(-2); }).join('');
+  }
+  async function loadTenantTheme(tenantId) {
+    var sb = initSupabase();
+    if (!sb || !tenantId) return null;
+    try {
+      var rpc = await withTimeout(
+        sb.rpc('get_public_agenda_theme', { _tenant_id: tenantId }),
+        4000, 'rpc:get_public_agenda_theme'
+      );
+      if (!rpc.error && rpc.data) return Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+    } catch (e) {}
+    try {
+      var resp = await withTimeout(
+        sb.from('agenda_themes').select('*').eq('tenant_id', tenantId).maybeSingle(),
+        4000, 'agenda_themes'
+      );
+      if (!resp.error && resp.data) return resp.data;
+    } catch (e) {}
+    return null;
+  }
+  function applyTenantTheme(theme) {
+    if (!theme) return;
+    var root = document.documentElement;
+    var primary = theme.gold || theme.primary_color;
+    var bg      = theme.bg || theme.background_color;
+    var card    = theme.card || theme.card_background;
+    var cardHv  = theme.card_hover;
+    var text    = theme.text_color;
+    var title   = theme.page_title_color || text;
+    var border  = theme.cal_border;
+    if (primary) {
+      root.style.setProperty('--ac-primary', primary);
+      root.style.setProperty('--ac-primary-hover', _shadeHex(primary, -15));
+      root.style.setProperty('--ac-primary-light', _shadeHex(primary, 18));
+      var soft = _rgba(primary, 0.08); if (soft) root.style.setProperty('--ac-primary-soft', soft);
+      var brd  = _rgba(primary, 0.20); if (brd)  root.style.setProperty('--ac-primary-border', brd);
+      root.style.setProperty('--ac-accent', primary);
+      root.style.setProperty('--ac-accent-hover', _shadeHex(primary, -15));
+    }
+    if (bg)     root.style.setProperty('--ac-bg', bg);
+    if (card)   root.style.setProperty('--ac-surface', card);
+    if (cardHv) root.style.setProperty('--ac-surface-3', cardHv);
+    if (text)   root.style.setProperty('--ac-text', text);
+    if (title)  root.style.setProperty('--ac-title', title);
+    if (border) {
+      root.style.setProperty('--ac-border', border);
+      root.style.setProperty('--ac-border-strong', border);
+    }
+    if (theme.sidebar_bg) root.style.setProperty('--ac-sidebar-bg', theme.sidebar_bg);
+
+    /* ============================================================
+       BOOKING THEME — controle manual fino do link público.
+       Sobrescreve qualquer cor derivada acima.
+       ============================================================ */
+    var bk = theme.booking_theme;
+    if (bk && typeof bk === 'object') {
+      var map = {
+        page_bg: '--ac-bg',
+        text: '--ac-text',
+        title: '--ac-title',
+        subtitle: '--ac-text-muted',
+        border: '--ac-border',
+
+        btn_primary_bg: '--ac-primary',
+        btn_primary_hover: '--ac-primary-hover',
+        // accent CTA também segue primary
+        // input
+        input_bg: '--ac-surface-2',
+        input_text: '--ac-text',
+        input_border: '--ac-border',
+        input_focus: '--ac-primary',
+        // cards
+        card_bg: '--ac-surface',
+        card_hover: '--ac-surface-3',
+        card_border: '--ac-border',
+        card_title: '--ac-title',
+        card_desc: '--ac-text-muted',
+        card_price: '--ac-price'
+      };
+      Object.keys(map).forEach(function(k) {
+        if (bk[k]) root.style.setProperty(map[k], bk[k]);
+      });
+      // Replicar accent
+      if (bk.btn_primary_bg) {
+        root.style.setProperty('--ac-accent', bk.btn_primary_bg);
+        root.style.setProperty('--ac-accent-hover', bk.btn_primary_hover || _shadeHex(bk.btn_primary_bg, -15));
+        var s = _rgba(bk.btn_primary_bg, 0.08); if (s) root.style.setProperty('--ac-primary-soft', s);
+        var b = _rgba(bk.btn_primary_bg, 0.20); if (b) root.style.setProperty('--ac-primary-border', b);
+      }
+      // Vars adicionais lidas por seletores específicos via CSS booking-overrides
+      var extraMap = {
+        btn_primary_text: '--ac-btn-primary-text',
+        btn_secondary_bg: '--ac-btn-secondary-bg',
+        btn_secondary_text: '--ac-btn-secondary-text',
+        step_active: '--ac-step-active',
+        step_done: '--ac-step-done',
+        step_inactive: '--ac-step-inactive',
+        step_text: '--ac-step-text',
+        input_placeholder: '--ac-input-placeholder',
+        cal_bg: '--ac-cal-bg',
+        cal_day: '--ac-cal-day',
+        cal_day_sel_bg: '--ac-cal-day-sel-bg',
+        cal_day_sel_text: '--ac-cal-day-sel-text',
+        cal_slot: '--ac-cal-slot',
+        cal_slot_sel: '--ac-cal-slot-sel',
+        modal_bg: '--ac-modal-bg',
+        modal_text: '--ac-modal-text',
+        modal_highlight: '--ac-modal-highlight',
+        success_icon: '--ac-success-icon',
+        success_text: '--ac-success-text',
+        success_btn: '--ac-success-btn'
+      };
+      Object.keys(extraMap).forEach(function(k) {
+        if (bk[k]) root.style.setProperty(extraMap[k], bk[k]);
+      });
+      // Garante que booking-overrides.css esteja injetado
+      if (!document.getElementById('ac-booking-overrides')) {
+        var st = document.createElement('style');
+        st.id = 'ac-booking-overrides';
+        st.textContent = [
+          '/* Booking theme overrides — controle manual */',
+          '.ac-btn-primary, .ac-cta, button.ac-confirm, .ac-button-primary { background: var(--ac-primary) !important; color: var(--ac-btn-primary-text, #fff) !important; }',
+          '.ac-btn-primary:hover, .ac-cta:hover { background: var(--ac-primary-hover) !important; }',
+          '.ac-btn-secondary, .ac-cancel { background: var(--ac-btn-secondary-bg, transparent) !important; color: var(--ac-btn-secondary-text, var(--ac-text)) !important; }',
+          '.ac-stepper .ac-step.is-active .ac-step-num, .ac-step.is-active .ac-step-num { background: var(--ac-step-active, var(--ac-primary)) !important; border-color: var(--ac-step-active, var(--ac-primary)) !important; color: #fff !important; }',
+          '.ac-stepper .ac-step.is-done .ac-step-num,   .ac-step.is-done .ac-step-num   { background: var(--ac-step-done, #16A34A) !important; border-color: var(--ac-step-done, #16A34A) !important; color: #fff !important; }',
+          '.ac-stepper .ac-step,           .ac-step          { background: transparent !important; color: var(--ac-step-text, var(--ac-text)); }',
+          '.ac-stepper .ac-step:not(.is-active):not(.is-done) .ac-step-num { background: var(--ac-step-inactive, var(--ac-surface-3)) !important; }',
+          '.ac-input::placeholder, input.ac-input::placeholder, textarea::placeholder { color: var(--ac-input-placeholder, var(--ac-text-dim)) !important; }',
+          '.ac-calendar { background: var(--ac-cal-bg, var(--ac-surface)) !important; }',
+          '.ac-calendar .ac-day { color: var(--ac-cal-day, var(--ac-text)); }',
+          '.ac-calendar .ac-day.is-selected { background: var(--ac-cal-day-sel-bg, var(--ac-primary)) !important; color: var(--ac-cal-day-sel-text, #fff) !important; }',
+          '.ac-slot { color: var(--ac-cal-slot, var(--ac-text)); border-color: var(--ac-border); }',
+          '.ac-slot.is-selected { background: var(--ac-cal-slot-sel, var(--ac-primary)) !important; color: #fff !important; border-color: var(--ac-cal-slot-sel, var(--ac-primary)) !important; }',
+          '.ac-modal, .ac-confirm-card { background: var(--ac-modal-bg, var(--ac-surface)) !important; color: var(--ac-modal-text, var(--ac-text)) !important; }',
+          '.ac-modal .ac-highlight, .ac-price-highlight { color: var(--ac-modal-highlight, var(--ac-primary)) !important; }',
+          '.ac-success .ac-success-icon { background: var(--ac-success-icon, #16A34A) !important; color: #fff !important; }',
+          '.ac-success-text { color: var(--ac-success-text, var(--ac-text)) !important; }',
+          '.ac-success .ac-btn-novo { background: var(--ac-success-btn, var(--ac-primary)) !important; color: #fff !important; }'
+        ].join('\n');
+        document.head.appendChild(st);
+      }
+    }
+  }
+  window.__acApplyTenantTheme = applyTenantTheme;
+  window.__acLoadTenantTheme  = loadTenantTheme;
+
 
   /* Busca bloqueios do tenant para a data e profissionais informados,
      convertendo cada bloqueio em uma "ocupação" (mesmo formato dos agendamentos).
@@ -209,6 +374,215 @@
       { profissional_id: 'prof-3', data: todayISO(1), hora: '09:00', duracao_total: 120 }
     ]
   };
+
+
+  /* ============================================================
+     CLIENTE / PACOTES — fluxo unificado com o app interno.
+     Todas as operações trabalham com cliente_id como identidade.
+     ============================================================ */
+  function onlyDigits(s) { return String(s||'').replace(/\D/g,''); }
+  function formatTelefoneDisplay(tel) {
+    var v = onlyDigits(tel).slice(0, 11);
+    if (v.length > 6)      return '(' + v.slice(0,2) + ') ' + v.slice(2,7) + '-' + v.slice(7);
+    if (v.length > 2)      return '(' + v.slice(0,2) + ') ' + v.slice(2);
+    return v;
+  }
+
+  var ClienteService = {
+    /**
+     * Busca cliente por telefone (compara por dígitos). Tenta RPC pública
+     * primeiro; cai para SELECT direto se RPC não existir.
+     * Retorna { found: bool, cliente?: { id, nome, telefone } }
+     */
+    async buscarPorTelefone(tenantId, telefone) {
+      var sb = initSupabase();
+      if (!sb || !tenantId) return { found: false };
+      var telDigits = onlyDigits(telefone);
+      if (telDigits.length < 10) return { found: false };
+
+      // 1) RPC pública (preferida — anon-friendly)
+      try {
+        var rpc = await withTimeout(
+          sb.rpc('get_public_cliente_by_telefone', {
+            _tenant_id: tenantId, _telefone_digits: telDigits
+          }),
+          REQ_TIMEOUT, 'rpc:get_public_cliente_by_telefone'
+        );
+        if (!rpc.error && rpc.data) {
+          var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+          if (row && row.id) return { found: true, cliente: { id: row.id, nome: row.nome, telefone: row.telefone } };
+          return { found: false };
+        }
+      } catch(e) { /* fallback abaixo */ }
+
+      // 2) Fallback: SELECT direto. Compara por dígitos no client.
+      try {
+        var resp = await withTimeout(
+          sb.from('clientes').select('id, nome, telefone').eq('tenant_id', tenantId),
+          REQ_TIMEOUT, 'clientes-by-tenant'
+        );
+        if (resp.error || !resp.data) return { found: false };
+        var hit = resp.data.find(function(c){ return onlyDigits(c.telefone) === telDigits; });
+        return hit ? { found: true, cliente: hit } : { found: false };
+      } catch(e) { return { found: false }; }
+    },
+
+    /**
+     * Cria cliente novo. Telefone é normalizado para máscara display.
+     * Retorna o registro criado (ou existente, em caso de race).
+     */
+    async cadastrar(tenantId, dados) {
+      var sb = initSupabase();
+      if (!sb) throw new Error('Indisponível.');
+      var telFmt = formatTelefoneDisplay(dados.telefone);
+
+      // Antes de inserir, valida novamente (evita duplicidade por concorrência)
+      var jaExiste = await this.buscarPorTelefone(tenantId, telFmt);
+      if (jaExiste.found) return jaExiste.cliente;
+
+      // 1) RPC pública (preferida)
+      try {
+        var rpc = await withTimeout(
+          sb.rpc('create_public_cliente', {
+            _tenant_id: tenantId,
+            _nome: dados.nome,
+            _telefone: telFmt,
+            _nascimento: dados.nascimento || null
+          }),
+          REQ_TIMEOUT, 'rpc:create_public_cliente'
+        );
+        if (!rpc.error && rpc.data) {
+          var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+          if (row && row.id) return { id: row.id, nome: row.nome || dados.nome, telefone: telFmt };
+        }
+      } catch(e) { /* fallback */ }
+
+      // 2) Fallback: insert direto
+      var row = { tenant_id: tenantId, nome: dados.nome, telefone: telFmt };
+      if (dados.nascimento) row.nascimento = dados.nascimento;
+      var ins = await withTimeout(
+        sb.from('clientes').insert([row]).select('id, nome, telefone').single(),
+        REQ_TIMEOUT, 'clientes-insert'
+      );
+      if (ins.error) {
+        // Race-condition: alguém criou entre nossa checagem e o insert
+        var retry = await this.buscarPorTelefone(tenantId, telFmt);
+        if (retry.found) return retry.cliente;
+        throw new Error('Não foi possível cadastrar: ' + (ins.error.message || ''));
+      }
+      return ins.data;
+    }
+  };
+
+  var PacoteService = {
+    /**
+     * Lista cliente_pacotes ATIVOS deste cliente (com saldo, não expirados).
+     * Usado para mostrar "Você tem pacotes" no fluxo.
+     */
+    async listarAtivosDoCliente(tenantId, clienteId) {
+      var sb = initSupabase();
+      if (!sb || !tenantId || !clienteId) return [];
+      var hoje = todayISO();
+      try {
+        var rpc = await withTimeout(
+          sb.rpc('get_public_cliente_pacotes_ativos', { _tenant_id: tenantId, _cliente_id: clienteId }),
+          REQ_TIMEOUT, 'rpc:get_public_cliente_pacotes_ativos'
+        );
+        if (!rpc.error && Array.isArray(rpc.data)) return rpc.data;
+      } catch(e) {}
+      try {
+        var resp = await withTimeout(
+          sb.from('cliente_pacotes')
+            .select('id, pacote_id, quantidade_total, quantidade_restante, preco_unitario, data_expiracao, status, pacotes!inner(id, nome, servico_id, ativo)')
+            .eq('tenant_id', tenantId)
+            .eq('cliente_id', clienteId)
+            .eq('status', 'ativo')
+            .gt('quantidade_restante', 0)
+            .gte('data_expiracao', hoje)
+            .eq('pacotes.ativo', true),
+          REQ_TIMEOUT, 'cliente_pacotes'
+        );
+        if (resp.error || !resp.data) return [];
+        return resp.data;
+      } catch(e) { return []; }
+    },
+
+    /**
+     * Busca o pacote (definição) ATIVO mais recente para venda deste serviço.
+     */
+    async buscarOfertaParaServico(tenantId, servicoId) {
+      var sb = initSupabase();
+      if (!sb || !tenantId || !servicoId) return null;
+      try {
+        var rpc = await withTimeout(
+          sb.rpc('get_public_pacote_oferta', { _tenant_id: tenantId, _servico_id: servicoId }),
+          REQ_TIMEOUT, 'rpc:get_public_pacote_oferta'
+        );
+        if (!rpc.error && rpc.data) {
+          var r = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+          if (r && r.id) return r;
+        }
+      } catch(e) {}
+      try {
+        var resp = await withTimeout(
+          sb.from('pacotes')
+            .select('id, nome, servico_id, quantidade_total, preco_unitario_final, preco_total, validade_dias, ativo')
+            .eq('tenant_id', tenantId)
+            .eq('servico_id', servicoId)
+            .eq('ativo', true)
+            .order('created_at', { ascending: false })
+            .limit(1),
+          REQ_TIMEOUT, 'pacotes'
+        );
+        if (resp.error || !resp.data || !resp.data.length) return null;
+        return resp.data[0];
+      } catch(e) { return null; }
+    },
+
+    /**
+     * Função CENTRAL — espelha resolveServicePricingAndPackage do app interno.
+     * Decide se cliente pode usar pacote, vender pacote, ou pagar avulso.
+     * Retorna:
+     *  {
+     *    modo: 'PACOTE_USO' | 'PACOTE_VENDA' | 'NORMAL',
+     *    precoFinal: number,
+     *    pacoteUso?: { clientePacoteId, saldoRestante, nomePacote },
+     *    ofertaPacote?: { id, nome, quantidade_total, preco_total, preco_unitario_final }
+     *  }
+     */
+    async resolveServicePricingAndPackage(tenantId, clienteId, servicoId, precoServicoAvulso) {
+      var pacotesAtivos = state.pacotesAtivosCliente || [];
+      var disponiveis = pacotesAtivos.filter(function(cp){
+        var svc = cp.pacotes && cp.pacotes.servico_id;
+        return svc === servicoId && Number(cp.quantidade_restante||0) > 0;
+      });
+      if (disponiveis.length > 0) {
+        // Usa o que expira primeiro
+        disponiveis.sort(function(a,b){ return String(a.data_expiracao).localeCompare(String(b.data_expiracao)); });
+        var cp = disponiveis[0];
+        return {
+          modo: 'PACOTE_USO',
+          precoFinal: 0,
+          pacoteUso: {
+            clientePacoteId: cp.id,
+            saldoRestante: Number(cp.quantidade_restante||0),
+            nomePacote: (cp.pacotes && cp.pacotes.nome) || 'Pacote'
+          }
+        };
+      }
+      // Sem pacote — verificar oferta de venda
+      var oferta = await this.buscarOfertaParaServico(tenantId, servicoId);
+      if (oferta) {
+        return {
+          modo: 'PACOTE_VENDA',
+          precoFinal: Number(precoServicoAvulso||0),
+          ofertaPacote: oferta
+        };
+      }
+      return { modo: 'NORMAL', precoFinal: Number(precoServicoAvulso||0) };
+    }
+  };
+
 
   /* ============================================================
      3. TENANT DATA SERVICE — usa tabelas REAIS do schema
@@ -541,6 +915,12 @@
     },
 
     async criarAgendamento(payload) {
+      // payload: {
+      //   cliente_id, cliente_nome, cliente_telefone,
+      //   servico_id, profissional_id, data, hora,
+      //   duracao, preco, servicos_extras,
+      //   pacote: null | { acao:'usar', clientePacoteId } | { acao:'vender', pacoteDefId }
+      // }
       if (this.usingMock) {
         MOCK.agendamentos.push({
           profissional_id: payload.profissional_id, data: payload.data,
@@ -549,163 +929,50 @@
         return 'mock-' + Date.now();
       }
       var sb = initSupabase();
+      var clienteId = payload.cliente_id;
+      if (!clienteId) throw new Error('Cliente não identificado.');
 
-      try {
-        var rpcResp = await withTimeout(
-          sb.rpc('create_public_booking', {
-            _tenant_id: this.tenantId,
-            _cliente_nome: payload.cliente_nome,
-            _cliente_telefone: payload.cliente_telefone,
-            _servico_id: payload.servico_id,
-            _profissional_id: payload.profissional_id,
-            _data: payload.data,
-            _hora: payload.hora,
-            _duracao: payload.duracao,
-            _preco: payload.preco
-          }),
-          REQ_TIMEOUT,
-          'rpc:create_public_booking'
-        );
-        if (!rpcResp.error && rpcResp.data) {
-          var agId = Array.isArray(rpcResp.data) ? rpcResp.data[0] : rpcResp.data;
-          // Inserir serviços extras (recomendados aceitos) — RPC só cria o principal
-          if (agId && Array.isArray(payload.servicos_extras) && payload.servicos_extras.length > 0) {
-            try {
-              var extraRows = payload.servicos_extras.map(function (ex) {
-                return {
-                  tenant_id: this.tenantId,
-                  agendamento_id: agId,
-                  servico_id: ex.id,
-                  profissional_id: payload.profissional_id,
-                  preco: ex.preco,
-                  duracao: ex.duracao
-                };
-              }.bind(this));
-              await sb.from('agendamento_servicos').insert(extraRows);
-            } catch (exErr) {
-              console.warn('[ac] falha ao inserir serviços extras (upsell):', exErr && exErr.message);
-            }
-          }
-          return agId;
-        }
-        // Se a RPC retornou um erro de regra de negócio, NÃO tentar fallback (evita bypass)
-        if (rpcResp.error) {
-          var msg = String(rpcResp.error.message || '');
-          if (msg.indexOf('CLIENTE_NOME_DIVERGENTE') >= 0) {
-            // Formato esperado: "CLIENTE_NOME_DIVERGENTE:Nome Existente"
-            var nomeExistente = msg.split('CLIENTE_NOME_DIVERGENTE:')[1] || '';
-            nomeExistente = nomeExistente.split('\n')[0].trim();
-            throw new Error('Cliente já cadastrado com este telefone' + (nomeExistente ? ': ' + nomeExistente : '.'));
-          }
-          // Outros erros da RPC: tenta fallback abaixo
-          console.warn('[ac] create_public_booking RPC erro; tentando fallback por tabelas', msg);
-        }
-      } catch (rpcErr) {
-        // Repropaga erros de regra de negócio
-        if (rpcErr && /Cliente já cadastrado com este telefone/.test(rpcErr.message || '')) {
-          throw rpcErr;
-        }
-        console.warn('[ac] create_public_booking RPC indisponível; tentando fallback por tabelas', rpcErr && rpcErr.message);
-      }
+      // Chama RPC SECURITY DEFINER que cria o agendamento + linhas de serviço
+      // (e, se for venda de pacote, também cria o cliente_pacotes) em uma transação.
+      var pac = payload.pacote || null;
+      var extras = Array.isArray(payload.servicos_extras)
+        ? payload.servicos_extras.map(function(ex){
+            return { id: ex.id, preco: Number(ex.preco||0), duracao: Number(ex.duracao||30) };
+          })
+        : [];
 
-      var clienteId = null;
-      try {
-        var rExist = await withTimeout(
-          sb.from('clientes')
-            .select('id, nome')
-            .eq('tenant_id', this.tenantId)
-            .eq('telefone', payload.cliente_telefone)
-            .maybeSingle(),
-          REQ_TIMEOUT, 'clientes-find'
-        );
-        if (rExist.data && rExist.data.id) {
-          // Telefone já existe: validar nome SEM sobrescrever em hipótese alguma
-          var nomeExistente = rExist.data.nome || '';
-          if (normalizeName(nomeExistente) !== normalizeName(payload.cliente_nome)) {
-            throw new Error('Cliente já cadastrado com este telefone: ' + nomeExistente);
-          }
-          clienteId = rExist.data.id;
-        } else {
-          var rIns = await withTimeout(
-            sb.from('clientes').insert({
-              tenant_id: this.tenantId,
-              nome: payload.cliente_nome,
-              telefone: payload.cliente_telefone
-            }).select('id').single(),
-            REQ_TIMEOUT, 'clientes-insert'
-          );
-          if (rIns.error) throw rIns.error;
-          clienteId = rIns.data.id;
-        }
-      } catch (e) {
-        // Preservar mensagem amigável da regra de unicidade
-        if (e && /Cliente já cadastrado com este telefone/.test(e.message || '')) {
-          throw e;
-        }
-        throw new Error('Falha ao registrar cliente: ' + (e.message || e));
-      }
-
-      var rAg = await withTimeout(
-        sb.from('agendamentos').insert({
-          tenant_id: this.tenantId,
-          cliente_id: clienteId,
-          cliente_nome: payload.cliente_nome,
-          cliente_telefone: payload.cliente_telefone,
-          profissional_id: payload.profissional_id,
-          data: payload.data,
-          hora: payload.hora,
-          status: 'agendado'
-        }).select('id').single(),
-        REQ_TIMEOUT, 'agendamentos-insert'
+      var rRpc = await withTimeout(
+        sb.rpc('create_public_agendamento', {
+          _tenant_id: this.tenantId,
+          _cliente_id: clienteId,
+          _cliente_nome: payload.cliente_nome,
+          _cliente_telefone: payload.cliente_telefone,
+          _profissional_id: payload.profissional_id,
+          _data: payload.data,
+          _hora: payload.hora,
+          _servico_id: payload.servico_id,
+          _duracao: Number(payload.duracao || 30),
+          _preco: Number(payload.preco || 0),
+          _pacote_acao: pac ? pac.acao : null,
+          _cliente_pacote_id: pac && pac.acao === 'usar'   ? pac.clientePacoteId : null,
+          _pacote_def_id:    pac && pac.acao === 'vender' ? pac.pacoteDefId     : null,
+          _servicos_extras: extras
+        }),
+        REQ_TIMEOUT, 'create_public_agendamento'
       );
-      if (rAg.error) throw rAg.error;
+      if (rRpc.error) throw rRpc.error;
+      var agId = rRpc.data;
 
-      var asRows = [{
-        tenant_id: this.tenantId,
-        agendamento_id: rAg.data.id,
-        servico_id: payload.servico_id,
-        profissional_id: payload.profissional_id,
-        preco: payload.preco,
-        duracao: payload.duracao
-      }];
-      if (Array.isArray(payload.servicos_extras)) {
-        payload.servicos_extras.forEach(function (ex) {
-          asRows.push({
-            tenant_id: this.tenantId,
-            agendamento_id: rAg.data.id,
-            servico_id: ex.id,
-            profissional_id: payload.profissional_id,
-            preco: ex.preco,
-            duracao: ex.duracao
-          });
-        }.bind(this));
-      }
-      var rAS = await withTimeout(
-        sb.from('agendamento_servicos').insert(asRows),
-        REQ_TIMEOUT, 'agendamento_servicos-insert'
-      );
-      if (rAS.error) throw rAS.error;
-
-      // [v10] Notifica a agenda interna (mesma origem, outras abas) via BroadcastChannel.
-      // Rota redundante ao Realtime do Supabase: garante toast/som/refetch instantâneo
-      // no cenário "abas no mesmo navegador" (caso de teste do usuário).
+      // Broadcast para a agenda interna (abas mesmo navegador)
       try {
         if (typeof BroadcastChannel !== 'undefined') {
           var bc = new BroadcastChannel('beauty-agenda');
-          bc.postMessage({
-            type: 'novo-agendamento',
-            tenantId: this.tenantId,
-            agendamento_id: rAg.data.id,
-            cliente_nome: payload.cliente_nome
-          });
+          bc.postMessage({ type:'novo-agendamento', tenantId: this.tenantId, agendamento_id: agId, cliente_nome: payload.cliente_nome });
           bc.close();
-          console.log('[ac] broadcast novo-agendamento enviado');
         }
-      } catch (e) {
-        console.warn('[ac] BroadcastChannel falhou:', e);
-      }
+      } catch (e) {}
 
-      return rAg.data.id;
+      return agId;
     }
   };
 
@@ -748,7 +1015,10 @@
     calYear: new Date().getFullYear(),
     ocupacoesCache: [],
     recomendacoes: [],      // serviços sugeridos para o serviço atual
-    acceptedUpsells: []     // serviços extras aceitos pelo cliente
+    acceptedUpsells: [],    // serviços extras aceitos pelo cliente
+    cliente: null,          // { id, nome, telefone } — sempre setado após Step 0
+    pacotesAtivosCliente: [], // cliente_pacotes ativos com saldo (cache)
+    pricingResolution: null // resultado de resolveServicePricingAndPackage para o serviço atual
   };
 
   /* ============================================================
@@ -1230,8 +1500,38 @@
     $('#ac-r-duracao').textContent = formatDuracao(totalDuracao);
     $('#ac-r-valor').textContent   = brl(totalPreco);
     $('#ac-feedback').hidden = true;
-    $('#ac-input-nome').value = '';
-    $('#ac-input-tel').value = '';
+
+    // Bloco de pacote: avalia em runtime usando state.pricingResolution
+    var box = $('#ac-pacote-box');
+    if (box) {
+      box.hidden = true; box.innerHTML = ''; box.className = 'ac-pacote-box';
+      var res = state.pricingResolution;
+      if (res && res.modo === 'PACOTE_USO') {
+        box.hidden = false;
+        box.innerHTML =
+          '<div class="ac-pacote-title"><i class="fas fa-box-open"></i> Você tem pacote para este serviço!</div>' +
+          '<div class="ac-pacote-sub">Pacote <strong>' + escapeHtml(res.pacoteUso.nomePacote) + '</strong> — ' +
+            res.pacoteUso.saldoRestante + ' uso(s) restantes.</div>' +
+          '<label><input type="checkbox" id="ac-pacote-usar" checked> Usar 1 sessão deste pacote (não será cobrado)</label>';
+        // Atualiza valor exibido quando alterna o checkbox
+        setTimeout(function(){
+          var chk = document.getElementById('ac-pacote-usar');
+          if (chk) chk.addEventListener('change', function(){
+            $('#ac-r-valor').textContent = chk.checked ? brl(0) : brl(totalPreco);
+          });
+          $('#ac-r-valor').textContent = brl(0);
+        }, 0);
+      } else if (res && res.modo === 'PACOTE_VENDA') {
+        var of = res.ofertaPacote;
+        box.hidden = false;
+        box.classList.add('venda');
+        box.innerHTML =
+          '<div class="ac-pacote-title"><i class="fas fa-tags"></i> Aproveite: pacote disponível</div>' +
+          '<div class="ac-pacote-sub">' + escapeHtml(of.nome) + ' — ' + of.quantidade_total +
+            ' usos por ' + brl(of.preco_total) + ' (' + brl(of.preco_unitario_final) + ' por uso).</div>' +
+          '<label><input type="checkbox" id="ac-pacote-comprar"> Comprar este pacote agora e usar a 1ª sessão hoje</label>';
+      }
+    }
 
     $('#ac-modal-confirm').hidden = false;
     document.body.style.overflow = 'hidden';
@@ -1248,32 +1548,41 @@
   }
 
   async function confirmarAgendamento() {
-    var nome = $('#ac-input-nome').value.trim();
-    var tel  = $('#ac-input-tel').value.replace(/\D/g, '');
-    if (nome.length < 2) return showFeedback('Informe seu nome completo.');
-    if (tel.length < 10) return showFeedback('Informe um telefone válido.');
-
+    if (!state.cliente || !state.cliente.id) {
+      return showFeedback('Sessão expirada. Recomece informando seu telefone.');
+    }
     var servico = state.selectedServico;
     var profId = state.selectedProfissional.id === '__no_pref__'
-      ? state.autoChosenProf.id
-      : state.selectedProfissional.id;
+      ? state.autoChosenProf.id : state.selectedProfissional.id;
     var profNome = state.selectedProfissional.id === '__no_pref__'
-      ? state.autoChosenProf.nome
-      : state.selectedProfissional.nome;
+      ? state.autoChosenProf.nome : state.selectedProfissional.nome;
+
+    // Decidir info de pacote a enviar
+    var pacotePayload = null;
+    var res = state.pricingResolution;
+    var chkUsar = document.getElementById('ac-pacote-usar');
+    var chkComprar = document.getElementById('ac-pacote-comprar');
+    if (res && res.modo === 'PACOTE_USO' && chkUsar && chkUsar.checked) {
+      pacotePayload = { acao: 'usar', clientePacoteId: res.pacoteUso.clientePacoteId };
+    } else if (res && res.modo === 'PACOTE_VENDA' && chkComprar && chkComprar.checked) {
+      pacotePayload = { acao: 'vender', pacoteDefId: res.ofertaPacote.id };
+    }
 
     var btn = $('#ac-btn-confirmar');
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
     try {
       await TenantDataService.criarAgendamento({
-        cliente_nome: nome,
-        cliente_telefone: tel,
+        cliente_id: state.cliente.id,
+        cliente_nome: state.cliente.nome,
+        cliente_telefone: state.cliente.telefone,
         servico_id: servico.id,
         profissional_id: profId,
         data: state.selectedDate,
         hora: state.selectedSlot,
         duracao: servico.duracao,
         preco: servico.preco,
+        pacote: pacotePayload,
         servicos_extras: (state.acceptedUpsells || []).map(function (e) {
           return { id: e.id, preco: e.preco, duracao: e.duracao };
         })
@@ -1283,6 +1592,10 @@
         servico.nome + ' com ' + profNome + ' em ' + formatDateBR(state.selectedDate) +
         ' às ' + state.selectedSlot + '.';
       $('#ac-modal-success').hidden = false;
+      // Recarrega pacotes (caso tenha vendido) para refletir saldo no próximo flow
+      try {
+        state.pacotesAtivosCliente = await PacoteService.listarAtivosDoCliente(state.tenant.tenant_id, state.cliente.id);
+      } catch(e) {}
     } catch (err) {
       console.error(err);
       showFeedback((err && err.message) || 'Não foi possível confirmar. Tente novamente.');
@@ -1293,21 +1606,27 @@
   }
 
   function resetFlow() {
-    state.selectedServico = null;
-    state.selectedProfissional = null;
-    state.selectedDate = null;
-    state.selectedSlot = null;
-    state.autoChosenProf = null;
-    state.recomendacoes = [];
-    state.acceptedUpsells = [];
-    closeModals();
-    goToStep(1);
+    window.location.reload();
   }
+
+
+
+
+
+
+
+
+
+
+
+
 
   /* ============================================================
      9. NAVEGAÇÃO
      ============================================================ */
   function goToStep(n) {
+    // Bloqueia avanço se cliente não identificado
+    if (n > 0 && (!state.cliente || !state.cliente.id)) { n = 0; }
     state.step = n;
     $$('.ac-step-content').forEach(function (el) {
       el.classList.toggle('active', parseInt(el.getAttribute('data-step-content'), 10) === n);
@@ -1330,12 +1649,17 @@
     state.selectedSlot = null;
     state.acceptedUpsells = [];
     state.recomendacoes = [];
+    state.pricingResolution = null;
 
-    // Carregar profissionais e recomendações em paralelo
+    // Carregar profissionais, recomendações e pricing/pacote em paralelo
     Promise.all([
       TenantDataService.listarProfissionais(srv.id),
-      TenantDataService.listarRecomendacoes(srv.id)
+      TenantDataService.listarRecomendacoes(srv.id),
+      (state.cliente && state.cliente.id)
+        ? PacoteService.resolveServicePricingAndPackage(state.tenant.tenant_id, state.cliente.id, srv.id, srv.preco)
+        : Promise.resolve({ modo:'NORMAL', precoFinal: srv.preco })
     ]).then(function (results) {
+      state.pricingResolution = results[2] || { modo:'NORMAL', precoFinal: srv.preco };
       state.profissionais = results[0] || [];
       state.recomendacoes = (results[1] || []).filter(function (r) { return r.id !== srv.id; });
       if (state.profissionais.length === 0) {
@@ -1406,6 +1730,86 @@
     closeUpsellModalAndContinue();
   }
 
+
+  /* ============================================================
+     STEP 0: lógica de identificação e cadastro
+     ============================================================ */
+  async function identificarClientePorTelefone() {
+    var input = $('#ac-id-tel');
+    var fb = $('#ac-id-feedback');
+    fb.hidden = true;
+    var tel = (input.value || '').trim();
+    var digits = tel.replace(/\D/g,'');
+    if (digits.length < 10) {
+      fb.hidden = false; fb.textContent = 'Informe um telefone válido com DDD.';
+      return;
+    }
+    var btn = $('#ac-id-continuar');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verificando...';
+    try {
+      var tenantId = state.tenant && state.tenant.tenant_id;
+      var result = await ClienteService.buscarPorTelefone(tenantId, tel);
+      if (result.found) {
+        state.cliente = result.cliente;
+        // Carrega pacotes ativos imediatamente
+        try {
+          state.pacotesAtivosCliente = await PacoteService.listarAtivosDoCliente(tenantId, state.cliente.id);
+        } catch(e) { state.pacotesAtivosCliente = []; }
+        // Mostra saudação
+        $('#ac-id-nome').textContent = state.cliente.nome || 'cliente';
+        $('#ac-id-found').hidden = false;
+        // Esconde formulário de telefone
+        var card = input.closest('.ac-identify-card');
+        if (card) card.style.display = 'none';
+      } else {
+        // Abrir modal de cadastro com telefone preenchido
+        $('#ac-cad-tel').value = formatTelefoneDisplay(tel);
+        $('#ac-cad-nome').value = '';
+        $('#ac-cad-nasc').value = '';
+        $('#ac-cad-feedback').hidden = true;
+        $('#ac-modal-cadastro').hidden = false;
+        document.body.style.overflow = 'hidden';
+        setTimeout(function(){ $('#ac-cad-nome').focus(); }, 50);
+      }
+    } catch(e) {
+      console.error('[ac] identificar erro', e);
+      fb.hidden = false; fb.textContent = 'Não foi possível verificar agora. Tente de novo.';
+    } finally {
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-arrow-right"></i> Continuar';
+    }
+  }
+
+  async function cadastrarNovoCliente() {
+    var nome = ($('#ac-cad-nome').value || '').trim();
+    var tel  = ($('#ac-cad-tel').value || '').trim();
+    var nasc = $('#ac-cad-nasc').value || null;
+    var fb = $('#ac-cad-feedback');
+    fb.hidden = true;
+    if (nome.length < 2) { fb.hidden = false; fb.textContent = 'Informe seu nome completo.'; return; }
+    var btn = $('#ac-btn-cadastrar');
+    btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cadastrando...';
+    try {
+      var tenantId = state.tenant && state.tenant.tenant_id;
+      var novo = await ClienteService.cadastrar(tenantId, { nome: nome, telefone: tel, nascimento: nasc });
+      state.cliente = novo;
+      try {
+        state.pacotesAtivosCliente = await PacoteService.listarAtivosDoCliente(tenantId, state.cliente.id);
+      } catch(e) { state.pacotesAtivosCliente = []; }
+      $('#ac-modal-cadastro').hidden = true;
+      document.body.style.overflow = '';
+      // Mostra saudação no Step 0
+      $('#ac-id-nome').textContent = state.cliente.nome;
+      $('#ac-id-found').hidden = false;
+      var card = $('#ac-id-tel').closest('.ac-identify-card');
+      if (card) card.style.display = 'none';
+    } catch(e) {
+      console.error('[ac] cadastrar erro', e);
+      fb.hidden = false; fb.textContent = (e && e.message) || 'Não foi possível cadastrar.';
+    } finally {
+      btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Cadastrar e continuar';
+    }
+  }
+
   function showDisabled(msg) {
     console.log('[ac] showDisabled chamado:', msg);
     var app = $('#ac-app'); if (app) { app.hidden = true; app.style.display = 'none'; }
@@ -1447,6 +1851,12 @@
       console.log('[ac] boot: chamando carregarTenant...');
       var tenant = await TenantDataService.carregarTenant(tenantId);
       console.log('[ac] boot: carregarTenant retornou:', tenant);
+
+      // Aplica tema do tenant (cores configuradas no app interno) o quanto antes
+      try {
+        var _theme = await loadTenantTheme(tenantId);
+        if (_theme) { applyTenantTheme(_theme); console.log('[ac] boot: tema do tenant aplicado'); }
+      } catch (e) { console.warn('[ac] boot: falha ao aplicar tema do tenant', e); }
 
       if (!tenant) {
         clearTimeout(safetyTimer);
@@ -1555,6 +1965,36 @@
         closeModals();
       }
     });
+
+    // ===== STEP 0: identificação por telefone =====
+    var idTel = $('#ac-id-tel');
+    if (idTel) idTel.addEventListener('input', function(){
+      var v = idTel.value.replace(/\D/g,'').slice(0,11);
+      if (v.length > 6)      idTel.value = '(' + v.slice(0,2) + ') ' + v.slice(2,7) + '-' + v.slice(7);
+      else if (v.length > 2) idTel.value = '(' + v.slice(0,2) + ') ' + v.slice(2);
+      else                   idTel.value = v;
+    });
+
+    var idBtn = $('#ac-id-continuar');
+    if (idBtn) idBtn.addEventListener('click', identificarClientePorTelefone);
+    if (idTel) idTel.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') { e.preventDefault(); identificarClientePorTelefone(); }
+    });
+
+    var idSeguir = $('#ac-id-seguir');
+    if (idSeguir) idSeguir.addEventListener('click', function(){ goToStep(1); });
+
+    // ===== Modal de cadastro =====
+    $$('[data-close-cadastro]').forEach(function(el){
+      el.addEventListener('click', function(){
+        $('#ac-modal-cadastro').hidden = true;
+        document.body.style.overflow = '';
+      });
+    });
+    var cadTel = $('#ac-cad-tel');
+    var cadBtn = $('#ac-btn-cadastrar');
+    if (cadBtn) cadBtn.addEventListener('click', cadastrarNovoCliente);
+
     console.log('[ac] bindEvents: fim');
   }
 

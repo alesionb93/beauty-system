@@ -321,7 +321,7 @@ img, video, svg { max-width: 100%; }
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0 0 4px;
-  color: var(--ac-text);
+  color: var(--ac-title, var(--ac-text));
   letter-spacing: -0.01em;
 }
 .ac-section-sub {
@@ -1022,3 +1022,100 @@ img, video, svg { max-width: 100%; }
   .ac-upsell-item-info { text-align: center; }
   .ac-upsell-item-add { width: 100%; }
 }
+
+
+/* ============================================================
+   IDENTIFICAÇÃO DO CLIENTE (Step 0) + bloco de pacote
+   ============================================================ */
+.ac-identify-card {
+  background: var(--ac-surface);
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius);
+  padding: 24px;
+  box-shadow: var(--ac-shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 480px;
+  margin: 16px auto;
+}
+.ac-identify-card .ac-field span {
+  display: block;
+  font-size: 13px;
+  color: var(--ac-text-muted);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.ac-identify-card input[type="tel"],
+.ac-identify-card input[type="text"],
+.ac-identify-card input[type="date"] {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+  background: var(--ac-surface-2);
+  color: var(--ac-text);
+  font-size: 16px;
+  font-family: var(--ac-font);
+  transition: border-color var(--ac-transition);
+}
+.ac-identify-card input:focus {
+  outline: none;
+  border-color: var(--ac-primary);
+  background: var(--ac-surface);
+}
+.ac-btn-full { width: 100%; justify-content: center; }
+.ac-identify-greet {
+  display: flex; align-items: center; gap: 14px;
+  padding: 4px 2px;
+}
+.ac-identify-greet i {
+  color: var(--ac-success); font-size: 36px;
+}
+.ac-identify-greet strong { display: block; font-size: 17px; color: var(--ac-text); }
+.ac-identify-greet small { display: block; color: var(--ac-text-muted); font-size: 13px; margin-top: 2px; }
+
+/* Banner de pacote dentro do modal de confirmação */
+.ac-pacote-box {
+  margin-top: 8px;
+  border-radius: var(--ac-radius-sm);
+  padding: 14px 16px;
+  border: 1px solid var(--ac-primary-border);
+  background: var(--ac-primary-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ac-pacote-box.venda {
+  border-color: #FBBF24;
+  background: rgba(251, 191, 36, 0.08);
+}
+.ac-pacote-box .ac-pacote-title {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 600; color: var(--ac-text); font-size: 14px;
+}
+.ac-pacote-box .ac-pacote-title i { color: var(--ac-primary); }
+.ac-pacote-box.venda .ac-pacote-title i { color: #B45309; }
+.ac-pacote-box .ac-pacote-sub { color: var(--ac-text-muted); font-size: 13px; line-height: 1.4; }
+.ac-pacote-box label {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; color: var(--ac-text);
+  cursor: pointer; user-select: none;
+}
+.ac-pacote-box input[type="checkbox"] {
+  width: 18px; height: 18px; accent-color: var(--ac-primary); cursor: pointer;
+}
+
+/* ============================================================
+   FIX: garante que [hidden] esconde mesmo elementos com display:flex
+   ============================================================ */
+[hidden] { display: none !important; }
+
+/* ============================================================
+   TEMA DINÂMICO POR TENANT
+   Variáveis sobrescritas em runtime via JS (applyTenantTheme)
+   a partir da tabela agenda_themes. Mantém fallbacks seguros.
+   ============================================================ */
+.ac-section-head h2,
+.ac-section-head h1 { color: var(--ac-title, var(--ac-text)); }
+

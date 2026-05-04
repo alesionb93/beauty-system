@@ -115,6 +115,181 @@
   var temaLogoFile = null;
 
   /* ══════════════════════════════════════════════
+     BOOKING THEME (Link de Agendamento — fluxo externo)
+     ══════════════════════════════════════════════ */
+  var BOOKING_DEFAULTS = {
+    page_bg: '#F8F8F6', text: '#1A1A2E', title: '#1A1A2E', subtitle: '#6B7280', border: '#E5E7EB',
+    btn_primary_bg: '#6C3AED', btn_primary_text: '#FFFFFF', btn_primary_hover: '#5B21B6',
+    btn_secondary_bg: '#FFFFFF', btn_secondary_text: '#1A1A2E',
+    step_active: '#6C3AED', step_done: '#16A34A', step_inactive: '#E5E7EB', step_text: '#1A1A2E',
+    card_bg: '#FFFFFF', card_hover: '#F0F0EE', card_title: '#1A1A2E', card_desc: '#6B7280',
+    card_price: '#6C3AED', card_border: '#E5E7EB',
+    input_bg: '#F9FAFB', input_text: '#1A1A2E', input_placeholder: '#9CA3AF',
+    input_border: '#E5E7EB', input_focus: '#6C3AED',
+    cal_bg: '#FFFFFF', cal_day: '#1A1A2E', cal_day_sel_bg: '#6C3AED', cal_day_sel_text: '#FFFFFF',
+    cal_slot: '#1A1A2E', cal_slot_sel: '#6C3AED',
+    modal_bg: '#FFFFFF', modal_text: '#1A1A2E', modal_highlight: '#6C3AED',
+    success_icon: '#16A34A', success_text: '#1A1A2E', success_btn: '#6C3AED'
+  };
+  // Mapa input id -> chave
+  var BOOKING_FIELDS = {
+    'bk-page-bg':'page_bg','bk-text':'text','bk-title':'title','bk-subtitle':'subtitle','bk-border':'border',
+    'bk-btn-primary-bg':'btn_primary_bg','bk-btn-primary-text':'btn_primary_text','bk-btn-primary-hover':'btn_primary_hover',
+    'bk-btn-secondary-bg':'btn_secondary_bg','bk-btn-secondary-text':'btn_secondary_text',
+    'bk-step-active':'step_active','bk-step-done':'step_done','bk-step-inactive':'step_inactive','bk-step-text':'step_text',
+    'bk-card-bg':'card_bg','bk-card-hover':'card_hover','bk-card-title':'card_title','bk-card-desc':'card_desc',
+    'bk-card-price':'card_price','bk-card-border':'card_border',
+    'bk-input-bg':'input_bg','bk-input-text':'input_text','bk-input-placeholder':'input_placeholder',
+    'bk-input-border':'input_border','bk-input-focus':'input_focus',
+    'bk-cal-bg':'cal_bg','bk-cal-day':'cal_day','bk-cal-day-sel-bg':'cal_day_sel_bg','bk-cal-day-sel-text':'cal_day_sel_text',
+    'bk-cal-slot':'cal_slot','bk-cal-slot-sel':'cal_slot_sel',
+    'bk-modal-bg':'modal_bg','bk-modal-text':'modal_text','bk-modal-highlight':'modal_highlight',
+    'bk-success-icon':'success_icon','bk-success-text':'success_text','bk-success-btn':'success_btn'
+  };
+  var currentBookingTheme = Object.assign({}, BOOKING_DEFAULTS);
+
+  function setupBookingInputs() {
+    Object.keys(BOOKING_FIELDS).forEach(function(id) {
+      var inp = document.getElementById(id);
+      if (!inp) return;
+      var key = BOOKING_FIELDS[id];
+      inp.addEventListener('input', function() {
+        currentBookingTheme[key] = inp.value;
+        var lbl = document.getElementById(id + '-label');
+        if (lbl) lbl.textContent = inp.value;
+        updateBookingPreview();
+      });
+    });
+    // Tabs do preview
+    document.querySelectorAll('.bk-tab-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = btn.getAttribute('data-bk-tab');
+        document.querySelectorAll('.bk-pv-pane').forEach(function(p) {
+          p.style.display = (p.getAttribute('data-pane') === idx) ? 'block' : 'none';
+        });
+        document.querySelectorAll('.bk-tab-btn').forEach(function(b){ b.dataset.active = '0'; });
+        btn.dataset.active = '1';
+        updateBookingPreview();
+      });
+    });
+  }
+
+  function aplicarBookingTemaNoForm() {
+    Object.keys(BOOKING_FIELDS).forEach(function(id) {
+      var inp = document.getElementById(id);
+      var key = BOOKING_FIELDS[id];
+      var val = currentBookingTheme[key] || BOOKING_DEFAULTS[key];
+      if (inp) inp.value = val;
+      var lbl = document.getElementById(id + '-label');
+      if (lbl) lbl.textContent = val;
+    });
+  }
+
+  function updateBookingPreview() {
+    var t = Object.assign({}, BOOKING_DEFAULTS, currentBookingTheme);
+    var stage = document.getElementById('bk-preview-stage');
+    if (!stage) return;
+    stage.style.background = t.page_bg;
+    stage.style.color = t.text;
+
+    // Stepper — qual step ativo conforme tab
+    var activeTab = document.querySelector('.bk-tab-btn[data-active="1"]');
+    var activeIdx = activeTab ? parseInt(activeTab.getAttribute('data-bk-tab'), 10) : 0;
+    var steps = stage.querySelectorAll('.bk-preview-step');
+    steps.forEach(function(s, i) {
+      if (i < activeIdx) s.style.background = t.step_done;
+      else if (i === activeIdx) s.style.background = t.step_active;
+      else s.style.background = t.step_inactive;
+    });
+
+    // Headings
+    stage.querySelectorAll('.bk-preview-h1').forEach(function(el){ el.style.color = t.title; });
+    stage.querySelectorAll('.bk-preview-sub').forEach(function(el){ el.style.color = t.subtitle; });
+
+    // Cards
+    stage.querySelectorAll('.bk-pv-card').forEach(function(c) {
+      c.style.background = t.card_bg;
+      c.style.borderColor = t.card_border;
+      var ti = c.querySelector('.bk-card-title'); if (ti) ti.style.color = t.card_title;
+      var ds = c.querySelector('.bk-card-desc'); if (ds) ds.style.color = t.card_desc;
+      var pr = c.querySelector('.bk-card-price'); if (pr) pr.style.color = t.card_price;
+    });
+
+    // Input
+    stage.querySelectorAll('.bk-pv-input').forEach(function(inp) {
+      inp.style.background = t.input_bg;
+      inp.style.color = t.input_text;
+      inp.style.borderColor = t.input_border;
+    });
+
+    // Calendário
+    var cal = document.getElementById('bk-pv-cal');
+    if (cal) {
+      cal.style.background = t.cal_bg;
+      cal.style.borderColor = t.border;
+      cal.style.border = '1px solid ' + t.border;
+      var html = '';
+      for (var d = 1; d <= 14; d++) {
+        var sel = (d === 8);
+        html += '<div class="bk-cal-day" style="' +
+          (sel ? 'background:' + t.cal_day_sel_bg + ';color:' + t.cal_day_sel_text + ';font-weight:700;'
+               : 'color:' + t.cal_day + ';') + '">' + d + '</div>';
+      }
+      cal.innerHTML = html;
+    }
+    var slots = document.getElementById('bk-pv-slots');
+    if (slots) {
+      var hours = ['09:00','10:00','11:00','14:00'];
+      slots.innerHTML = hours.map(function(h, i) {
+        var sel = i === 1;
+        return '<div class="bk-preview-slot" style="' +
+          (sel ? 'background:' + t.cal_slot_sel + ';color:#fff;border-color:' + t.cal_slot_sel + ';'
+               : 'color:' + t.cal_slot + ';border-color:' + t.border + ';') + '">' + h + '</div>';
+      }).join('');
+    }
+
+    // Modal pane
+    stage.querySelectorAll('.bk-pv-modal').forEach(function(m) {
+      m.style.background = t.modal_bg;
+      m.style.color = t.modal_text;
+      m.style.borderColor = t.border;
+    });
+    stage.querySelectorAll('.bk-pv-highlight').forEach(function(el){ el.style.color = t.modal_highlight; el.style.fontWeight = '700'; });
+
+    // Botões
+    stage.querySelectorAll('.bk-pv-btn-primary').forEach(function(b){
+      b.style.background = t.btn_primary_bg; b.style.color = t.btn_primary_text;
+    });
+    stage.querySelectorAll('.bk-pv-btn-secondary').forEach(function(b){
+      b.style.background = t.btn_secondary_bg; b.style.color = t.btn_secondary_text; b.style.borderColor = t.border;
+    });
+
+    // Sucesso
+    var sIcon = document.getElementById('bk-pv-success-icon');
+    if (sIcon) sIcon.style.background = t.success_icon;
+    var sText = document.getElementById('bk-pv-success-text');
+    if (sText) sText.style.color = t.success_text;
+    var sBtn = document.getElementById('bk-pv-success-btn');
+    if (sBtn) { sBtn.style.background = t.success_btn; sBtn.style.color = '#fff'; }
+
+    // Tabs visual
+    document.querySelectorAll('.bk-tab-btn').forEach(function(b) {
+      var active = b.dataset.active === '1';
+      b.style.color = active ? t.step_active : t.subtitle;
+      b.style.borderBottomColor = active ? t.step_active : 'transparent';
+      b.style.fontWeight = active ? '700' : '500';
+    });
+  }
+  // Marca primeira tab como ativa por padrão
+  document.addEventListener('DOMContentLoaded', function() {
+    var first = document.querySelector('.bk-tab-btn[data-bk-tab="0"]');
+    if (first) first.dataset.active = '1';
+    setupBookingInputs();
+    aplicarBookingTemaNoForm();
+    updateBookingPreview();
+  });
+
+  /* ══════════════════════════════════════════════
      PICKR — Configuração e instâncias
      ══════════════════════════════════════════════ */
   var pickrInstances = {};
@@ -840,11 +1015,20 @@
       var resp = await supabaseClient.from('agenda_themes').select('*').eq('tenant_id', tenantId).maybeSingle();
       if (resp && resp.data) {
         currentTheme = Object.assign({}, DEFAULTS, resp.data);
+        // Carrega booking_theme (jsonb) — fallback p/ defaults se ausente
+        if (resp.data.booking_theme && typeof resp.data.booking_theme === 'object') {
+          currentBookingTheme = Object.assign({}, BOOKING_DEFAULTS, resp.data.booking_theme);
+        } else {
+          currentBookingTheme = Object.assign({}, BOOKING_DEFAULTS);
+        }
       } else {
         currentTheme = Object.assign({}, DEFAULTS);
+        currentBookingTheme = Object.assign({}, BOOKING_DEFAULTS);
       }
       aplicarTemaNoForm();
+      aplicarBookingTemaNoForm();
       updateAllPreviews();
+      updateBookingPreview();
       aplicarTemaNoAgenda(currentTheme);
     } catch (e) {
       console.error('Erro ao carregar tema:', e);
@@ -907,12 +1091,17 @@
       appt_service_color: currentTheme.appt_service_color || DEFAULTS.appt_service_color,
       appt_bg_color: currentTheme.appt_bg_color || DEFAULTS.appt_bg_color,
       page_title_color: currentTheme.page_title_color || DEFAULTS.page_title_color,
+      booking_theme: Object.assign({}, BOOKING_DEFAULTS, currentBookingTheme),
       updated_at: new Date().toISOString()
     };
 
     var resp = await supabaseClient.from('agenda_themes').upsert(theme, { onConflict: 'tenant_id' });
     if (resp.error) {
       var msg = resp.error.message || 'Erro ao salvar.';
+      if (msg.indexOf('booking_theme') !== -1) {
+        mostrarFeedback('Falta a coluna booking_theme. Rode o SQL sql_add_booking_theme.sql.', false);
+        return;
+      }
       if (msg.indexOf('appt_') !== -1 || msg.indexOf('page_title') !== -1 || msg.indexOf('modal_bg') !== -1 || msg.indexOf('input_bg') !== -1 || msg.indexOf('text_muted') !== -1) {
         mostrarFeedback('Faltam colunas novas no banco. Rode o SQL sql_add_appointment_colors.sql.', false);
         return;
@@ -932,9 +1121,12 @@
      ══════════════════════════════════════════════ */
   window.resetarTema = function() {
     currentTheme = Object.assign({}, DEFAULTS);
+    currentBookingTheme = Object.assign({}, BOOKING_DEFAULTS);
     temaLogoFile = null;
     aplicarTemaNoForm();
+    aplicarBookingTemaNoForm();
     updateAllPreviews();
+    updateBookingPreview();
     aplicarTemaNoAgenda(currentTheme);
   };
 

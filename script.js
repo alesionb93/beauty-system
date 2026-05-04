@@ -171,6 +171,131 @@ var professionalAvatars = {};
 var clients = [];
 var appointments = [];
 var bloqueios = []; // Lista de bloqueios de horário do tenant
+
+/* ============================================================
+   AUTO-CONCLUSÃO DE AGENDAMENTOS (v1)
+   Regra: agendamento é considerado CONCLUÍDO automaticamente
+   quando agora > (início + duração total dos serviços + 30min).
+   - Cancelados (status 'excluido'/'cancelado'/'desmarcado') ignorados
+   - Futuros => sempre 'agendado'
+   - Apenas concluídos entram em faturamento
+   Não persiste no banco — derivado em tempo real.
+   ============================================================ */
+var AUTO_CONCLUSAO_BUFFER_MIN = 30;
+
+function getAppointmentTotalDuration(a) {
+  if (!a) return 30;
+  var svcs = (a.servicos && a.servicos.length > 0) ? a.servicos : null;
+  if (!svcs) {
+    var sp = (typeof servicePrices !== 'undefined' && a.servico) ? servicePrices[a.servico] : null;
+    return (sp && sp.duracao) ? sp.duracao : 30;
+  }
+  var total = 0;
+  svcs.forEach(function(s) {
+    var d = parseInt(s.duracao, 10);
+    if (!d || isNaN(d)) {
+      var sp2 = (typeof servicePrices !== 'undefined' && s.servico) ? servicePrices[s.servico] : null;
+      d = (sp2 && sp2.duracao) ? sp2.duracao : 30;
+    }
+    total += d;
+  });
+  return total > 0 ? total : 30;
+}
+
+// 🟣 Identifica agendamentos do tipo "venda de produto sem serviço prestado"
+// (foram cancelados, mas o cliente levou produtos). Ficam persistidos como
+// status='concluido' + conclusion_type='cancelado_com_venda' apenas para
+// alimentar o histórico/estoque/faturamento DE PRODUTOS — porém, para todos
+// os outros efeitos (calendário, dashboard de serviço, ocupação de horário)
+// devem ser tratados como cancelados.
+function isCanceladoComVenda(a) {
+  if (!a) return false;
+  return String(a.conclusion_type || '').trim().toLowerCase() === 'cancelado_com_venda';
+}
+
+function isAppointmentCancelled(a) {
+  if (!a) return false;
+  var s = String(a.status || '').trim().toLowerCase();
+  if (s === 'excluido' || s === 'excluído' || s === 'cancelado' || s === 'desmarcado') return true;
+  // Trata "cancelado_com_venda" como cancelado para liberar horário e
+  // impedir que o serviço (não prestado) entre no faturamento.
+  if (isCanceladoComVenda(a)) return true;
+  return false;
+}
+
+// 🟣 Indica se o agendamento BLOQUEIA o horário na agenda.
+// "cancelado_com_venda" NUNCA bloqueia (o serviço não foi prestado),
+// mesmo que `status === 'concluido'` esteja persistido para fins de
+// faturamento de produto. Use esta função em qualquer detecção de
+// conflito/ocupação de slot.
+function isAppointmentSlotBlocking(a) {
+  if (!a) return false;
+  if (isCanceladoComVenda(a)) return false;
+  if (isAppointmentCancelled(a)) return false;
+  return true;
+}
+
+function getAppointmentEndDate(a) {
+  if (!a || !a.data || !a.hora) return null;
+  var dParts = String(a.data).split('-');
+  var hParts = String(a.hora).split(':');
+  if (dParts.length < 3 || hParts.length < 2) return null;
+  var dt = new Date(
+    parseInt(dParts[0], 10),
+    parseInt(dParts[1], 10) - 1,
+    parseInt(dParts[2], 10),
+    parseInt(hParts[0], 10),
+    parseInt(hParts[1], 10),
+    0, 0
+  );
+  if (isNaN(dt.getTime())) return null;
+  var totalMin = getAppointmentTotalDuration(a) + AUTO_CONCLUSAO_BUFFER_MIN;
+  dt.setMinutes(dt.getMinutes() + totalMin);
+  return dt;
+}
+
+function isAppointmentAutoCompleted(a) {
+  if (!a) return false;
+  if (isAppointmentCancelled(a)) return false;
+  // 🟢 CONCLUSÃO MANUAL: status persistido 'concluido' tem precedência sobre o cálculo por horário.
+  // Isso garante que o agendamento seja tratado como concluído imediatamente, mesmo
+  // antes do buffer de 30 min, quando o usuário aciona "Concluir atendimento".
+  var st = String(a.status || '').trim().toLowerCase();
+  if (st === 'concluido' || st === 'concluído') return true;
+  var endDt = getAppointmentEndDate(a);
+  if (!endDt) return false;
+  return new Date().getTime() > endDt.getTime();
+}
+
+// Indica se o agendamento já foi concluído manualmente (status persistido).
+function isAppointmentManuallyCompleted(a) {
+  if (!a) return false;
+  var st = String(a.status || '').trim().toLowerCase();
+  return st === 'concluido' || st === 'concluído';
+}
+
+// Status efetivo para UI/cálculos: 'cancelado' | 'concluido' | 'agendado'
+function getEffectiveAppointmentStatus(a) {
+  if (isAppointmentCancelled(a)) return 'cancelado';
+  if (isAppointmentAutoCompleted(a)) return 'concluido';
+  return 'agendado';
+}
+
+// Auto-refresh: revalida visual a cada 60s para que blocos virem "concluído"
+// quando o tempo passa, mesmo sem ação do usuário.
+setInterval(function() {
+  try {
+    var pageAgenda = document.querySelector('.page.active[data-page="agenda"], #page-agenda.page.active');
+    if (typeof renderDayDetail === 'function' && pageAgenda) {
+      renderDayDetail();
+    }
+    var pageDash = document.querySelector('#page-dashboard.page.active');
+    if (typeof loadDashboard === 'function' && pageDash) {
+      loadDashboard();
+    }
+  } catch(e) { /* silencioso */ }
+}, 60000);
+
 var editingAppointmentId = null;
 var editingClientId = null;
 var pendingClienteFromIdentificacao = null;
@@ -828,7 +953,7 @@ async function loadAppointments() {
   var tenantId = getCurrentTenantId();
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
   // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
-  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+  var query = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) { console.error('Erro agendamentos:', resp.error); return; }
@@ -883,7 +1008,8 @@ async function loadAppointments() {
         pigmentacoes: pigmentacoes,
         cores: coresArr,
         cliente_pacote_id: as.cliente_pacote_id || null,
-        origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso')
+        origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso'),
+        credito_consumido: !!as.credito_consumido
       };
     });
     // Linhas com origem='pacote_venda' representam APENAS receita da venda do pacote,
@@ -891,6 +1017,21 @@ async function loadAppointments() {
     // o dashboard usar (faturamento) sem poluir o restante da UI.
     var vendaItems = svcs.filter(function(s){ return s.origem === 'pacote_venda'; });
     svcs = svcs.filter(function(s){ return s.origem !== 'pacote_venda'; });
+    // Mantém vínculo entre a linha operacional (pacote_uso) e a linha financeira
+    // (pacote_venda), para que uma edição/conclusão nunca apague a receita já
+    // registrada da venda do pacote.
+    svcs.forEach(function(svcLinha) {
+      if (!svcLinha || svcLinha.origem !== 'pacote_uso' || !svcLinha.cliente_pacote_id) return;
+      var vendaVinculada = vendaItems.find(function(v) {
+        return v && v.cliente_pacote_id
+          && String(v.cliente_pacote_id) === String(svcLinha.cliente_pacote_id)
+          && (!v.servico_id || !svcLinha.servico_id || String(v.servico_id) === String(svcLinha.servico_id));
+      });
+      if (vendaVinculada) {
+        svcLinha.pacote_venda_agendada = true;
+        svcLinha.pacote_venda_preco = parseFloat(vendaVinculada.preco) || 0;
+      }
+    });
     var firstSvc = svcs.length > 0 ? svcs[0] : null;
     return {
       id: a.id,
@@ -905,6 +1046,12 @@ async function loadAppointments() {
       hora: (a.hora || '').substring(0, 5),
       observacoes: a.observacoes || '',
       status: a.status || 'agendado',
+      // 🟣 CRÍTICO: manter o tipo de conclusão vindo do banco.
+      // Sem isso, status='concluido' + conclusion_type='cancelado_com_venda'
+      // era tratado como atendimento concluído comum após o reload, fazendo
+      // aparecer na agenda e somar serviço no dashboard.
+      concluded_at: a.concluded_at || null,
+      conclusion_type: a.conclusion_type || null,
       servicos: svcs.length > 0 ? svcs : null,
       // ✅ PACOTE-FIX: linhas de venda de pacote (faturamento puro), usadas só no dashboard
       _pacoteVendaItems: vendaItems
@@ -1350,11 +1497,19 @@ async function updateAppointment(id, apt) {
       // ✅ FIX MULTI-PROFISSIONAL: profissional individual de CADA serviço
       var svcProfObj = allProfissionais.find(function(p) { return p.nome === s.profissional; });
       var svcProfId = svcProfObj ? svcProfObj.id : profId;
+      // 💰 Preço variável (FIX): preserva o valor escolhido também na edição.
+      // Prioridade: precoEscolhido (UI atual) → s.preco (valor já salvo no agendamento) → svcObj.preco (cadastro).
+      // Antes usávamos svcObj.preco direto, o que sobrescrevia o valor escolhido por
+      // serviços de preço variável (ex.: Botox 350 virava 210) toda vez que o
+      // agendamento era reaberto/editado.
+      var __precoFinal = (s.precoEscolhido != null && !isNaN(Number(s.precoEscolhido)))
+        ? Number(s.precoEscolhido)
+        : (s.preco != null && !isNaN(Number(s.preco)) ? Number(s.preco) : Number(svcObj.preco));
       var svcRow = {
         agendamento_id: id,
         servico_id: svcObj.id,
         profissional_id: svcProfId,
-        preco: svcObj.preco,
+        preco: __precoFinal,
         duracao: svcObj.duracao,
         cor_id: null,
         tenant_id: tenantId
@@ -1746,16 +1901,17 @@ document.addEventListener('DOMContentLoaded', async function() {
   if (currentUser.role === 'colaborador' && !currentUser.profissionalNome) {
     console.warn('[REGRA] Colaborador sem profissional vinculado — agendamentos ficarão bloqueados.');
   }
-  // ===== FIX 1: Inicialização do filtro de profissionais na agenda =====
-  // - Colaborador: SEMPRE travado no profissional vinculado (RLS já bloqueia o resto).
-  // - Admin/Master COM vínculo: inicia mostrando apenas o profissional vinculado,
-  //   mas pode trocar/marcar outros livremente.
-  // - Admin/Master SEM vínculo: inicia com TODOS os profissionais selecionados.
+  // ===== FIX (roles no Dashboard/Agenda) =====
+  // Regras de negócio:
+  // - colaborador: SEMPRE travado no profissional vinculado (RLS isola o resto).
+  // - admin / master_admin: visão TOTAL por padrão — todos os profissionais
+  //   selecionados, mesmo que o usuário admin tenha um profissional_id
+  //   vinculado em "usuarios". Antes, admins com vínculo herdavam o filtro
+  //   restrito (igual a colaborador), o que zerava o Dashboard.
   if (currentUser.role === 'colaborador') {
     activeFilters = linkedProfName ? [linkedProfName] : [];
-  } else if (linkedProfName) {
-    activeFilters = [linkedProfName];
   } else {
+    // admin e master_admin: todos os profissionais ativos.
     activeFilters = (allProfissionais || []).map(function(p) { return p.nome; });
   }
   await loadServicos();
@@ -2170,7 +2326,14 @@ function switchPage(page) {
   if (navBtn) navBtn.classList.add('active');
 
   if (page === 'agendamentos') { renderCalendar(); renderDayDetail(); }
-  if (page === 'clientes') { renderClients(); }
+  if (page === 'clientes') {
+    // Garante que appointments esteja carregado para calcular inatividade
+    if ((!appointments || appointments.length === 0) && typeof loadAppointments === 'function') {
+      Promise.resolve(loadAppointments()).then(function(){ renderClients(); }).catch(function(){ renderClients(); });
+    } else {
+      renderClients();
+    }
+  }
   if (page === 'profissionais') { renderProfessionals(); }
   if (page === 'dashboard') { initDashboard(); }
   if (page === 'configuracoes') { initConfiguracoes(); }
@@ -2253,6 +2416,10 @@ function getAppointmentProfessionals(a) {
 }
 
 function appointmentMatchesFilter(a) {
+  // 🟣 Oculta agendamentos "cancelado_com_venda" do calendário/agenda do dia.
+  // O registro existe apenas para alimentar estoque/faturamento de produto,
+  // não deve ocupar o horário visualmente — o slot fica livre para reagendar.
+  if (typeof isCanceladoComVenda === 'function' && isCanceladoComVenda(a)) return false;
   var profs = getAppointmentProfessionals(a);
   for (var i = 0; i < profs.length; i++) {
     if (activeFilters.indexOf(profs[i]) >= 0) return true;
@@ -2403,6 +2570,11 @@ function renderDayDetail() {
   var horarioDia = getHorarioDoDia(date);
 
   var container = document.getElementById('day-appointments');
+  // Reset estilos inline (podem ter sido aplicados em estados anteriores: vazio/fechado)
+  container.style.display = '';
+  container.style.alignItems = '';
+  container.style.justifyContent = '';
+  container.style.minHeight = '';
 
   // Dia fechado → bloqueia agenda
   if (!horarioDia.ativo) {
@@ -2422,7 +2594,30 @@ function renderDayDetail() {
 
   if (dayAppointments.length === 0) {
     container.className = '';
-    container.innerHTML = '<div class="no-appointments"><i class="fa-regular fa-clock"></i><p>Nenhum agendamento neste dia</p></div>';
+    // Hora padrão = hora atual se dentro do expediente, senão início do expediente
+    var nowH = new Date().getHours();
+    var defaultHour = (nowH >= BUSINESS_HOUR_START && nowH <= BUSINESS_HOUR_END) ? nowH : BUSINESS_HOUR_START;
+    // Profissional padrão: para colaborador, fixa o próprio; admin/master fica null (escolhe no modal)
+    var defaultProfNome = '';
+    if (currentUser.role === 'colaborador' && currentUser.profissionalId) {
+      var __p = (allProfissionais||[]).find(function(x){return x.id === currentUser.profissionalId;});
+      if (__p) defaultProfNome = __p.nome;
+    }
+    // Renderiza como .timeline-slot clicável para reutilizar o handler do menu rápido
+    container.style.display = 'flex';
+    container.style.alignItems = 'center';
+    container.style.justifyContent = 'center';
+    container.style.minHeight = '300px';
+    container.innerHTML =
+      '<div class="timeline-slot no-appointments is-empty-clickable" ' +
+        'data-hour="' + defaultHour + '" ' +
+        (defaultProfNome ? ('data-prof="' + defaultProfNome.replace(/"/g,'&quot;') + '" ') : '') +
+        'style="cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;width:100%;padding:32px 16px;gap:8px;" ' +
+        'title="Clique para criar agendamento ou bloquear horário">' +
+        '<i class="fa-regular fa-clock" style="font-size:2rem;opacity:.7;"></i>' +
+        '<p style="margin:0;">Nenhum agendamento neste dia</p>' +
+        '<p style="font-size:.85rem;opacity:.7;margin:0;">Clique para criar agendamento ou bloquear horário</p>' +
+      '</div>';
     return;
   }
 
@@ -2598,7 +2793,13 @@ function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, tota
   }
 
   buildBlockContent(block, ev, heightPx, endTime, ev.servico);
-  block.onclick = function() { openAgendamentoParaEditar(ev.agendamento); };
+  // 🟢 AUTO-CONCLUSÃO: marca visual quando passou do horário + duração + 30min
+  if (ev.agendamento && isAppointmentAutoCompleted(ev.agendamento)) {
+    block.classList.add('is-completed');
+  }
+  // 🖱️ Tooltip de leitura rápida (desktop) + 📱 bottom sheet no mobile/tablet
+  attachAppointmentTooltip(block, ev.agendamento, ev);
+  block.onclick = function() { handleAppointmentClick(ev.agendamento); };
   container.appendChild(block);
 }
 
@@ -2629,7 +2830,13 @@ function renderTimelineBlock(container, ev, colIdx, totalCols, hourStartOverride
   }
 
   buildBlockContent(block, ev, heightPx, endTime, ev.servico);
-  block.onclick = function() { openAgendamentoParaEditar(ev.agendamento); };
+  // 🟢 AUTO-CONCLUSÃO: marca visual quando passou do horário + duração + 30min
+  if (ev.agendamento && isAppointmentAutoCompleted(ev.agendamento)) {
+    block.classList.add('is-completed');
+  }
+  // 🖱️ Tooltip de leitura rápida (desktop) + 📱 bottom sheet no mobile/tablet
+  attachAppointmentTooltip(block, ev.agendamento, ev);
+  block.onclick = function() { handleAppointmentClick(ev.agendamento); };
   container.appendChild(block);
 }
 
@@ -2672,6 +2879,16 @@ function openAgendamentoModal(agId, clienteNome, clienteTel) {
   document.getElementById('ag-telefone').value = clienteTel || '';
   document.getElementById('modal-agendamento-titulo').textContent = agId ? 'Editar Agendamento' : 'Novo Agendamento';
   document.getElementById('btn-excluir-agendamento').style.display = agId ? 'flex' : 'none';
+  // 🟢 CONCLUSÃO MANUAL: botão visível apenas em edição, oculto se já concluído/cancelado
+  try {
+    var btnConcluir = document.getElementById('btn-concluir-atendimento');
+    if (btnConcluir) {
+      var agAtual = agId ? appointments.find(function(x){ return x.id === agId; }) : null;
+      var jaConcluido = agAtual && isAppointmentManuallyCompleted(agAtual);
+      var jaCancelado = agAtual && isAppointmentCancelled(agAtual);
+      btnConcluir.style.display = (agId && !jaConcluido && !jaCancelado) ? 'flex' : 'none';
+    }
+  } catch(_){}
   document.getElementById('servicos-container').innerHTML = '';
 
   // (Re)popula o select de horas conforme horário comercial atual
@@ -2718,6 +2935,219 @@ function openAgendamentoParaEditar(a) {
   document.getElementById('ag-hora-h').value = horaParts[0];
   document.getElementById('ag-minuto').value = horaParts[1] || '00';
 }
+
+/* ============================================================
+   📱 BOTTOM SHEET DE DETALHES (Mobile/Tablet)
+   - Desktop: hover → tooltip nativo (title) | click → edição direta
+   - Mobile/Tablet (≤1024px): tap → bottom sheet (somente leitura)
+     com botões Editar / Cancelar
+   ============================================================ */
+function isMobileOrTablet() {
+  try {
+    // Considera tablets em pé como mobile. Desktop ≥ 1025px.
+    return window.matchMedia('(max-width: 1024px)').matches
+      || ('ontouchstart' in window && window.innerWidth <= 1024);
+  } catch(_) { return window.innerWidth <= 1024; }
+}
+
+function getStatusLabel(a) {
+  var st = getEffectiveAppointmentStatus(a);
+  if (st === 'cancelado') return 'Cancelado';
+  if (st === 'concluido') return 'Concluído';
+  return 'Agendado';
+}
+
+function getAppointmentProfissionais(a) {
+  var nomes = [];
+  var seen = {};
+  try {
+    getAppointmentServicos(a).forEach(function(s) {
+      var n = (s && s.profissional) || '';
+      if (n && !seen[n]) { seen[n] = 1; nomes.push(n); }
+    });
+  } catch(_) {}
+  if (!nomes.length && a && a.profissional) nomes.push(a.profissional);
+  return nomes.join(', ') || '—';
+}
+
+function attachAppointmentTooltip(block, a, ev) {
+  if (!block || !a) return;
+  try {
+    var servicosTxt = getAppointmentServiceNames(a) || (ev && ev.servico) || '—';
+    var endTime = computeEndTime(a.hora, getAppointmentTotalDuration(a));
+    var horario = (a.data ? a.data.split('-').reverse().join('/') + ' ' : '') + a.hora + ' – ' + endTime;
+    var status = getStatusLabel(a);
+    var prof = getAppointmentProfissionais(a);
+    block.title =
+      'Cliente: ' + (a.cliente || '—') + '\n' +
+      'Serviço: ' + servicosTxt + '\n' +
+      'Horário: ' + horario + '\n' +
+      'Status: ' + status + '\n' +
+      'Profissional: ' + prof;
+  } catch(_) {}
+}
+
+function handleAppointmentClick(a) {
+  if (!a) return;
+  if (isMobileOrTablet()) {
+    openAgendamentoBottomSheet(a);
+  } else {
+    openAgendamentoParaEditar(a);
+  }
+}
+
+var __currentSheetAppointment = null;
+
+function openAgendamentoBottomSheet(a) {
+  __currentSheetAppointment = a;
+  var sheet = document.getElementById('appointment-sheet');
+  if (!sheet) return;
+
+  // Preenche conteúdo
+  var servicos = [];
+  try { servicos = getAppointmentServicos(a) || []; } catch(_) {}
+  var servicosTxt = servicos.length
+    ? servicos.map(function(s){ return s.servico; }).filter(Boolean).join(', ')
+    : '—';
+  var prof = getAppointmentProfissionais(a);
+  var endTime = computeEndTime(a.hora, getAppointmentTotalDuration(a));
+  var dataFmt = a.data ? a.data.split('-').reverse().join('/') : '—';
+  var status = getStatusLabel(a);
+  var statusClass = 'status-' + getEffectiveAppointmentStatus(a);
+
+  // Produtos vinculados (cores/bases/pigmentos via agendamento_servico_cores)
+  var produtosTxt = '';
+  try {
+    var prods = [];
+    servicos.forEach(function(s) {
+      if (s.cores && Array.isArray(s.cores)) {
+        s.cores.forEach(function(c){
+          var nome = (c && (c.nome || (c.cores && c.cores.nome))) || '';
+          if (nome) prods.push(nome);
+        });
+      }
+      if (s.cor && s.cor.nome) prods.push(s.cor.nome);
+    });
+    produtosTxt = prods.length ? prods.join(', ') : '';
+  } catch(_) {}
+
+  var obs = (a.observacoes || '').trim();
+
+  var html =
+    '<div class="apt-sheet-row"><span class="apt-sheet-label">Cliente</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(a.cliente || '—') + '</span></div>' +
+    '<div class="apt-sheet-row"><span class="apt-sheet-label">Serviço(s)</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(servicosTxt) + '</span></div>' +
+    '<div class="apt-sheet-row"><span class="apt-sheet-label">Profissional</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(prof) + '</span></div>' +
+    '<div class="apt-sheet-row"><span class="apt-sheet-label">Data / Horário</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(dataFmt + ' • ' + a.hora + ' – ' + endTime) + '</span></div>' +
+    '<div class="apt-sheet-row"><span class="apt-sheet-label">Status</span>' +
+      '<span class="apt-sheet-value"><span class="apt-sheet-status ' + statusClass + '">' + escapeHtml(status) + '</span></span></div>' +
+    (produtosTxt ? '<div class="apt-sheet-row"><span class="apt-sheet-label">Produtos</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(produtosTxt) + '</span></div>' : '') +
+    (obs ? '<div class="apt-sheet-row apt-sheet-obs"><span class="apt-sheet-label">Observações</span>' +
+      '<span class="apt-sheet-value">' + escapeHtml(obs) + '</span></div>' : '');
+
+  var body = document.getElementById('appointment-sheet-body');
+  if (body) body.innerHTML = html;
+
+  // Esconde o botão "Cancelar" quando já está cancelado
+  var cancelBtn = document.getElementById('appointment-sheet-cancel');
+  if (cancelBtn) cancelBtn.style.display = isAppointmentCancelled(a) ? 'none' : '';
+
+  sheet.classList.add('is-open');
+  document.body.classList.add('apt-sheet-lock');
+}
+
+function closeAgendamentoBottomSheet() {
+  var sheet = document.getElementById('appointment-sheet');
+  if (sheet) sheet.classList.remove('is-open');
+  document.body.classList.remove('apt-sheet-lock');
+  __currentSheetAppointment = null;
+}
+
+function sheetEditarAgendamento() {
+  var a = __currentSheetAppointment;
+  closeAgendamentoBottomSheet();
+  if (a) openAgendamentoParaEditar(a);
+}
+
+async function sheetCancelarAgendamento() {
+  var a = __currentSheetAppointment;
+  if (!a) return;
+  if (!confirm('Deseja realmente cancelar este agendamento?')) return;
+  closeAgendamentoBottomSheet();
+  try {
+    editingAppointmentId = a.id;
+    await deleteAppointment(a.id);
+    showToast('Agendamento cancelado!');
+    await loadAppointments();
+    renderCalendar();
+    renderDayDetail();
+  } catch(e) {
+    showToast('Erro ao cancelar!');
+  } finally {
+    editingAppointmentId = null;
+  }
+}
+
+// Helper de escape HTML (caso ainda não exista global). Usa fallback seguro.
+if (typeof window.escapeHtml !== 'function') {
+  window.escapeHtml = function(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  };
+}
+
+// Swipe-down para fechar o bottom sheet
+(function setupSheetSwipe(){
+  function init() {
+    var sheet = document.getElementById('appointment-sheet');
+    if (!sheet) return;
+    var panel = sheet.querySelector('.apt-sheet-panel');
+    if (!panel) return;
+    var startY = null, currentY = null, dragging = false;
+
+    function onStart(e) {
+      var t = (e.touches && e.touches[0]) || e;
+      // só drag se começar no handle/header
+      var target = e.target;
+      if (!target.closest('.apt-sheet-handle, .apt-sheet-header')) return;
+      startY = t.clientY; dragging = true;
+      panel.style.transition = 'none';
+    }
+    function onMove(e) {
+      if (!dragging) return;
+      var t = (e.touches && e.touches[0]) || e;
+      currentY = t.clientY;
+      var dy = Math.max(0, currentY - startY);
+      panel.style.transform = 'translateY(' + dy + 'px)';
+    }
+    function onEnd() {
+      if (!dragging) return;
+      dragging = false;
+      panel.style.transition = '';
+      var dy = (currentY || 0) - (startY || 0);
+      panel.style.transform = '';
+      if (dy > 80) closeAgendamentoBottomSheet();
+    }
+    panel.addEventListener('touchstart', onStart, { passive: true });
+    panel.addEventListener('touchmove', onMove, { passive: true });
+    panel.addEventListener('touchend', onEnd);
+
+    // Backdrop click
+    sheet.addEventListener('click', function(e) {
+      if (e.target === sheet) closeAgendamentoBottomSheet();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
 
 /* ===== MULTI-SERVICE BLOCKS ===== */
 var servicoBlockCounter = 0;
@@ -2769,6 +3199,12 @@ function adicionarBlocoServicoComDados(dados) {
   }
 
   if (dados) {
+    if (dados.origem === 'pacote_uso' && dados.cliente_pacote_id) {
+      wrapper.dataset.pacoteAcao = dados.pacote_venda_agendada ? 'venda_existente' : 'usar';
+      wrapper.dataset.clientePacoteId = dados.cliente_pacote_id;
+      wrapper.dataset.creditoConsumido = dados.credito_consumido ? '1' : '0';
+      if (dados.pacote_venda_preco != null) wrapper.dataset.pacoteVendaPreco = String(dados.pacote_venda_preco);
+    }
     profSelect.value = dados.profissional || '';
     onSvcProfChange(profSelect);
     wrapper.querySelector('.svc-servico').value = dados.servico || '';
@@ -3250,12 +3686,51 @@ async function excluirAgendamento() {
 }
 
 /* ===== CLIENTS ===== */
+// ============================================================
+// Busca genérica (accent + case insensitive)
+// ============================================================
+function normalizeSearch(str) {
+  return String(str == null ? '' : str)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().trim();
+}
+function bindSearchBar(inputId, clearId, onChange) {
+  var input = document.getElementById(inputId);
+  var clearBtn = document.getElementById(clearId);
+  if (!input || input.__bound) return;
+  input.__bound = true;
+  input.addEventListener('input', function() {
+    var v = input.value || '';
+    if (clearBtn) clearBtn.hidden = !v;
+    onChange(v);
+  });
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      input.value = ''; clearBtn.hidden = true; onChange(''); input.focus();
+    });
+  }
+}
+window.clientsSearchTerm = window.clientsSearchTerm || '';
+function setupClientsSearch() {
+  bindSearchBar('clients-search-input', 'clients-search-clear', function(v){
+    window.clientsSearchTerm = v; renderClients();
+  });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupClientsSearch);
+else setupClientsSearch();
+
 function renderClients() {
+  setupClientsSearch();
   var tbody = document.getElementById('clients-tbody');
+  if (!tbody) return;
   tbody.innerHTML = '';
   var todayStr = pad(today.getDate()) + '/' + pad(today.getMonth() + 1);
   var birthdayNames = [];
-  clients.forEach(function(c) {
+  var termo = normalizeSearch(window.clientsSearchTerm || '');
+  var lista = !termo ? clients : clients.filter(function(c){
+    return normalizeSearch(c && c.nome).indexOf(termo) !== -1;
+  });
+  lista.forEach(function(c) {
     var tr = document.createElement('tr');
     tr.onclick = function() { openHistorico(c); };
     var birthFormatted = c.nascimento ? c.nascimento.split('-').reverse().join('/') : '-';
@@ -3271,11 +3746,30 @@ function renderClients() {
     var svgUser = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
     var svgPhone = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>';
     var svgCake = '<svg class="cell-svg" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/><path d="M7 4h.01"/><path d="M12 4h.01"/><path d="M17 4h.01"/></svg>';
+    // Badge de cliente inativo (se feature ativa e cliente atender critério)
+    var inativoBadge = '';
+    try {
+      if (INATIVO_CFG && INATIVO_CFG.ativo) {
+        var diasCfg = parseInt(INATIVO_CFG.dias, 10) || 0;
+        if (diasCfg > 0) {
+          var diasSem = getDiasSemAgendamentoCliente(c.id);
+          // Regra: cliente sem histórico NÃO entra como inativo (null = ignorar)
+          if (diasSem !== null && diasSem >= diasCfg) {
+            inativoBadge =
+              ' <span class="client-inactive-badge" ' +
+                'title="Cliente sem agendamentos há ' + diasSem + ' dias">' +
+                '<span class="cib-icon" aria-hidden="true">⚠️</span>' +
+                '<span class="cib-text">Sem vir há ' + diasSem + ' dias</span>' +
+              '</span>';
+          }
+        }
+      }
+    } catch (_) { /* falha silenciosa não quebra a lista */ }
     tr.innerHTML =
       '<td class="cell-icon-name" data-label="Nome">' +
         '<span class="cell-icon-svg">' + svgUser + '</span>' +
         '<span class="cell-label">Nome</span>' +
-        '<span class="cell-value cell-value-name">' + c.nome + bIcon + '</span>' +
+        '<span class="cell-value cell-value-name">' + c.nome + bIcon + inativoBadge + '</span>' +
       '</td>' +
       '<td class="cell-icon-phone" data-label="Telefone">' +
         '<span class="cell-icon-svg">' + svgPhone + '</span>' +
@@ -3438,7 +3932,7 @@ async function openHistorico(cliente) {
   }
   async function fetchAgendamentos() {
     // ✅ FIX ORDEM SERVIÇOS (v10): incluir id+created_at p/ ordenar serviços conforme cadastro
-    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, origem, cliente_pacote_id, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
+    var sel = '*, agendamento_servicos(id, created_at, servico_id, preco, duracao, cor_id, origem, cliente_pacote_id, credito_consumido, servicos(nome), cores(nome, hex), agendamento_servico_cores(cor_id, tipo, quantidade, cores(nome, hex)))';
     var results = [];
     var seen = {};
     if (cliente.id) {
@@ -3488,7 +3982,7 @@ async function openHistorico(cliente) {
           });
         }
         if (bases.length === 0 && pigmentacoes.length === 0 && coresArr.length === 0 && as.cores) coresArr.push(as.cores.nome);
-        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr, origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso') };
+        return { profissional: ag.profissional, servico: as.servicos ? as.servicos.nome : '', bases: bases, pigmentacoes: pigmentacoes, cores: coresArr, origem: as.origem || (as.cliente_pacote_id ? 'pacote_uso' : 'avulso'), cliente_pacote_id: as.cliente_pacote_id || null, credito_consumido: !!as.credito_consumido };
       });
     }
   });
@@ -4536,6 +5030,26 @@ function getCalendarVisibleAppointments(selectedProfId) {
    getCalendarVisibleAppointments — apenas permite passar um
    range customizado (datas escolhidas pelo usuário no filtro).
    ============================================================ */
+function appointmentHasProfessionalId(a, profId, profNomeToId) {
+  if (!a || !profId) return false;
+
+  // Caminho principal: comparar por ID, que é estável e não depende de nome/capitalização.
+  if (a.profissional_id && String(a.profissional_id) === String(profId)) return true;
+
+  if (Array.isArray(a.servicos)) {
+    var matchServicoPorId = a.servicos.some(function(s) {
+      return s && s.profissional_id && String(s.profissional_id) === String(profId);
+    });
+    if (matchServicoPorId) return true;
+  }
+
+  // Fallback legado: alguns registros antigos podem ter só nome do profissional.
+  var profs = getAppointmentProfessionals(a);
+  return profs.some(function(nome) {
+    return profNomeToId && profNomeToId[nome] && String(profNomeToId[nome]) === String(profId);
+  });
+}
+
 function getAppointmentsForDashboard(selectedProfId, range) {
   if (!range || !range.start || !range.end) {
     range = getCalendarVisibleDateRange();
@@ -4547,13 +5061,26 @@ function getAppointmentsForDashboard(selectedProfId, range) {
     if (!a || !a.data) return false;
     if (a.data < range.start || a.data > range.end) return false;
 
-    // Regra principal: o dashboard só enxerga o que a agenda enxerga.
-    if (!appointmentMatchesFilter(a)) return false;
+    // Regra de visibilidade por role:
+    // - colaborador: só enxerga agendamentos onde APARECE como profissional
+    //   (principal OU em qualquer serviço). Filtra por ID diretamente para não
+    //   depender do estado mutável de activeFilters (chips da agenda).
+    // - admin / master_admin: enxergam TUDO no dashboard, independentemente do
+    //   estado dos chips da agenda. O refino fica apenas no select do dashboard.
+    if (currentUser.role === 'colaborador') {
+      var meuId = currentUser.profissionalId;
+      var meuNome = currentUser.profissionalNome;
+      if (!meuId && !meuNome) return false;
+
+      var matchPorId = meuId && appointmentHasProfessionalId(a, meuId, profNomeToId);
+      var profsDoAg = getAppointmentProfessionals(a);
+      var matchPorNome = meuNome && profsDoAg.indexOf(meuNome) >= 0;
+      if (!matchPorId && !matchPorNome) return false;
+    }
 
     // Refino opcional do select do dashboard.
     if (selectedProfId && selectedProfId !== '__all__') {
-      var profs = getAppointmentProfessionals(a);
-      return profs.some(function(nome) { return profNomeToId[nome] === selectedProfId; });
+      return appointmentHasProfessionalId(a, selectedProfId, profNomeToId);
     }
 
     return true;
@@ -4741,19 +5268,44 @@ async function loadDashboard() {
     if (nomeFiltrado) profHoraFat[nomeFiltrado] = {};
   }
 
+  // 🟢 AUTO-CONCLUSÃO + 📦 VENDA DE PACOTE
+  // Regras:
+  //  - SERVIÇOS EXECUTADOS (servicos[]) só entram no faturamento se o agendamento
+  //    estiver auto-concluído (passou de início + duração + 30min) e não cancelado.
+  //  - VENDAS DE PACOTE (_pacoteVendaItems) contam SEMPRE no momento da venda,
+  //    independentemente da data/hora do agendamento, pois representam receita
+  //    imediata (não dependem de execução). Cancelados continuam excluídos.
+  // Por isso NÃO filtramos a lista inteira aqui — processamos por agendamento
+  // e decidimos o que conta dentro do loop.
+
   appointmentsInRange.forEach(function(a) {
-    totalAg++;
+    var cancelado = isAppointmentCancelled(a);
+    if (cancelado) return; // cancelados nunca entram no dashboard
+
+    var concluido = isAppointmentAutoCompleted(a);
+    var vendaItems = a._pacoteVendaItems || [];
+    var temVenda = vendaItems.length > 0;
+
+    // Se não está concluído e não tem venda de pacote, ignora completamente
+    // (é um agendamento futuro/em andamento sem receita realizada).
+    if (!concluido && !temVenda) return;
+
     var hora = (a.hora || '').substring(0, 2);
     var clienteNomeDash = a.cliente || a.cliente_nome || '';
-    if (!clienteCount[clienteNomeDash]) clienteCount[clienteNomeDash] = { qtd: 0, usosPacote: 0 };
-    clienteCount[clienteNomeDash].qtd++;
-
-    var servicos = getAppointmentServicos(a);
     var profsDoAgendamento = getAppointmentProfessionals(a);
     var profPrincipal = profsDoAgendamento[0] || a.profissional || '';
 
-    if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-    profData[profPrincipal].atendimentos++;
+    // Métricas de atendimento (totalAg, clienteCount, profData.atendimentos)
+    // só contam quando o serviço foi efetivamente executado (concluído).
+    if (concluido) {
+      totalAg++;
+      if (!clienteCount[clienteNomeDash]) clienteCount[clienteNomeDash] = { qtd: 0, usosPacote: 0 };
+      clienteCount[clienteNomeDash].qtd++;
+      if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+      profData[profPrincipal].atendimentos++;
+    }
+
+    var servicos = concluido ? getAppointmentServicos(a) : [];
 
     // ============================================================
     // 💰 PACOTE-FIX — RECEITA da VENDA de pacote
@@ -4762,7 +5314,6 @@ async function loadDashboard() {
     // pagou o valor TOTAL do pacote agora. Não contam como serviço
     // executado e não entram em ticket médio de execução.
     // ============================================================
-    var vendaItems = a._pacoteVendaItems || [];
     if (vendaItems.length > 0) {
       console.log('[dash] pacote_venda detectado em ag', a.id, '— itens:', vendaItems.length, 'total:', vendaItems.reduce(function(s,v){return s+(parseFloat(v.preco)||0);},0));
     }
@@ -4794,9 +5345,9 @@ async function loadDashboard() {
 
     servicos.forEach(function(s) {
       var profNome = s.profissional || profPrincipal || '';
-      var svcProfId = profNomeToId[profNome] || null;
+      var svcProfId = s.profissional_id || profNomeToId[profNome] || null;
 
-      if (selectedProfId && selectedProfId !== '__all__' && svcProfId !== selectedProfId) {
+      if (selectedProfId && selectedProfId !== '__all__' && String(svcProfId || '') !== String(selectedProfId)) {
         return;
       }
 
@@ -5022,7 +5573,7 @@ function renderLineChart(profHoraFat) {
   var width = 800, height = 280, padLeft = 80, padRight = 20, padTop = 20, padBottom = 40;
   var chartW = width - padLeft - padRight, chartH = height - padTop - padBottom;
   var legendHtml = '<div class="dash-chart-legend">';
-  Object.keys(professionals).forEach(function(name) { legendHtml += '<div class="dash-legend-item"><div class="dash-legend-dot" style="background:' + (profColors[name] || '#888') + '"></div>' + name + '</div>'; });
+  Object.keys(profHoraFat).forEach(function(name) { legendHtml += '<div class="dash-legend-item"><div class="dash-legend-dot" style="background:' + (profColors[name] || '#888') + '"></div>' + name + '</div>'; });
   legendHtml += '</div>';
   var svg = '<svg class="dash-chart-svg" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="xMidYMid meet">';
   for (var yi = 0; yi <= 5; yi++) {
@@ -5035,11 +5586,11 @@ function renderLineChart(profHoraFat) {
     var x = padLeft + (i / (allHours.length - 1 || 1)) * chartW;
     svg += '<text x="' + x + '" y="' + (height - 8) + '" text-anchor="middle" fill="#888" font-size="11" font-family="Inter, sans-serif">' + h + 'H</text>';
   });
-  Object.keys(professionals).forEach(function(name) {
+  Object.keys(profHoraFat).forEach(function(name) {
     var color = profColors[name] || '#888';
     var points = [];
     allHours.forEach(function(h, i) {
-      var val = profHoraFat[name][h] || 0;
+      var val = (profHoraFat[name] && profHoraFat[name][h]) || 0;
       var x = padLeft + (i / (allHours.length - 1 || 1)) * chartW;
       var y = padTop + chartH - (val / maxVal) * chartH;
       points.push({ x: x, y: y, val: val });
@@ -6186,7 +6737,20 @@ function collectServicosComPacotes() {
       svc.pacote = {
         acao: pacoteInput.dataset.pacoteAcao,
         clientePacoteId: pacoteInput.dataset.clientePacoteId || null,
-        pacoteDefId: pacoteInput.dataset.pacoteDefId || null
+        pacoteDefId: pacoteInput.dataset.pacoteDefId || null,
+        creditoConsumido: pacoteInput.dataset.creditoConsumido === '1',
+        pacoteVendaPreco: pacoteInput.dataset.pacoteVendaPreco || null
+      };
+    } else if (block.dataset && block.dataset.pacoteAcao) {
+      // Ao editar/concluir um agendamento que já tinha pacote, a linha
+      // pacote_venda fica escondida da UI. Preservamos o vínculo no bloco
+      // para não regravar como serviço avulso nem apagar a venda.
+      svc.pacote = {
+        acao: block.dataset.pacoteAcao,
+        clientePacoteId: block.dataset.clientePacoteId || null,
+        pacoteDefId: block.dataset.pacoteDefId || null,
+        creditoConsumido: block.dataset.creditoConsumido === '1',
+        pacoteVendaPreco: block.dataset.pacoteVendaPreco || null
       };
     }
     servicos.push(svc);
@@ -6195,7 +6759,7 @@ function collectServicosComPacotes() {
 }
 collectServicos = collectServicosComPacotes;
 
-async function consumirPacoteExistente(clientePacoteId) {
+async function buscarClientePacoteDisponivel(clientePacoteId) {
   var tenantId = getCurrentTenantId();
   var query = supabaseClient.from('cliente_pacotes').select('*').eq('id', clientePacoteId).maybeSingle();
   if (tenantId) query = query.eq('tenant_id', tenantId);
@@ -6205,6 +6769,11 @@ async function consumirPacoteExistente(clientePacoteId) {
   if (cp.status !== 'ativo' || Number(cp.quantidade_restante) <= 0 || cp.data_expiracao < pacoteTodayISO()) {
     throw new Error('Pacote expirado ou sem saldo.');
   }
+  return cp;
+}
+
+async function consumirPacoteExistente(clientePacoteId) {
+  var cp = await buscarClientePacoteDisponivel(clientePacoteId);
   var restante = Number(cp.quantidade_restante) - 1;
   var novoStatus = restante <= 0 ? 'concluido' : 'ativo';
   var upd = await supabaseClient.from('cliente_pacotes')
@@ -6226,7 +6795,9 @@ async function criarClientePacoteParaAgendamento(pacoteDefId, clienteId, dataAge
   var p = defResp.data;
   var inicio = dataAgendamento || pacoteTodayISO();
   var expiracao = pacoteAddDaysISO(inicio, p.validade_dias || 0);
-  var restante = Math.max(Number(p.quantidade_total || 0) - 1, 0);
+  // REGRA FINAL: vender o pacote NÃO consome crédito na criação do agendamento.
+  // A 1ª sessão fica preparada como pacote_uso e só será debitada na conclusão.
+  var restante = Math.max(Number(p.quantidade_total || 0), 0);
   var row = {
     tenant_id: tenantId,
     cliente_id: clienteId,
@@ -6248,15 +6819,62 @@ async function criarClientePacoteParaAgendamento(pacoteDefId, clienteId, dataAge
   };
 }
 
+async function buscarClientePacoteParaVendaExistente(clientePacoteId) {
+  var tenantId = getCurrentTenantId();
+  var query = supabaseClient.from('cliente_pacotes').select('*').eq('id', clientePacoteId).maybeSingle();
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  var resp = await query;
+  if (resp.error || !resp.data) throw new Error('Pacote vendido não encontrado.');
+  return {
+    id: resp.data.id,
+    preco_unitario: Number(resp.data.preco_unitario || 0),
+    preco_total: Number(resp.data.preco_total || 0)
+  };
+}
+
+async function consumirCreditosPacoteDoAgendamento(agendamentoId) {
+  if (!agendamentoId) return true;
+  var tenantId = getCurrentTenantId();
+  var query = supabaseClient.from('agendamento_servicos')
+    .select('id, cliente_pacote_id, origem, credito_consumido')
+    .eq('agendamento_id', agendamentoId)
+    .eq('origem', 'pacote_uso')
+    .not('cliente_pacote_id', 'is', null)
+    .eq('credito_consumido', false);
+  if (tenantId) query = query.eq('tenant_id', tenantId);
+  var resp = await query;
+  if (resp.error) {
+    console.error('[pacote] erro buscando créditos pendentes:', resp.error);
+    throw new Error('Não foi possível conferir os créditos do pacote.');
+  }
+
+  var linhas = resp.data || [];
+  for (var i = 0; i < linhas.length; i++) {
+    var linha = linhas[i];
+    await consumirPacoteExistente(linha.cliente_pacote_id);
+    var updLinha = supabaseClient.from('agendamento_servicos')
+      .update({ credito_consumido: true })
+      .eq('id', linha.id);
+    if (tenantId) updLinha = updLinha.eq('tenant_id', tenantId);
+    var updResp = await updLinha;
+    if (updResp.error) {
+      console.error('[pacote] erro marcando crédito como consumido:', updResp.error);
+      throw new Error('Crédito consumido, mas não foi possível marcar o agendamento.');
+    }
+  }
+  return true;
+}
+
 async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
   if (!agendamentoId) return true;
   var tenantId = getCurrentTenantId();
-  // ✅ PACOTE-FIX: só devolver crédito por linhas de USO (pacote_uso).
-  // Linhas de VENDA (pacote_venda) representam receita registrada e
-  // não geram crédito a devolver — elas apenas criaram o saldo.
+  // Só devolve créditos que foram realmente consumidos na conclusão.
+  // Linhas pendentes (credito_consumido=false) não alteraram saldo e não devem devolver nada.
   var query = supabaseClient.from('agendamento_servicos')
-    .select('cliente_pacote_id, origem')
+    .select('cliente_pacote_id, origem, credito_consumido')
     .eq('agendamento_id', agendamentoId)
+    .eq('origem', 'pacote_uso')
+    .eq('credito_consumido', true)
     .not('cliente_pacote_id', 'is', null);
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
@@ -6266,47 +6884,52 @@ async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
   }
   for (var i = 0; i < (resp.data || []).length; i++) {
     var linha = resp.data[i];
-    // pula linhas de venda — não consumiram crédito
-    if (linha.origem === 'pacote_venda') continue;
     var cpId = linha.cliente_pacote_id;
     var cpQuery = supabaseClient.from('cliente_pacotes').select('*').eq('id', cpId).maybeSingle();
     if (tenantId) cpQuery = cpQuery.eq('tenant_id', tenantId);
     var cpResp = await cpQuery;
     if (!cpResp.data) continue;
     var novoSaldo = Math.min(Number(cpResp.data.quantidade_restante || 0) + 1, Number(cpResp.data.quantidade_total || 0));
-    await supabaseClient.from('cliente_pacotes').update({ quantidade_restante: novoSaldo, status: 'ativo' }).eq('id', cpId);
+    var novoStatus = novoSaldo > 0 ? 'ativo' : cpResp.data.status;
+    var upd = supabaseClient.from('cliente_pacotes').update({ quantidade_restante: novoSaldo, status: novoStatus }).eq('id', cpId);
+    if (tenantId) upd = upd.eq('tenant_id', tenantId);
+    await upd;
   }
   return true;
 }
 
 /* ============================================================
    PACOTE-FIX: helper para gravar linhas de agendamento_servicos
-   aplicando a NOVA REGRA financeiro x operacional:
+   aplicando a REGRA FINAL financeiro x operacional:
 
-   - avulso       → 1 linha, preco normal,  origem='avulso'
-   - pacote_uso   → 1 linha, preco=0,       origem='pacote_uso'  (consumo)
-   - pacote_venda → 2 linhas no mesmo agendamento:
-        a) origem='pacote_venda', preco=preco_total do pacote,
-           duracao=0, sem cores  (RECEITA da venda — não conta serviço)
-        b) origem='pacote_uso',   preco=0  (CONSUMO da 1ª sessão)
+   - avulso          → 1 linha, preço normal, origem='avulso'
+   - pacote_uso      → 1 linha, preço=0, origem='pacote_uso', crédito PENDENTE
+   - pacote_venda    → 2 linhas:
+        a) origem='pacote_venda', preço=preco_total do pacote (RECEITA imediata)
+        b) origem='pacote_uso', preço=0, crédito PENDENTE até a conclusão
+
+   Ou seja: venda fatura agora; uso só consome crédito ao concluir.
    ============================================================ */
 async function inserirLinhasServicoAgendamento(opts) {
   // opts: { agId, s, svcObj, svcProfId, clienteId, dataAg, tenantId }
   var s = opts.s, svcObj = opts.svcObj;
   var precoAvulso = (s.precoEscolhido != null) ? Number(s.precoEscolhido) : Number(svcObj.preco || 0);
 
-  // Caso 1: usar pacote existente
+  // Caso 1: usar pacote existente — NÃO consome crédito na criação/edição.
   if (s.pacote && s.pacote.acao === 'usar') {
-    var usado = await consumirPacoteExistente(s.pacote.clientePacoteId);
+    var cp = s.pacote.creditoConsumido
+      ? await buscarClientePacoteParaVendaExistente(s.pacote.clientePacoteId)
+      : await buscarClientePacoteDisponivel(s.pacote.clientePacoteId);
     var rowUso = {
       agendamento_id: opts.agId,
       servico_id: svcObj.id,
       profissional_id: opts.svcProfId,
-      preco: 0,                       // ⚠️ consumo NÃO gera receita
+      preco: 0,
       duracao: svcObj.duracao,
       cor_id: null,
-      cliente_pacote_id: usado.id,
+      cliente_pacote_id: cp.id,
       origem: 'pacote_uso',
+      credito_consumido: !!s.pacote.creditoConsumido,
       tenant_id: opts.tenantId
     };
     var r = await supabaseClient.from('agendamento_servicos').insert([rowUso]).select();
@@ -6315,7 +6938,45 @@ async function inserirLinhasServicoAgendamento(opts) {
     return true;
   }
 
-  // Caso 2: vender pacote (gera receita TOTAL + 1 consumo da 1ª sessão)
+  // Caso 2: venda de pacote já existente no agendamento — preserva a receita original
+  // ao salvar/concluir, sem vender outro pacote e sem transformar em serviço avulso.
+  if (s.pacote && s.pacote.acao === 'venda_existente') {
+    var vendaExistente = await buscarClientePacoteParaVendaExistente(s.pacote.clientePacoteId);
+    var precoVendaExistente = Number(s.pacote.pacoteVendaPreco || vendaExistente.preco_total || 0);
+    var rowVendaExistente = {
+      agendamento_id: opts.agId,
+      servico_id: svcObj.id,
+      profissional_id: opts.svcProfId,
+      preco: precoVendaExistente,
+      duracao: 1,
+      cor_id: null,
+      cliente_pacote_id: vendaExistente.id,
+      origem: 'pacote_venda',
+      credito_consumido: false,
+      tenant_id: opts.tenantId
+    };
+    var rve = await supabaseClient.from('agendamento_servicos').insert([rowVendaExistente]).select();
+    if (rve.error) { console.error('Erro reinserir venda de pacote:', rve.error); return false; }
+
+    var rowUsoExistente = {
+      agendamento_id: opts.agId,
+      servico_id: svcObj.id,
+      profissional_id: opts.svcProfId,
+      preco: 0,
+      duracao: svcObj.duracao,
+      cor_id: null,
+      cliente_pacote_id: vendaExistente.id,
+      origem: 'pacote_uso',
+      credito_consumido: !!s.pacote.creditoConsumido,
+      tenant_id: opts.tenantId
+    };
+    var rue = await supabaseClient.from('agendamento_servicos').insert([rowUsoExistente]).select();
+    if (rue.error) { console.error('Erro reinserir uso pós-venda:', rue.error); return false; }
+    await saveServiceColors(rue.data[0].id, s, opts.tenantId);
+    return true;
+  }
+
+  // Caso 3: vender pacote novo (gera receita TOTAL agora + consumo pendente da 1ª sessão)
   if (s.pacote && s.pacote.acao === 'vender') {
     var vendido = await criarClientePacoteParaAgendamento(s.pacote.pacoteDefId, opts.clienteId, opts.dataAg);
 
@@ -6324,20 +6985,18 @@ async function inserirLinhasServicoAgendamento(opts) {
       agendamento_id: opts.agId,
       servico_id: svcObj.id,
       profissional_id: opts.svcProfId,
-      preco: Number(vendido.preco_total || 0),  // 💰 valor TOTAL pago pelo pacote
-      // ⚠️ duracao=1 (mínimo válido p/ CHECK constraint duracao>0).
-      // Linha pacote_venda é filtrada da agenda em loadAppointments(), então
-      // esse valor nunca afeta horário/visualização — é apenas registro contábil.
-      duracao: 1,                               // não ocupa horário (filtrado da agenda)
+      preco: Number(vendido.preco_total || 0),
+      duracao: 1,
       cor_id: null,
       cliente_pacote_id: vendido.id,
       origem: 'pacote_venda',
+      credito_consumido: false,
       tenant_id: opts.tenantId
     };
     var rv = await supabaseClient.from('agendamento_servicos').insert([rowVenda]).select();
     if (rv.error) { console.error('Erro inserir venda de pacote:', rv.error); return false; }
 
-    // (b) Linha de CONSUMO — 1ª sessão usada agora (sem receita)
+    // (b) Linha operacional — 1ª sessão do pacote, ainda SEM consumo de crédito.
     var rowUso2 = {
       agendamento_id: opts.agId,
       servico_id: svcObj.id,
@@ -6347,6 +7006,7 @@ async function inserirLinhasServicoAgendamento(opts) {
       cor_id: null,
       cliente_pacote_id: vendido.id,
       origem: 'pacote_uso',
+      credito_consumido: false,
       tenant_id: opts.tenantId
     };
     var ru = await supabaseClient.from('agendamento_servicos').insert([rowUso2]).select();
@@ -6355,7 +7015,7 @@ async function inserirLinhasServicoAgendamento(opts) {
     return true;
   }
 
-  // Caso 3: avulso
+  // Caso 4: avulso
   var rowAv = {
     agendamento_id: opts.agId,
     servico_id: svcObj.id,
@@ -6365,6 +7025,7 @@ async function inserirLinhasServicoAgendamento(opts) {
     cor_id: null,
     cliente_pacote_id: null,
     origem: 'avulso',
+    credito_consumido: false,
     tenant_id: opts.tenantId
   };
   var ra = await supabaseClient.from('agendamento_servicos').insert([rowAv]).select();
@@ -6418,7 +7079,8 @@ insertAppointment = async function(apt) {
 };
 
 updateAppointment = async function(id, apt) {
-  await devolverCreditosPacoteDoAgendamento(id);
+  // Editar/salvar agendamento não pode devolver crédito nem mexer no financeiro.
+  // Créditos só são consumidos na conclusão e devolvidos no cancelamento/exclusão.
   var tenantId = getCurrentTenantId();
   var profObj = allProfissionais.find(function(p) { return p.nome === apt.profissional; });
   var profId = profObj ? profObj.id : null;
@@ -6431,6 +7093,36 @@ updateAppointment = async function(id, apt) {
   };
   var resp = await supabaseClient.from('agendamentos').update(row).eq('id', id);
   if (resp.error) { console.error('Erro atualizar agendamento:', resp.error); return false; }
+
+  /* ============================================================
+     🔧 FIX BUG 2 — CONSUMO DUPLICADO DE PACOTE
+     Antes do DELETE/RECREATE das linhas, capturamos do BANCO
+     (NÃO do DOM) quais cliente_pacotes JÁ tiveram crédito
+     consumido neste agendamento. Após recriar, reaplicamos
+     credito_consumido=true nessas mesmas linhas. Assim a
+     conclusão posterior não consome de novo o mesmo crédito.
+     ============================================================ */
+  var __preCredits = {};
+  try {
+    var __snapQ = supabaseClient.from('agendamento_servicos')
+      .select('cliente_pacote_id, credito_consumido')
+      .eq('agendamento_id', id)
+      .eq('origem', 'pacote_uso')
+      .eq('credito_consumido', true)
+      .not('cliente_pacote_id', 'is', null);
+    if (tenantId) __snapQ = __snapQ.eq('tenant_id', tenantId);
+    var __snapResp = await __snapQ;
+    if (__snapResp.error) {
+      console.warn('[pacote][update-snapshot] falhou:', __snapResp.error);
+    } else {
+      (__snapResp.data || []).forEach(function(r){
+        if (r.cliente_pacote_id) __preCredits[r.cliente_pacote_id] = true;
+      });
+    }
+  } catch (e) {
+    console.warn('[pacote][update-snapshot] erro inesperado:', e);
+  }
+
   await supabaseClient.from('agendamento_servicos').delete().eq('agendamento_id', id);
 
   var clienteObj = clients.find(function(c) { return c.nome === apt.cliente; });
@@ -6453,12 +7145,85 @@ updateAppointment = async function(id, apt) {
       return false;
     }
   }
+
+  // 🔧 FIX BUG 2 (parte 2): reaplica credito_consumido=true nas linhas
+  // pacote_uso recriadas cujo cliente_pacote_id já estava consumido
+  // antes da edição. Fonte de verdade = banco (snapshot acima), nunca o DOM.
+  try {
+    var __cpIds = Object.keys(__preCredits);
+    for (var __k = 0; __k < __cpIds.length; __k++) {
+      var __cpId = __cpIds[__k];
+      var __updQ = supabaseClient.from('agendamento_servicos')
+        .update({ credito_consumido: true })
+        .eq('agendamento_id', id)
+        .eq('origem', 'pacote_uso')
+        .eq('cliente_pacote_id', __cpId);
+      if (tenantId) __updQ = __updQ.eq('tenant_id', tenantId);
+      var __updResp = await __updQ;
+      if (__updResp.error) console.warn('[pacote][update-reaplica] falhou:', __updResp.error);
+    }
+  } catch (e) {
+    console.warn('[pacote][update-reaplica] erro inesperado:', e);
+  }
+
   return true;
 };
 
 var pacoteOriginalDeleteAppointment = typeof deleteAppointment === 'function' ? deleteAppointment : null;
+
+/* ============================================================
+   🔧 FIX BUG 1 — PACOTE FANTASMA APÓS EXCLUSÃO
+   Ao excluir um agendamento que contém venda de pacote
+   (origem='pacote_venda'), invalida o(s) cliente_pacotes
+   criado(s) naquela venda para que NÃO fiquem como saldo
+   disponível depois que o faturamento sumiu.
+   - NÃO deleta fisicamente o cliente_pacotes (preserva auditoria)
+   - Marca status='cancelado' (com fallback para 'concluido' caso
+     a CHECK constraint da coluna não tenha sido relaxada ainda)
+   - Zera quantidade_restante para garantir inutilização imediata
+   ============================================================ */
+async function invalidarPacotesVendidosNoAgendamento(agendamentoId) {
+  if (!agendamentoId) return;
+  var tenantId = getCurrentTenantId();
+  try {
+    var q = supabaseClient.from('agendamento_servicos')
+      .select('cliente_pacote_id')
+      .eq('agendamento_id', agendamentoId)
+      .eq('origem', 'pacote_venda')
+      .not('cliente_pacote_id', 'is', null);
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+    var resp = await q;
+    if (resp.error) { console.warn('[pacote][invalidar-venda] busca falhou:', resp.error); return; }
+    var ids = [];
+    (resp.data || []).forEach(function(r){
+      if (r.cliente_pacote_id && ids.indexOf(r.cliente_pacote_id) === -1) ids.push(r.cliente_pacote_id);
+    });
+    for (var i = 0; i < ids.length; i++) {
+      var cpId = ids[i];
+      var upd = supabaseClient.from('cliente_pacotes')
+        .update({ status: 'cancelado', quantidade_restante: 0 })
+        .eq('id', cpId);
+      if (tenantId) upd = upd.eq('tenant_id', tenantId);
+      var ur = await upd;
+      if (ur.error) {
+        console.warn('[pacote][invalidar-venda] status=cancelado falhou, fallback para concluido:', ur.error);
+        var upd2 = supabaseClient.from('cliente_pacotes')
+          .update({ status: 'concluido', quantidade_restante: 0 })
+          .eq('id', cpId);
+        if (tenantId) upd2 = upd2.eq('tenant_id', tenantId);
+        await upd2;
+      }
+    }
+  } catch (e) {
+    console.warn('[pacote][invalidar-venda] erro inesperado:', e);
+  }
+}
+
 deleteAppointment = async function(id) {
+  // Devolve créditos JÁ consumidos das linhas de uso (regra antiga preservada).
   await devolverCreditosPacoteDoAgendamento(id);
+  // 🔧 BUG 1: invalida pacotes vendidos NESTE agendamento (pacote fantasma).
+  await invalidarPacotesVendidosNoAgendamento(id);
   return pacoteOriginalDeleteAppointment ? pacoteOriginalDeleteAppointment(id) : false;
 };
 
@@ -6731,7 +7496,7 @@ async function carregarConfigGeral() {
     // + horario_inicio/horario_fim (legado, usado como fallback).
     var resp = await supabaseClient
       .from('tenant_settings')
-      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais')
+      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais, destacar_clientes_inativos, dias_inatividade_clientes')
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
@@ -6762,6 +7527,24 @@ async function carregarConfigGeral() {
     var chk = document.getElementById('cfg-permitir-agendamento-cliente');
     if (chk) chk.checked = on;
     atualizarLinkAgendamentoCliente(on);
+
+    // === Clientes inativos ===
+    var inativosOn = false;
+    var inativosDias = 30;
+    if (resp && resp.data) {
+      inativosOn = !!resp.data.destacar_clientes_inativos;
+      if (resp.data.dias_inatividade_clientes != null) {
+        inativosDias = Number(resp.data.dias_inatividade_clientes) || 30;
+      }
+    }
+    INATIVO_CFG.ativo = inativosOn;
+    INATIVO_CFG.dias = inativosDias;
+    var chkIna = document.getElementById('cfg-destacar-clientes-inativos');
+    if (chkIna) chkIna.checked = inativosOn;
+    var inpIna = document.getElementById('cfg-dias-inatividade-clientes');
+    if (inpIna) inpIna.value = inativosDias;
+    var boxIna = document.getElementById('dias-inatividade-box');
+    if (boxIna) boxIna.style.display = inativosOn ? '' : 'none';
 
     // Aplica horário semanal às variáveis globais (com fallback p/ legacy)
     BUSINESS_HOURS_BY_DAY = parseHorariosSemanais(horariosJsonb, hIniLegacy, hFimLegacy);
@@ -7060,6 +7843,136 @@ function aplicarHorarioComercialGlobal(hIni, hFim) {
   }
   recomputeBusinessEnvelope();
   try { if (typeof renderDayDetail === 'function') renderDayDetail(); } catch (_) {}
+}
+
+/* ============================================================
+   CLIENTES INATIVOS — Configuração + helpers
+   Persistido em tenant_settings:
+     destacar_clientes_inativos (boolean)
+     dias_inatividade_clientes (int)
+   ============================================================ */
+window.INATIVO_CFG = window.INATIVO_CFG || { ativo: false, dias: 30 };
+var INATIVO_CFG = window.INATIVO_CFG;
+
+/* Última data de agendamento por cliente (calculada sob demanda). */
+function getUltimaDataAgendamentoCliente(clienteId) {
+  if (!clienteId || !Array.isArray(appointments)) return null;
+  var max = null;
+  for (var i = 0; i < appointments.length; i++) {
+    var a = appointments[i];
+    if (!a || a.cliente_id !== clienteId) continue;
+    var d = a.data; // 'YYYY-MM-DD'
+    if (!d) continue;
+    if (max === null || d > max) max = d;
+  }
+  return max;
+}
+
+/* Dias decorridos desde o último agendamento. null = nunca agendou. */
+function getDiasSemAgendamentoCliente(clienteId) {
+  var ultima = getUltimaDataAgendamentoCliente(clienteId);
+  if (!ultima) return null;
+  var parts = ultima.split('-');
+  if (parts.length < 3) return null;
+  var dt = new Date(parseInt(parts[0],10), parseInt(parts[1],10)-1, parseInt(parts[2],10));
+  if (isNaN(dt.getTime())) return null;
+  var hoje = new Date();
+  hoje.setHours(0,0,0,0);
+  dt.setHours(0,0,0,0);
+  var diff = Math.floor((hoje.getTime() - dt.getTime()) / 86400000);
+  return diff;
+}
+
+/* Toggle "Destacar clientes inativos" — salva imediatamente. */
+async function onToggleDestacarClientesInativos(el) {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+  var on = !!el.checked;
+  var box = document.getElementById('dias-inatividade-box');
+  if (box) box.style.display = on ? '' : 'none';
+  var fb = document.getElementById('cfg-inativos-feedback');
+  el.disabled = true;
+  try {
+    // Garante que dias_inatividade_clientes tenha um valor válido ao ativar
+    var dias = INATIVO_CFG.dias || 30;
+    var inp = document.getElementById('cfg-dias-inatividade-clientes');
+    if (on && inp) {
+      var v = parseInt(inp.value, 10);
+      if (!isNaN(v) && v > 0) dias = v;
+      else inp.value = dias;
+    }
+    var resp = await supabaseClient
+      .from('tenant_settings')
+      .upsert(
+        { tenant_id: tenantId, destacar_clientes_inativos: on, dias_inatividade_clientes: dias },
+        { onConflict: 'tenant_id' }
+      );
+    if (resp.error) throw resp.error;
+    INATIVO_CFG.ativo = on;
+    INATIVO_CFG.dias = dias;
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback ok';
+      fb.textContent = on ? '✓ Destaque de clientes inativos ativado.' : '✓ Destaque desativado.';
+      setTimeout(function(){ fb.style.display='none'; }, 3000);
+    }
+    try { if (typeof renderClients === 'function') renderClients(); } catch(_){}
+  } catch (err) {
+    console.error('Erro ao salvar destacar_clientes_inativos:', err);
+    el.checked = !on;
+    if (box) box.style.display = el.checked ? '' : 'none';
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback err';
+      fb.textContent = 'Não foi possível salvar. Tente novamente.';
+    }
+  } finally {
+    el.disabled = false;
+  }
+}
+
+/* Salvar quantidade de dias (botão Salvar ao lado do input). */
+async function salvarDiasInatividadeClientes() {
+  var tenantId = getCurrentTenantId();
+  if (!tenantId) return;
+  var inp = document.getElementById('cfg-dias-inatividade-clientes');
+  var fb = document.getElementById('cfg-inativos-feedback');
+  if (!inp) return;
+  var dias = parseInt(inp.value, 10);
+  if (isNaN(dias) || dias < 1) {
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback err';
+      fb.textContent = 'Informe um número de dias válido (mínimo 1).';
+    }
+    inp.focus();
+    return;
+  }
+  if (dias > 3650) dias = 3650;
+  try {
+    var resp = await supabaseClient
+      .from('tenant_settings')
+      .upsert(
+        { tenant_id: tenantId, dias_inatividade_clientes: dias },
+        { onConflict: 'tenant_id' }
+      );
+    if (resp.error) throw resp.error;
+    INATIVO_CFG.dias = dias;
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback ok';
+      fb.textContent = '✓ Quantidade de dias salva (' + dias + ' dias).';
+      setTimeout(function(){ fb.style.display='none'; }, 3000);
+    }
+    try { if (typeof renderClients === 'function') renderClients(); } catch(_){}
+  } catch (err) {
+    console.error('Erro ao salvar dias_inatividade_clientes:', err);
+    if (fb) {
+      fb.style.display = '';
+      fb.className = 'ac-feedback err';
+      fb.textContent = 'Não foi possível salvar. Tente novamente.';
+    }
+  }
 }
 
 async function onTogglePermitirAgendamentoCliente(el) {
@@ -7641,7 +8554,12 @@ function bloqHHMMToMin(s) {
 function bloqOverlapWithAppointments(profId, dateISO, iniHHMM, fimHHMM, ignoreBloqueioId) {
   var ini = bloqHHMMToMin(iniHHMM), fim = bloqHHMMToMin(fimHHMM);
   // 1. Sobrepõe agendamento existente?
-  var dayApps = appointments.filter(function(a){ return a.data === dateISO; });
+  // 🟣 Ignora agendamentos "cancelado_com_venda" (não ocupam horário) e demais cancelados.
+  var dayApps = appointments.filter(function(a){
+    if (a.data !== dateISO) return false;
+    if (typeof isAppointmentSlotBlocking === 'function') return isAppointmentSlotBlocking(a);
+    return true;
+  });
   for (var i = 0; i < dayApps.length; i++) {
     var a = dayApps[i];
     var evs = expandToServiceEvents([a]);
@@ -8639,3 +9557,2199 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
 
   box.innerHTML = html;
 }
+
+
+/* ============================================================
+   MÓDULO PRODUTOS (v1)
+   - Lista, cadastra, edita e ativa/inativa produtos.
+   - Upload com Cropper.js (1:1) → bucket "produtos" no Storage.
+   - Multi-tenant (usa getCurrentTenantId / supabaseClient).
+   - NÃO implementa estoque/venda — é a base do cadastro.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  var BUCKET_PROD = 'produtos';
+  var produtoEditId = null;
+  var produtoFiltro = 'ativos'; // 'ativos' | 'inativos'
+  var produtoCropper = null;
+  var produtoFotoBlob = null;     // Blob recém-cropado (pendente de upload)
+  var produtoFotoDataUrl = null;  // DataURL para preview
+  var produtoFotoUrlAtual = '';   // URL persistida (modo edição)
+  var produtoFotoRemovida = false;
+
+  // ---------- helpers ----------
+  function el(id){ return document.getElementById(id); }
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function money(v){
+    var n = Number(v) || 0;
+    return 'R$ ' + n.toFixed(2).replace('.', ',');
+  }
+  function toast(msg, type){
+    if (typeof showToast === 'function') showToast(msg, type);
+    else console.log('[toast]', msg);
+  }
+  function tid(){
+    return (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
+  }
+
+  // ---------- LOAD / RENDER ----------
+  async function loadProdutos(){
+    var grid = el('produtos-grid');
+    var empty = el('produtos-empty');
+    if (!grid) return;
+    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--text-muted);padding:24px;">Carregando produtos...</div>';
+    if (empty) empty.hidden = true;
+
+    var tenantId = tid();
+    if (typeof supabaseClient === 'undefined' || !supabaseClient) {
+      grid.innerHTML = '<div style="grid-column:1/-1;color:#ef4444;text-align:center;padding:24px;">Cliente Supabase indisponível.</div>';
+      return;
+    }
+    var query = supabaseClient.from('produtos').select('*').order('created_at', { ascending: false });
+    if (tenantId) query = query.eq('tenant_id', tenantId);
+    query = query.eq('ativo', produtoFiltro === 'ativos');
+
+    var resp = await query;
+    if (resp.error) {
+      console.error('[produtos] load erro:', resp.error);
+      grid.innerHTML = '<div style="grid-column:1/-1;color:#ef4444;text-align:center;padding:24px;">Erro ao carregar produtos.</div>';
+      return;
+    }
+    produtosCache = resp.data || [];
+    renderProdutos(produtosCache);
+  }
+
+  var produtosCache = [];
+  var produtosSearchTerm = '';
+  function setupProdutosSearch(){
+    if (typeof bindSearchBar !== 'function') return;
+    bindSearchBar('produtos-search-input', 'produtos-search-clear', function(v){
+      produtosSearchTerm = v;
+      renderProdutos(produtosCache);
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupProdutosSearch);
+  else setupProdutosSearch();
+
+  function renderProdutos(rows){
+    setupProdutosSearch();
+    var grid = el('produtos-grid');
+    var empty = el('produtos-empty');
+    if (!grid) return;
+
+    var termo = (typeof normalizeSearch === 'function') ? normalizeSearch(produtosSearchTerm) : '';
+    var filtradas = !termo ? (rows || []) : (rows || []).filter(function(p){
+      return normalizeSearch(p && p.nome).indexOf(termo) !== -1;
+    });
+
+    if (!filtradas.length) {
+      grid.innerHTML = '';
+      if (empty) {
+        empty.hidden = false;
+        var titleEl = empty.querySelector('.produtos-empty-title');
+        if (titleEl) {
+          if (termo) {
+            titleEl.textContent = 'Nenhum produto encontrado para "' + produtosSearchTerm + '".';
+          } else {
+            titleEl.textContent = (produtoFiltro === 'ativos')
+              ? 'Nenhum produto cadastrado ainda.'
+              : 'Nenhum produto inativo.';
+          }
+        }
+        var emptyBtns = empty.querySelectorAll('button, a.btn, .btn');
+        emptyBtns.forEach(function(b){
+          b.style.display = (!termo && produtoFiltro === 'ativos') ? '' : 'none';
+        });
+      }
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    grid.innerHTML = filtradas.map(function(p){
+      var thumb = p.foto_url
+        ? '<img src="' + escHtml(p.foto_url) + '" alt="' + escHtml(p.nome) + '" loading="lazy">'
+        : '<span class="placeholder"><i class="fa-regular fa-image"></i></span>';
+      var statusLabel = p.ativo ? 'Ativo' : 'Inativo';
+      var toggleBtn = p.ativo
+        ? '<button class="produto-icon-btn is-danger" type="button" title="Inativar" onclick="window.toggleProdutoAtivo(\'' + p.id + '\', false)"><i class="fa-solid fa-ban"></i></button>'
+        : '<button class="produto-icon-btn is-success" type="button" title="Reativar" onclick="window.toggleProdutoAtivo(\'' + p.id + '\', true)"><i class="fa-solid fa-rotate-left"></i></button>';
+
+      return '' +
+        '<div class="produto-card' + (p.ativo ? '' : ' is-inativo') + '">' +
+          '<div class="produto-card-thumb">' +
+            thumb +
+          '</div>' +
+          '<div class="produto-card-body">' +
+            '<div class="produto-card-title-row">' +
+              '<span class="produto-card-nome" title="' + escHtml(p.nome) + '">' + escHtml(p.nome) + '</span>' +
+              '<span class="produto-card-status">' + statusLabel + '</span>' +
+            '</div>' +
+            '<div class="produto-card-valor">' + money(p.valor) + '</div>' +
+          '</div>' +
+          '<div class="produto-card-actions">' +
+            '<button class="produto-icon-btn" type="button" title="Editar" onclick="window.editarProduto(\'' + p.id + '\')"><i class="fa-solid fa-pen"></i></button>' +
+            toggleBtn +
+          '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  // ---------- FILTRO ----------
+  function setProdutoFiltro(f){
+    produtoFiltro = (f === 'inativos') ? 'inativos' : 'ativos';
+    document.querySelectorAll('.produtos-filter-chip').forEach(function(b){
+      b.classList.toggle('is-active', b.getAttribute('data-prod-filter') === produtoFiltro);
+    });
+    loadProdutos();
+  }
+
+  // ---------- MODAL: novo / editar ----------
+  function resetForm(){
+    produtoEditId = null;
+    produtoFotoBlob = null;
+    produtoFotoDataUrl = null;
+    produtoFotoUrlAtual = '';
+    produtoFotoRemovida = false;
+    var f = el('form-produto');
+    if (f) f.reset();
+    var ativo = el('produto-ativo'); if (ativo) ativo.checked = true;
+    var est = el('produto-tem-estoque'); if (est) est.checked = false;
+    atualizarPreviewFoto();
+  }
+
+  function atualizarPreviewFoto(){
+    var box = el('produto-foto-preview');
+    var rmBtn = el('produto-foto-remove');
+    if (!box) return;
+    var src = produtoFotoDataUrl || (!produtoFotoRemovida ? produtoFotoUrlAtual : '');
+    if (src) {
+      box.innerHTML = '<img src="' + escHtml(src) + '" alt="Pré-visualização">';
+      if (rmBtn) rmBtn.hidden = false;
+    } else {
+      box.innerHTML = '<i class="fa-regular fa-image"></i>';
+      if (rmBtn) rmBtn.hidden = true;
+    }
+  }
+
+  function openModalNovoProduto(){
+    resetForm();
+    var t = el('modal-produto-titulo');
+    if (t) t.textContent = 'Novo produto';
+    if (typeof openModal === 'function') openModal('modal-produto');
+    else { var m = el('modal-produto'); if (m) m.classList.add('active'); }
+  }
+
+  async function editarProduto(id){
+    resetForm();
+    var resp = await supabaseClient.from('produtos').select('*').eq('id', id).maybeSingle();
+    if (resp.error || !resp.data) { toast('Produto não encontrado.', 'error'); return; }
+    var p = resp.data;
+    produtoEditId = p.id;
+    el('produto-nome').value = p.nome || '';
+    el('produto-valor').value = p.valor != null ? p.valor : '';
+    el('produto-descricao').value = p.descricao || '';
+    el('produto-tem-estoque').checked = !!p.tem_estoque;
+    el('produto-ativo').checked = !!p.ativo;
+    produtoFotoUrlAtual = p.foto_url || '';
+    atualizarPreviewFoto();
+    var t = el('modal-produto-titulo');
+    if (t) t.textContent = 'Editar produto';
+    if (typeof openModal === 'function') openModal('modal-produto');
+    else { var m = el('modal-produto'); if (m) m.classList.add('active'); }
+  }
+
+  function removerFotoProduto(){
+    produtoFotoBlob = null;
+    produtoFotoDataUrl = null;
+    produtoFotoRemovida = true;
+    atualizarPreviewFoto();
+  }
+
+  // ---------- UPLOAD + CROPPER (1:1) ----------
+  function onFotoPicked(e){
+    var file = e.target && e.target.files && e.target.files[0];
+    if (!file) return;
+    if (!/^image\/(jpe?g|png|webp)$/i.test(file.type)) {
+      toast('Use JPG, PNG ou WEBP.', 'error');
+      e.target.value = '';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast('Imagem muito grande (máx. 5MB).', 'error');
+      e.target.value = '';
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(){ abrirCropProduto(reader.result); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
+  function abrirCropProduto(dataUrl){
+    var modal = el('modal-produto-crop');
+    var img = el('produto-crop-img');
+    if (!modal || !img) return;
+    img.src = dataUrl;
+    if (typeof openModal === 'function') openModal('modal-produto-crop');
+    else modal.classList.add('active');
+
+    setTimeout(function(){
+      if (produtoCropper) { try { produtoCropper.destroy(); } catch(_){} produtoCropper = null; }
+      if (typeof Cropper === 'undefined') { toast('Editor de imagem não carregado.', 'error'); return; }
+      produtoCropper = new Cropper(img, {
+        aspectRatio: 1,        // ✅ Crop quadrado obrigatório
+        viewMode: 1,
+        dragMode: 'move',
+        autoCropArea: 1,
+        background: false,
+        movable: true,
+        zoomable: true,
+        rotatable: false,
+        scalable: false,
+        responsive: true,
+        modal: true,
+        cropBoxMovable: true,
+        cropBoxResizable: true,
+        toggleDragModeOnDblclick: false,
+        guides: true,
+        center: true
+      });
+    }, 50);
+  }
+
+  function cancelarCropProduto(){
+    if (produtoCropper) { try { produtoCropper.destroy(); } catch(_){} produtoCropper = null; }
+    if (typeof closeModal === 'function') closeModal('modal-produto-crop');
+    else { var m = el('modal-produto-crop'); if (m) m.classList.remove('active'); }
+  }
+
+  function confirmarCropProduto(){
+    if (!produtoCropper) return cancelarCropProduto();
+    var canvas = produtoCropper.getCroppedCanvas({
+      width: 800, height: 800,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'high',
+      fillColor: '#fff'
+    });
+    if (!canvas) { toast('Não foi possível recortar.', 'error'); return; }
+    canvas.toBlob(function(blob){
+      if (!blob) { toast('Falha ao gerar imagem.', 'error'); return; }
+      produtoFotoBlob = blob;
+      produtoFotoDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      produtoFotoRemovida = false;
+      atualizarPreviewFoto();
+      cancelarCropProduto();
+    }, 'image/jpeg', 0.9);
+  }
+
+  function produtoCropZoom(d){ if (produtoCropper) produtoCropper.zoom(d); }
+  function produtoCropReset(){ if (produtoCropper) produtoCropper.reset(); }
+
+  async function uploadFotoProduto(blob, tenantId){
+    if (!blob) return null;
+    var path = (tenantId || 'sem-tenant') + '/' + Date.now() + '_' + Math.random().toString(36).slice(2,9) + '.jpg';
+    var up = await supabaseClient.storage.from(BUCKET_PROD).upload(path, blob, {
+      contentType: 'image/jpeg', upsert: false
+    });
+    if (up.error) {
+      console.error('[produtos] upload erro:', up.error);
+      throw up.error;
+    }
+    var pub = supabaseClient.storage.from(BUCKET_PROD).getPublicUrl(path);
+    return (pub && pub.data && pub.data.publicUrl) || null;
+  }
+
+  // ---------- SAVE ----------
+  async function salvarProduto(e){
+    if (e) e.preventDefault();
+    var tenantId = tid();
+    var nome = (el('produto-nome').value || '').trim();
+    var valorStr = el('produto-valor').value;
+    var valor = parseFloat(valorStr);
+    var descricao = (el('produto-descricao').value || '').trim();
+    var temEstoque = el('produto-tem-estoque').checked;
+    var ativo = el('produto-ativo').checked;
+
+    if (!nome) { toast('Informe o nome.', 'error'); return; }
+    if (!isFinite(valor) || valor < 0) { toast('Informe um valor válido.', 'error'); return; }
+
+    var btn = e && e.target ? e.target.querySelector('button[type="submit"]') : null;
+    var prevHtml = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Salvando...'; }
+
+    try {
+      // Upload da foto (se houver nova)
+      var fotoUrl = produtoFotoUrlAtual;
+      if (produtoFotoBlob) {
+        try { fotoUrl = await uploadFotoProduto(produtoFotoBlob, tenantId); }
+        catch (err) { toast('Erro ao enviar imagem.', 'error'); throw err; }
+      } else if (produtoFotoRemovida) {
+        fotoUrl = null;
+      }
+
+      var row = {
+        nome: nome,
+        valor: valor,
+        descricao: descricao || null,
+        tem_estoque: temEstoque,
+        ativo: ativo,
+        foto_url: fotoUrl || null
+      };
+
+      var resp;
+      if (produtoEditId) {
+        resp = await supabaseClient.from('produtos').update(row).eq('id', produtoEditId);
+      } else {
+        row.tenant_id = tenantId;
+        resp = await supabaseClient.from('produtos').insert([row]);
+      }
+      if (resp.error) throw resp.error;
+
+      toast(produtoEditId ? 'Produto atualizado!' : 'Produto criado!', 'success');
+      if (typeof closeModal === 'function') closeModal('modal-produto');
+      // Garante que volta para a lista no filtro correspondente
+      produtoFiltro = ativo ? 'ativos' : produtoFiltro;
+      setProdutoFiltro(produtoFiltro);
+    } catch (err) {
+      console.error('[produtos] salvar erro:', err);
+      toast((err && err.message) || 'Erro ao salvar produto.', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = prevHtml; }
+    }
+  }
+
+  // ---------- TOGGLE ATIVO ----------
+  async function toggleProdutoAtivo(id, ativo){
+    var resp = await supabaseClient.from('produtos').update({ ativo: ativo }).eq('id', id);
+    if (resp.error) {
+      console.error('[produtos] toggle erro:', resp.error);
+      toast('Erro ao alterar status.', 'error');
+      return;
+    }
+    toast(ativo ? 'Produto ativado!' : 'Produto inativado!', 'success');
+    loadProdutos();
+  }
+
+  // ---------- HOOK switchPage ----------
+  var _origSwitchPage = (typeof switchPage === 'function') ? switchPage : null;
+  window.switchPage = function(page){
+    if (_origSwitchPage) _origSwitchPage.apply(this, arguments);
+    if (page === 'produtos') loadProdutos();
+  };
+
+  // ---------- BIND DOM ----------
+  document.addEventListener('DOMContentLoaded', function(){
+    var form = el('form-produto');
+    if (form && !form.dataset.bound) {
+      form.dataset.bound = '1';
+      form.addEventListener('submit', salvarProduto);
+    }
+    var input = el('produto-foto-input');
+    if (input && !input.dataset.bound) {
+      input.dataset.bound = '1';
+      input.addEventListener('change', onFotoPicked);
+    }
+  });
+
+  // ---------- EXPORTS GLOBAIS (usados por onclick="...") ----------
+  window.openModalNovoProduto    = openModalNovoProduto;
+  window.editarProduto           = editarProduto;
+  window.toggleProdutoAtivo      = toggleProdutoAtivo;
+  window.setProdutoFiltro        = setProdutoFiltro;
+  window.removerFotoProduto      = removerFotoProduto;
+  window.cancelarCropProduto     = cancelarCropProduto;
+  window.confirmarCropProduto    = confirmarCropProduto;
+  window.produtoCropZoom         = produtoCropZoom;
+  window.produtoCropReset        = produtoCropReset;
+  window.loadProdutos            = loadProdutos;
+
+  console.log('✅ Módulo PRODUTOS carregado');
+})();
+
+/* ============================================================
+   MÓDULO ESTOQUE  (build 2026-05-02)
+   - Lista produtos com tem_estoque=true e ativo=true
+   - Saldo calculado via view produtos_estoque_saldo
+   - Última movimentação via view produtos_estoque_ultima_mov
+   - Movimentações: entrada / saida / ajuste
+   - Saída valida saldo suficiente
+   ============================================================ */
+(function(){
+  'use strict';
+
+  function el(id){ return document.getElementById(id); }
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function toast(msg, type){
+    if (typeof showToast === 'function') showToast(msg, type);
+    else console.log('[toast]', msg);
+  }
+  function tid(){
+    return (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
+  }
+  function fmtQtd(n){
+    n = Number(n) || 0;
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ',');
+  }
+  function fmtDateTime(iso){
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    var dd = String(d.getDate()).padStart(2,'0');
+    var mm = String(d.getMonth()+1).padStart(2,'0');
+    var yy = d.getFullYear();
+    var hh = String(d.getHours()).padStart(2,'0');
+    var mi = String(d.getMinutes()).padStart(2,'0');
+    return dd+'/'+mm+'/'+yy+' '+hh+':'+mi;
+  }
+  function tipoLabel(t){
+    return t === 'entrada' ? 'Entrada' : t === 'saida' ? 'Saída' : 'Ajuste';
+  }
+  function openModalById(id){
+    var m = el(id);
+    if (m) m.classList.add('active');
+  }
+
+  // estado do módulo
+  var produtosEstoqueCache = []; // [{id, nome, foto_url, tem_estoque, ativo, saldo, ultima:{tipo,created_at}}]
+  var movRapidaContext = null;   // { produtoId, tipo }
+
+  // ---------------- LOAD ----------------
+  async function loadEstoque(){
+    var list  = el('estoque-list');
+    var empty = el('estoque-empty');
+    if (!list) return;
+    list.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:24px;">Carregando estoque...</div>';
+    if (empty) empty.hidden = true;
+
+    if (typeof supabaseClient === 'undefined' || !supabaseClient) {
+      list.innerHTML = '<div style="color:#ef4444;text-align:center;padding:24px;">Cliente Supabase indisponível.</div>';
+      return;
+    }
+    var tenantId = tid();
+
+    // 1) produtos com estoque
+    var qProd = supabaseClient.from('produtos')
+      .select('id, nome, foto_url, valor, tem_estoque, ativo')
+      .eq('tem_estoque', true)
+      .eq('ativo', true)
+      .order('nome', { ascending: true });
+    if (tenantId) qProd = qProd.eq('tenant_id', tenantId);
+
+    var [rProd, rSaldo, rUlt] = await Promise.all([
+      qProd,
+      supabaseClient.from('produtos_estoque_saldo').select('produto_id, saldo'),
+      supabaseClient.from('produtos_estoque_ultima_mov').select('produto_id, tipo, created_at')
+    ]);
+
+    if (rProd.error) {
+      console.error('[estoque] produtos erro:', rProd.error);
+      list.innerHTML = '<div style="color:#ef4444;text-align:center;padding:24px;">Erro ao carregar produtos.</div>';
+      return;
+    }
+
+    var saldoMap = {};
+    (rSaldo.data || []).forEach(function(r){ saldoMap[r.produto_id] = Number(r.saldo) || 0; });
+    var ultMap = {};
+    (rUlt.data || []).forEach(function(r){ ultMap[r.produto_id] = r; });
+
+    produtosEstoqueCache = (rProd.data || []).map(function(p){
+      return {
+        id: p.id,
+        nome: p.nome,
+        foto_url: p.foto_url,
+        saldo: saldoMap[p.id] || 0,
+        ultima: ultMap[p.id] || null
+      };
+    });
+
+    renderEstoque();
+  }
+
+  var estoqueSearchTerm = '';
+  function setupEstoqueSearch(){
+    if (typeof bindSearchBar !== 'function') return;
+    bindSearchBar('estoque-search-input', 'estoque-search-clear', function(v){
+      estoqueSearchTerm = v;
+      renderEstoque();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupEstoqueSearch);
+  else setupEstoqueSearch();
+
+  function renderEstoque(){
+    setupEstoqueSearch();
+    var list  = el('estoque-list');
+    var empty = el('estoque-empty');
+    if (!list) return;
+
+    if (!produtosEstoqueCache.length) {
+      list.innerHTML = '';
+      if (empty) empty.hidden = false;
+      return;
+    }
+    if (empty) empty.hidden = true;
+
+    var termo = (typeof normalizeSearch === 'function') ? normalizeSearch(estoqueSearchTerm) : '';
+    var filtrados = !termo ? produtosEstoqueCache : produtosEstoqueCache.filter(function(p){
+      return normalizeSearch(p && p.nome).indexOf(termo) !== -1;
+    });
+
+    if (!filtrados.length) {
+      list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);">Nenhum produto encontrado para "'+escHtml(estoqueSearchTerm)+'".</div>';
+      return;
+    }
+
+    list.innerHTML = filtrados.map(function(p){
+      var thumb = p.foto_url
+        ? '<img src="'+escHtml(p.foto_url)+'" alt="'+escHtml(p.nome)+'" loading="lazy">'
+        : '<i class="fa-regular fa-image"></i>';
+
+      var saldo = Number(p.saldo) || 0;
+      var saldoCls = saldo <= 0 ? 'is-zero' : (saldo < 5 ? 'is-low' : '');
+      var saldoIcon = saldo <= 0 ? 'fa-circle-exclamation' : 'fa-box';
+
+      var ult = p.ultima
+        ? '<span class="estoque-ultima-mov"><i class="fa-regular fa-clock"></i> '
+            + tipoLabel(p.ultima.tipo) + ' • ' + fmtDateTime(p.ultima.created_at) + '</span>'
+        : '<span class="estoque-ultima-mov">Sem movimentações</span>';
+
+      return ''+
+        '<div class="estoque-item" data-id="'+p.id+'">'+
+          '<div class="estoque-item-thumb">'+thumb+'</div>'+
+          '<div class="estoque-item-info">'+
+            '<div class="estoque-item-nome" title="'+escHtml(p.nome)+'">'+escHtml(p.nome)+'</div>'+
+            '<div class="estoque-item-meta">'+
+              '<span class="estoque-saldo-badge '+saldoCls+'">'+
+                '<i class="fa-solid '+saldoIcon+'"></i> '+fmtQtd(saldo)+' em estoque'+
+              '</span>'+
+              ult+
+            '</div>'+
+          '</div>'+
+          '<div class="estoque-actions">'+
+            '<button class="estoque-action-btn is-entrada" type="button" title="Entrada rápida" onclick="window.openMovRapida(\''+p.id+'\',\'entrada\')"><i class="fa-solid fa-plus"></i></button>'+
+            '<button class="estoque-action-btn is-saida" type="button" title="Saída rápida" onclick="window.openMovRapida(\''+p.id+'\',\'saida\')"><i class="fa-solid fa-minus"></i></button>'+
+            '<button class="estoque-action-btn" type="button" title="Histórico" onclick="window.openHistoricoEstoque(\''+p.id+'\')"><i class="fa-solid fa-clock-rotate-left"></i></button>'+
+          '</div>'+
+        '</div>';
+    }).join('');
+  }
+
+  // ---------------- MODAL: NOVA MOVIMENTAÇÃO COMPLETA ----------------
+  async function openModalNovaMov(){
+    var sel = el('mov-produto');
+    var busca = el('mov-produto-busca');
+    if (!sel) return;
+
+    // garante cache atualizado
+    if (!produtosEstoqueCache.length) await loadEstoque();
+
+    function preencherSelect(filtro){
+      filtro = (filtro || '').toLowerCase().trim();
+      sel.innerHTML = produtosEstoqueCache
+        .filter(function(p){ return !filtro || p.nome.toLowerCase().includes(filtro); })
+        .map(function(p){
+          return '<option value="'+p.id+'">'+escHtml(p.nome)+' — saldo: '+fmtQtd(p.saldo)+'</option>';
+        }).join('');
+    }
+    preencherSelect('');
+    if (busca) {
+      busca.value = '';
+      busca.oninput = function(){ preencherSelect(busca.value); };
+    }
+
+    el('mov-tipo').value = 'entrada';
+    el('mov-quantidade').value = '';
+    el('mov-observacao').value = '';
+
+    openModalById('modal-mov-estoque');
+  }
+
+  async function salvarMovimentacao(e){
+    e.preventDefault();
+    var produtoId = (el('mov-produto').value || '').trim();
+    var tipo      = el('mov-tipo').value;
+    var qtd       = Number(el('mov-quantidade').value);
+    var obs       = (el('mov-observacao').value || '').trim();
+
+    if (!produtoId) { toast('Selecione um produto.', 'error'); return; }
+    if (!qtd || qtd <= 0) { toast('Quantidade inválida.', 'error'); return; }
+
+    await aplicarMovimentacao({ produtoId: produtoId, tipo: tipo, quantidade: qtd, observacao: obs });
+  }
+
+  async function aplicarMovimentacao(mov){
+    var tenantId = tid();
+    if (!tenantId) { toast('Tenant não identificado.', 'error'); return; }
+
+    // Validação de saída: precisa ter saldo
+    if (mov.tipo === 'saida') {
+      var rSaldo = await supabaseClient
+        .from('produtos_estoque_saldo')
+        .select('saldo')
+        .eq('produto_id', mov.produtoId)
+        .maybeSingle();
+      var saldoAtual = (rSaldo && rSaldo.data && Number(rSaldo.data.saldo)) || 0;
+      if (mov.quantidade > saldoAtual) {
+        toast('Estoque insuficiente. Saldo atual: '+fmtQtd(saldoAtual), 'error');
+        return;
+      }
+    }
+
+    var resp = await supabaseClient.from('estoque_movimentacoes').insert({
+      tenant_id:  tenantId,
+      produto_id: mov.produtoId,
+      tipo:       mov.tipo,
+      quantidade: mov.quantidade,
+      observacao: mov.observacao || null
+    });
+
+    if (resp.error) {
+      console.error('[estoque] inserir erro:', resp.error);
+      toast('Erro ao salvar movimentação.', 'error');
+      return;
+    }
+
+    toast('Movimentação registrada!', 'success');
+    closeModal('modal-mov-estoque');
+    closeModal('modal-mov-rapida');
+    loadEstoque();
+  }
+
+  // ---------------- MOVIMENTAÇÃO RÁPIDA (entrada/saída) ----------------
+  function openMovRapida(produtoId, tipo){
+    var p = produtosEstoqueCache.find(function(x){ return x.id === produtoId; });
+    if (!p) return;
+    movRapidaContext = { produtoId: produtoId, tipo: tipo };
+
+    var titulo = tipo === 'entrada' ? '➕ Entrada rápida' : '➖ Saída rápida';
+    el('modal-mov-rapida-titulo').textContent = titulo;
+    el('mov-rapida-produto-info').innerHTML =
+      '<strong>'+escHtml(p.nome)+'</strong><br>'+
+      'Saldo atual: <strong>'+fmtQtd(p.saldo)+'</strong>';
+    el('mov-rapida-quantidade').value = '';
+
+    var btn = el('btn-mov-rapida-submit');
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar '+(tipo==='entrada'?'entrada':'saída');
+
+    openModalById('modal-mov-rapida');
+    setTimeout(function(){ var q = el('mov-rapida-quantidade'); if (q) q.focus(); }, 50);
+  }
+
+  async function salvarMovRapida(e){
+    e.preventDefault();
+    if (!movRapidaContext) return;
+    var qtd = Number(el('mov-rapida-quantidade').value);
+    if (!qtd || qtd <= 0) { toast('Quantidade inválida.', 'error'); return; }
+    await aplicarMovimentacao({
+      produtoId:  movRapidaContext.produtoId,
+      tipo:       movRapidaContext.tipo,
+      quantidade: qtd,
+      observacao: 'Movimentação rápida'
+    });
+  }
+
+  // ---------------- HISTÓRICO ----------------
+  async function openHistoricoEstoque(produtoId){
+    var p = produtosEstoqueCache.find(function(x){ return x.id === produtoId; });
+    el('modal-historico-titulo').textContent = 'Histórico — ' + (p ? p.nome : 'Produto');
+    var box = el('estoque-historico-list');
+    box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">Carregando...</div>';
+    openModalById('modal-historico-estoque');
+
+    var tenantId = tid();
+    var q = supabaseClient.from('estoque_movimentacoes')
+      .select('id, tipo, quantidade, observacao, created_at')
+      .eq('produto_id', produtoId)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+
+    var resp = await q;
+    if (resp.error) {
+      console.error('[estoque] historico erro:', resp.error);
+      box.innerHTML = '<div style="color:#ef4444;text-align:center;padding:20px;">Erro ao carregar histórico.</div>';
+      return;
+    }
+    var rows = resp.data || [];
+    if (!rows.length) {
+      box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;">Nenhuma movimentação registrada.</div>';
+      return;
+    }
+    // Reescreve observações antigas que ainda contêm o UUID cru do agendamento.
+    // Ex.: "Venda — agendamento 9f6813a7-..." → "Venda — atendimento"
+    function _formatObsHist(obs){
+      if (!obs) return '—';
+      var s = String(obs);
+      // Remove UUID v4 (com possíveis "..." de truncamento) deixando rótulo limpo
+      var uuidRe = /\s*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{0,12}\.{0,3}/i;
+      s = s.replace(/agendamento\s+/i, 'atendimento ').replace(uuidRe, '').trim();
+      // Limpa hífen/traço sobrando no fim ("Venda — atendimento —")
+      s = s.replace(/[—-]\s*$/, '').trim();
+      return s || '—';
+    }
+    box.innerHTML = rows.map(function(m){
+      var sinal = m.tipo === 'saida' ? '-' : '+';
+      var qtdCls = m.tipo === 'saida' ? 'is-neg' : 'is-pos';
+      var obsTxt = _formatObsHist(m.observacao);
+      return ''+
+        '<div class="estoque-hist-row">'+
+          '<div>'+
+            '<div class="estoque-hist-tipo is-'+m.tipo+'">'+tipoLabel(m.tipo)+'</div>'+
+            '<div class="estoque-hist-data">'+fmtDateTime(m.created_at)+'</div>'+
+          '</div>'+
+          '<div class="estoque-hist-obs" title="'+escHtml(obsTxt)+'">'+escHtml(obsTxt)+'</div>'+
+          '<div class="estoque-hist-qtd '+qtdCls+'">'+sinal+fmtQtd(m.quantidade)+'</div>'+
+        '</div>';
+    }).join('');
+  }
+
+  // ---------------- HOOK switchPage ----------------
+  var _origSwitchPage2 = (typeof window.switchPage === 'function') ? window.switchPage : null;
+  window.switchPage = function(page){
+    if (_origSwitchPage2) _origSwitchPage2.apply(this, arguments);
+    if (page === 'estoque') loadEstoque();
+  };
+
+  // ---------------- BIND ----------------
+  document.addEventListener('DOMContentLoaded', function(){
+    var f1 = el('form-mov-estoque');
+    if (f1 && !f1.dataset.bound) { f1.dataset.bound='1'; f1.addEventListener('submit', salvarMovimentacao); }
+    var f2 = el('form-mov-rapida');
+    if (f2 && !f2.dataset.bound) { f2.dataset.bound='1'; f2.addEventListener('submit', salvarMovRapida); }
+  });
+
+  // ---------------- EXPORTS ----------------
+  window.openModalNovaMov     = openModalNovaMov;
+  window.openMovRapida        = openMovRapida;
+  window.openHistoricoEstoque = openHistoricoEstoque;
+  window.loadEstoque          = loadEstoque;
+
+  console.log('✅ Módulo ESTOQUE carregado');
+})();
+
+
+/* ============================================================
+   MÓDULO VENDA DE PRODUTOS NO AGENDAMENTO  (build 2026-05-02)
+
+   Regras (resumo):
+   - Produtos são gravados em public.agendamento_produtos ao salvar/editar.
+   - Estoque NÃO é alterado ao salvar/editar — só na CONCLUSÃO.
+   - Conclusão é automática (regra de horário existente). Um varredor
+     idempotente roda no mesmo intervalo de auto-refresh (60s) e dá baixa
+     em produtos ainda sem estoque_movimentacao_id.
+   - Cancelamento abre modal: se "levou" → mantém produtos, sem mexer
+     em estoque; se "não levou" → repõe estoque com movimentação 'entrada'.
+   - Dashboard: produtos só entram no faturamento se o agendamento
+     estiver concluído.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  console.log('▶ MÓDULO VENDA DE PRODUTOS NO AGENDAMENTO carregando...');
+
+  // ----- helpers -----
+  function el(id){ return document.getElementById(id); }
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  function money(v){
+    var n = Number(v) || 0;
+    return 'R$ ' + n.toFixed(2).replace('.', ',');
+  }
+  function fmtQtd(n){
+    n = Number(n) || 0;
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace('.', ',');
+  }
+  function toast(msg, type){
+    if (typeof showToast === 'function') showToast(msg, type);
+    else console.log('[toast]', msg);
+  }
+  function tid(){
+    return (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
+  }
+
+  // ----- estado / cache -----
+  // produtosCache: lista canônica de produtos ativos do tenant + saldo atual
+  // [{id, nome, valor, tem_estoque, ativo, saldo}]
+  var produtosCache = [];
+  // produtosCacheLoadedAt: timestamp do último load (para invalidação simples)
+  var produtosCacheLoadedAt = 0;
+  // Cache de produtos vendidos em agendamentos (alimentado por loadAppointments override)
+  // { [agendamento_id]: [{id, produto_id, quantidade, preco_unitario, observacao, estoque_movimentacao_id}] }
+  var produtosPorAgendamento = {};
+  // counter de blocos no modal (para id único)
+  var produtoAgBlockCounter = 0;
+  // contexto do modal de cancelamento
+  var __cancelProdCtx = null; // { agendamentoId, produtos:[...] }
+
+  // expor pra debug/uso externo se precisar
+  window.__produtosVendaState = {
+    get cache(){ return produtosCache; },
+    get porAgendamento(){ return produtosPorAgendamento; }
+  };
+
+  // ============================================================
+  // 1) CARREGAR CACHE DE PRODUTOS (com saldo)
+  // ============================================================
+  async function loadProdutosVendaCache(force){
+    if (typeof supabaseClient === 'undefined' || !supabaseClient) return [];
+    var now = Date.now();
+    if (!force && produtosCache.length && (now - produtosCacheLoadedAt) < 30000) {
+      return produtosCache;
+    }
+    var tenantId = tid();
+    try {
+      var qProd = supabaseClient.from('produtos')
+        .select('id, nome, valor, tem_estoque, ativo, foto_url')
+        .eq('ativo', true)
+        .order('nome', { ascending: true });
+      if (tenantId) qProd = qProd.eq('tenant_id', tenantId);
+
+      var [rProd, rSaldo] = await Promise.all([
+        qProd,
+        supabaseClient.from('produtos_estoque_saldo').select('produto_id, saldo')
+      ]);
+
+      if (rProd.error) {
+        console.error('[venda-prod] erro produtos:', rProd.error);
+        return produtosCache;
+      }
+      var saldoMap = {};
+      (rSaldo && rSaldo.data || []).forEach(function(r){
+        saldoMap[r.produto_id] = Number(r.saldo) || 0;
+      });
+      produtosCache = (rProd.data || []).map(function(p){
+        return {
+          id: p.id,
+          nome: p.nome,
+          valor: Number(p.valor) || 0,
+          tem_estoque: !!p.tem_estoque,
+          ativo: !!p.ativo,
+          foto_url: p.foto_url || '',
+          saldo: p.tem_estoque ? (saldoMap[p.id] || 0) : null
+        };
+      });
+      produtosCacheLoadedAt = now;
+    } catch (e) {
+      console.error('[venda-prod] loadProdutosVendaCache fallback:', e);
+    }
+    return produtosCache;
+  }
+
+  function getProdutoFromCache(produtoId){
+    for (var i = 0; i < produtosCache.length; i++) {
+      if (produtosCache[i].id === produtoId) return produtosCache[i];
+    }
+    return null;
+  }
+
+  // ============================================================
+  // 2) UI — bloco de produto no modal de agendamento
+  // ============================================================
+  function renderProdutoSelectOptions(selectedId){
+    // Todos os ativos aparecem; os com estoque=0 ficam disabled em vermelho.
+    var html = '<option value="">Selecione um produto...</option>';
+    produtosCache.forEach(function(p){
+      var labelExtra = '';
+      var disabled = false;
+      if (p.tem_estoque) {
+        if ((p.saldo || 0) <= 0) {
+          labelExtra = ' — Sem estoque disponível';
+          disabled = true;
+        } else {
+          labelExtra = ' — saldo: ' + fmtQtd(p.saldo);
+        }
+      }
+      html += '<option value="' + p.id + '"'
+            + (p.id === selectedId ? ' selected' : '')
+            + (disabled && p.id !== selectedId ? ' disabled' : '')
+            + ' data-valor="' + p.valor + '"'
+            + ' data-tem-estoque="' + (p.tem_estoque ? '1' : '0') + '"'
+            + ' data-saldo="' + (p.saldo == null ? '' : p.saldo) + '">'
+            + escHtml(p.nome) + escHtml(labelExtra)
+            + '</option>';
+    });
+    return html;
+  }
+
+  function adicionarBlocoProdutoAg(dados){
+    var container = el('produtos-ag-container');
+    if (!container) return;
+    var blockId = 'prodag-block-' + (produtoAgBlockCounter++);
+    var wrapper = document.createElement('div');
+    wrapper.className = 'produto-ag-block';
+    wrapper.id = blockId;
+    wrapper.setAttribute('data-ap-id', (dados && dados.id) || '');
+
+    wrapper.innerHTML =
+      '<div class="produto-ag-row">' +
+        '<div class="form-group pa-produto">' +
+          '<label>Produto</label>' +
+          '<div class="prodag-combo">' +
+            '<button type="button" class="prodag-combo-btn" onclick="window.toggleProdutoAgDropdown(this)">' +
+              '<span class="prodag-combo-thumb"><i class="fa-solid fa-box"></i></span>' +
+              '<span class="prodag-combo-label">Selecione um produto...</span>' +
+              '<i class="fa-solid fa-chevron-down prodag-combo-caret"></i>' +
+            '</button>' +
+            '<div class="prodag-combo-menu" role="listbox"></div>' +
+            '<select class="prodag-select" hidden aria-hidden="true">' +
+              renderProdutoSelectOptions(dados && dados.produto_id) +
+            '</select>' +
+          '</div>' +
+        '</div>' +
+        '<div class="form-group pa-qtd">' +
+          '<label>Quantidade</label>' +
+          '<input type="number" class="prodag-qtd" min="1" step="1" value="' +
+            ((dados && dados.quantidade) || 1) + '" oninput="window.onProdutoAgQtdChange(this)">' +
+        '</div>' +
+        '<div class="form-group pa-subtotal">' +
+          '<label>Subtotal</label>' +
+          '<div class="produto-ag-subtotal prodag-subtotal">R$ 0,00</div>' +
+        '</div>' +
+        '<div class="form-group pa-remove">' +
+          '<label>&nbsp;</label>' +
+          '<button type="button" class="produto-ag-remove" title="Remover produto" ' +
+            'onclick="window.removerBlocoProdutoAg(\'' + blockId + '\')">' +
+            '<i class="fa-solid fa-xmark"></i></button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="produto-ag-warning"></div>';
+
+    container.appendChild(wrapper);
+
+    // Renderiza menu visual a partir do cache
+    renderProdutoAgComboMenu(wrapper);
+
+    // Snapshot do preço unitário
+    if (dados && dados.preco_unitario != null) {
+      wrapper.setAttribute('data-preco-unit', dados.preco_unitario);
+    }
+
+    // Sincroniza visual do botão com o select escondido
+    syncProdutoAgComboButton(wrapper);
+
+    var sel = wrapper.querySelector('.prodag-select');
+    if (sel) onProdutoAgChange(sel);
+  }
+
+  // Renderiza a lista visual do dropdown (com fotos)
+  function renderProdutoAgComboMenu(wrapper){
+    var menu = wrapper.querySelector('.prodag-combo-menu');
+    if (!menu) return;
+    var html = '';
+    html += '<div class="prodag-combo-item is-placeholder" data-prod-id="" role="option">' +
+              '<span class="prodag-combo-thumb"><i class="fa-solid fa-box"></i></span>' +
+              '<span class="prodag-combo-item-text">Selecione um produto...</span>' +
+            '</div>';
+    produtosCache.forEach(function(p){
+      var disabled = p.tem_estoque && (p.saldo || 0) <= 0;
+      var extra = '';
+      if (p.tem_estoque) {
+        extra = disabled
+          ? '<span class="prodag-combo-item-meta is-danger">Sem estoque</span>'
+          : '<span class="prodag-combo-item-meta">saldo: ' + escHtml(fmtQtd(p.saldo)) + '</span>';
+      } else {
+        extra = '<span class="prodag-combo-item-meta">' + money(p.valor) + '</span>';
+      }
+      var thumb = p.foto_url
+        ? '<span class="prodag-combo-thumb"><img src="' + escHtml(p.foto_url) + '" alt=""></span>'
+        : '<span class="prodag-combo-thumb"><i class="fa-solid fa-box"></i></span>';
+      html += '<div class="prodag-combo-item' + (disabled ? ' is-disabled' : '') + '"' +
+              ' data-prod-id="' + escHtml(p.id) + '" role="option"' +
+              (disabled ? ' aria-disabled="true"' : '') + '>' +
+                thumb +
+                '<span class="prodag-combo-item-text">' + escHtml(p.nome) + '</span>' +
+                extra +
+              '</div>';
+    });
+    menu.innerHTML = html;
+
+    // Click handlers
+    menu.querySelectorAll('.prodag-combo-item').forEach(function(it){
+      it.addEventListener('click', function(){
+        if (it.classList.contains('is-disabled')) return;
+        var id = it.getAttribute('data-prod-id') || '';
+        var sel = wrapper.querySelector('.prodag-select');
+        if (sel) {
+          sel.value = id;
+          syncProdutoAgComboButton(wrapper);
+          closeAllProdutoAgDropdowns();
+          onProdutoAgChange(sel);
+        }
+      });
+    });
+  }
+
+  // Atualiza visual do botão com base no produto selecionado
+  function syncProdutoAgComboButton(wrapper){
+    var sel = wrapper.querySelector('.prodag-select');
+    var btn = wrapper.querySelector('.prodag-combo-btn');
+    if (!sel || !btn) return;
+    var thumbEl = btn.querySelector('.prodag-combo-thumb');
+    var labelEl = btn.querySelector('.prodag-combo-label');
+    var p = sel.value ? getProdutoFromCache(sel.value) : null;
+    if (p) {
+      if (thumbEl) {
+        thumbEl.innerHTML = p.foto_url
+          ? '<img src="' + escHtml(p.foto_url) + '" alt="">'
+          : '<i class="fa-solid fa-box"></i>';
+      }
+      if (labelEl) labelEl.textContent = p.nome;
+      btn.classList.add('has-value');
+    } else {
+      if (thumbEl) thumbEl.innerHTML = '<i class="fa-solid fa-box"></i>';
+      if (labelEl) labelEl.textContent = 'Selecione um produto...';
+      btn.classList.remove('has-value');
+    }
+  }
+
+  function toggleProdutoAgDropdown(btn){
+    var combo = btn.closest('.prodag-combo');
+    if (!combo) return;
+    var isOpen = combo.classList.contains('is-open');
+    closeAllProdutoAgDropdowns();
+    if (!isOpen) {
+      combo.classList.add('is-open');
+    }
+  }
+
+  function closeAllProdutoAgDropdowns(){
+    document.querySelectorAll('.prodag-combo.is-open').forEach(function(c){
+      c.classList.remove('is-open');
+    });
+  }
+
+  // Fecha ao clicar fora
+  document.addEventListener('click', function(e){
+    if (!e.target.closest('.prodag-combo')) {
+      closeAllProdutoAgDropdowns();
+    }
+  });
+
+  function removerBlocoProdutoAg(blockId){
+    var w = el(blockId);
+    if (w) w.remove();
+  }
+
+  function onProdutoAgChange(selectEl){
+    var wrapper = selectEl.closest('.produto-ag-block');
+    if (!wrapper) return;
+    var prodId = selectEl.value;
+    var p = getProdutoFromCache(prodId);
+    var warningEl = wrapper.querySelector('.produto-ag-warning');
+    var qtdEl = wrapper.querySelector('.prodag-qtd');
+
+    if (!p) {
+      wrapper.removeAttribute('data-preco-unit');
+      if (warningEl) warningEl.innerHTML = '';
+      atualizarSubtotalProdutoAg(wrapper);
+      return;
+    }
+
+    // Snapshot do preço (sempre atualiza ao trocar produto)
+    wrapper.setAttribute('data-preco-unit', String(p.valor || 0));
+
+    // Validação de estoque (visual)
+    if (p.tem_estoque && (p.saldo || 0) <= 0) {
+      if (warningEl) warningEl.innerHTML =
+        '<i class="fa-solid fa-circle-exclamation"></i> Produto sem estoque disponível';
+      // Não removemos o select para manter o feedback, mas zeramos qtd
+      if (qtdEl) qtdEl.value = '';
+    } else if (p.tem_estoque) {
+      if (warningEl) warningEl.innerHTML = '';
+      // Limita qtd ao saldo
+      if (qtdEl) {
+        qtdEl.setAttribute('max', String(p.saldo));
+        var atual = Number(qtdEl.value) || 0;
+        if (atual > p.saldo) qtdEl.value = String(p.saldo);
+      }
+    } else {
+      if (warningEl) warningEl.innerHTML = '';
+      if (qtdEl) qtdEl.removeAttribute('max');
+    }
+    atualizarSubtotalProdutoAg(wrapper);
+  }
+
+  function onProdutoAgQtdChange(inputEl){
+    var wrapper = inputEl.closest('.produto-ag-block');
+    if (!wrapper) return;
+    var sel = wrapper.querySelector('.prodag-select');
+    var p = sel ? getProdutoFromCache(sel.value) : null;
+    var warningEl = wrapper.querySelector('.produto-ag-warning');
+    if (p && p.tem_estoque) {
+      var qtd = Number(inputEl.value) || 0;
+      if (qtd > (p.saldo || 0)) {
+        if (warningEl) warningEl.innerHTML =
+          '<i class="fa-solid fa-circle-exclamation"></i> Quantidade maior que o saldo (' + fmtQtd(p.saldo) + ')';
+      } else {
+        if (warningEl) warningEl.innerHTML = '';
+      }
+    }
+    atualizarSubtotalProdutoAg(wrapper);
+  }
+
+  function atualizarSubtotalProdutoAg(wrapper){
+    var sub = wrapper.querySelector('.prodag-subtotal');
+    var sel = wrapper.querySelector('.prodag-select');
+    var qtdEl = wrapper.querySelector('.prodag-qtd');
+    var preco = parseFloat(wrapper.getAttribute('data-preco-unit')) || 0;
+    var qtd = Number(qtdEl && qtdEl.value) || 0;
+    if (!sel || !sel.value) {
+      if (sub) sub.textContent = money(0);
+      return;
+    }
+    if (sub) sub.textContent = money(preco * qtd);
+  }
+
+  function collectProdutosAg(){
+    var blocks = document.querySelectorAll('#produtos-ag-container .produto-ag-block');
+    var out = [];
+    var erro = null;
+    blocks.forEach(function(w){
+      if (erro) return;
+      var sel = w.querySelector('.prodag-select');
+      var qtdEl = w.querySelector('.prodag-qtd');
+      var produtoId = sel && sel.value;
+      var qtd = Number(qtdEl && qtdEl.value) || 0;
+      if (!produtoId) return; // bloco vazio é ignorado
+      if (qtd <= 0) {
+        erro = 'Informe a quantidade do produto.';
+        return;
+      }
+      var p = getProdutoFromCache(produtoId);
+      if (p && p.tem_estoque && qtd > (p.saldo || 0)) {
+        erro = 'Estoque insuficiente para "' + p.nome + '" (saldo: ' + fmtQtd(p.saldo) + ').';
+        return;
+      }
+      var preco = parseFloat(w.getAttribute('data-preco-unit'));
+      if (!isFinite(preco)) preco = (p ? p.valor : 0);
+      out.push({
+        id: w.getAttribute('data-ap-id') || null, // existente?
+        produto_id: produtoId,
+        quantidade: qtd,
+        preco_unitario: preco
+      });
+    });
+    return { produtos: out, erro: erro };
+  }
+
+  // ============================================================
+  // 3) PERSISTÊNCIA — agendamento_produtos
+  // ============================================================
+  async function saveProdutosDoAgendamento(agendamentoId, produtosArr){
+    if (!agendamentoId) return false;
+    var tenantId = tid();
+    if (!tenantId) {
+      console.error('[venda-prod] tenant não identificado');
+      return false;
+    }
+    try {
+      // Estratégia: comparar com o existente.
+      // Se um item existente já tem estoque_movimentacao_id (já abateu), não
+      // permitimos remoção/edição de quantidade — só adição. Mas como nossa
+      // baixa só ocorre na conclusão, em geral não haverá vínculo durante edição.
+      var rExist = await supabaseClient.from('agendamento_produtos')
+        .select('id, produto_id, quantidade, preco_unitario, estoque_movimentacao_id')
+        .eq('agendamento_id', agendamentoId);
+      if (rExist.error) {
+        console.error('[venda-prod] select existentes erro:', rExist.error);
+      }
+      var existentes = rExist.data || [];
+      var keepIds = {};
+
+      for (var i = 0; i < produtosArr.length; i++) {
+        var p = produtosArr[i];
+        if (p.id) {
+          keepIds[p.id] = true;
+          // UPDATE somente se NÃO houve baixa de estoque
+          var ex = existentes.find(function(x){ return x.id === p.id; });
+          if (ex && ex.estoque_movimentacao_id) {
+            // já abateu: ignora alterações
+            continue;
+          }
+          var rUpd = await supabaseClient.from('agendamento_produtos')
+            .update({
+              produto_id: p.produto_id,
+              quantidade: p.quantidade,
+              preco_unitario: p.preco_unitario
+            })
+            .eq('id', p.id)
+            .eq('tenant_id', tenantId);
+          if (rUpd.error) console.error('[venda-prod] update erro:', rUpd.error);
+        } else {
+          var rIns = await supabaseClient.from('agendamento_produtos').insert([{
+            tenant_id: tenantId,
+            agendamento_id: agendamentoId,
+            produto_id: p.produto_id,
+            quantidade: p.quantidade,
+            preco_unitario: p.preco_unitario
+          }]).select();
+          if (rIns.error) console.error('[venda-prod] insert erro:', rIns.error);
+        }
+      }
+
+      // DELETE dos itens removidos do form (que ainda não tinham baixa)
+      var paraRemover = existentes.filter(function(ex){
+        return !keepIds[ex.id] && !ex.estoque_movimentacao_id;
+      }).map(function(ex){ return ex.id; });
+      if (paraRemover.length > 0) {
+        var rDel = await supabaseClient.from('agendamento_produtos')
+          .delete()
+          .in('id', paraRemover)
+          .eq('tenant_id', tenantId);
+        if (rDel.error) console.error('[venda-prod] delete erro:', rDel.error);
+      }
+      return true;
+    } catch (e) {
+      console.error('[venda-prod] saveProdutosDoAgendamento exceção:', e);
+      return false;
+    }
+  }
+
+  // ============================================================
+  // 4) BAIXA / REPOSIÇÃO DE ESTOQUE (idempotente)
+  // ============================================================
+  // Monta um descritor legível do agendamento para usar como observação
+  // de movimentações de estoque. Ex: "Maria Silva — 02/05/2026 14:00"
+  async function _descreverAgendamentoParaEstoque(agendamentoId){
+    try {
+      // 1) Tenta no cache em memória (appointments) — mais rápido
+      var ag = null;
+      if (typeof appointments !== 'undefined' && Array.isArray(appointments)) {
+        ag = appointments.find(function(a){ return a && a.id === agendamentoId; }) || null;
+      }
+      // 2) Fallback: busca no banco
+      if (!ag) {
+        var r = await supabaseClient.from('agendamentos')
+          .select('cliente, data, hora')
+          .eq('id', agendamentoId)
+          .maybeSingle();
+        if (!r.error && r.data) ag = r.data;
+      }
+      if (!ag) return null;
+
+      var nome = (ag.cliente || ag.cliente_nome || '').toString().trim() || 'Cliente';
+      var dataStr = '';
+      try {
+        if (ag.data) {
+          var parts = String(ag.data).split('-'); // YYYY-MM-DD
+          if (parts.length === 3) dataStr = parts[2] + '/' + parts[1] + '/' + parts[0];
+          else dataStr = String(ag.data);
+        }
+      } catch(_) { dataStr = String(ag.data || ''); }
+      var hora = (ag.hora || '').toString().slice(0,5);
+
+      var quando = [dataStr, hora].filter(Boolean).join(' ');
+      return quando ? (nome + ' — ' + quando) : nome;
+    } catch(e){
+      return null;
+    }
+  }
+
+  async function darBaixaEstoqueAgendamento(agendamentoId){
+    if (!agendamentoId) return;
+    var tenantId = tid();
+    if (!tenantId) return;
+    try {
+      var resp = await supabaseClient.from('agendamento_produtos')
+        .select('id, produto_id, quantidade, observacao, estoque_movimentacao_id, produtos(nome, tem_estoque)')
+        .eq('agendamento_id', agendamentoId)
+        .is('estoque_movimentacao_id', null);
+      if (resp.error) { console.error('[venda-prod] baixa select erro:', resp.error); return; }
+      var pendentes = resp.data || [];
+      if (!pendentes.length) return;
+
+      // Descritor legível do agendamento (cliente + data/hora)
+      var descritor = await _descreverAgendamentoParaEstoque(agendamentoId);
+      var obsBase = descritor
+        ? ('Venda — ' + descritor)
+        : ('Venda — agendamento ' + agendamentoId);
+
+      for (var i = 0; i < pendentes.length; i++) {
+        var ap = pendentes[i];
+        // Só baixa estoque se o produto tem controle de estoque
+        if (!ap.produtos || !ap.produtos.tem_estoque) continue;
+        var nomeProd = (ap.produtos && ap.produtos.nome) || 'Produto';
+        var movResp = await supabaseClient.from('estoque_movimentacoes').insert({
+          tenant_id: tenantId,
+          produto_id: ap.produto_id,
+          tipo: 'saida',
+          quantidade: ap.quantidade,
+          observacao: obsBase
+        }).select();
+        if (movResp.error) {
+          console.error('[venda-prod] baixa insert mov erro:', movResp.error, 'produto:', nomeProd);
+          continue;
+        }
+        var movId = movResp.data && movResp.data[0] && movResp.data[0].id;
+        if (movId) {
+          await supabaseClient.from('agendamento_produtos')
+            .update({ estoque_movimentacao_id: movId })
+            .eq('id', ap.id)
+            .eq('tenant_id', tenantId);
+        }
+      }
+      // Atualiza tela de estoque se aberta
+      if (typeof window.loadEstoque === 'function') {
+        try { window.loadEstoque(); } catch(_){}
+      }
+    } catch (e) {
+      console.error('[venda-prod] darBaixaEstoqueAgendamento exceção:', e);
+    }
+  }
+
+  async function reporEstoquePorCancelamento(agendamentoId){
+    if (!agendamentoId) return;
+    var tenantId = tid();
+    if (!tenantId) return;
+    try {
+      // Repõe TODO produto que teve baixa neste agendamento (estoque_movimentacao_id != null)
+      var resp = await supabaseClient.from('agendamento_produtos')
+        .select('id, produto_id, quantidade, estoque_movimentacao_id, produtos(nome, tem_estoque)')
+        .eq('agendamento_id', agendamentoId)
+        .not('estoque_movimentacao_id', 'is', null);
+      if (resp.error) { console.error('[venda-prod] repor select erro:', resp.error); return; }
+      var arr = resp.data || [];
+      if (!arr.length) return;
+
+      var descritor = await _descreverAgendamentoParaEstoque(agendamentoId);
+      var obsBase = descritor
+        ? ('Reposição — cancelamento de ' + descritor)
+        : ('Reposição — cancelamento do agendamento ' + agendamentoId);
+
+      for (var i = 0; i < arr.length; i++) {
+        var ap = arr[i];
+        if (!ap.produtos || !ap.produtos.tem_estoque) continue;
+        var movResp = await supabaseClient.from('estoque_movimentacoes').insert({
+          tenant_id: tenantId,
+          produto_id: ap.produto_id,
+          tipo: 'entrada',
+          quantidade: ap.quantidade,
+          observacao: obsBase
+        });
+        if (movResp.error) console.error('[venda-prod] repor insert erro:', movResp.error);
+      }
+    } catch (e) {
+      console.error('[venda-prod] reporEstoquePorCancelamento exceção:', e);
+    }
+  }
+
+  // Repõe estoque também nos casos em que o cancelamento ocorre ANTES da
+  // baixa (quase nunca, com baixa só na conclusão), ou repor especificamente
+  // pelos produtos do agendamento informando que foram repostos.
+  async function reporEstoqueAgendamentoSeCabivel(agendamentoId){
+    // Para o caso "não levou": repõe os que tinham baixa.
+    await reporEstoquePorCancelamento(agendamentoId);
+  }
+
+  // ============================================================
+  // 5) AUTO-CONCLUSÃO: varredor periódico para baixar estoque
+  //    Roda em paralelo com o setInterval(60s) já existente.
+  //    Idempotente: só baixa onde estoque_movimentacao_id IS NULL.
+  // ============================================================
+  var __varredorRodando = false;
+  async function varrerConclusoesEDarBaixa(){
+    if (__varredorRodando) return;
+    if (typeof appointments === 'undefined' || !Array.isArray(appointments)) return;
+    if (typeof isAppointmentAutoCompleted !== 'function') return;
+    __varredorRodando = true;
+    try {
+      var concluidos = appointments.filter(function(a){
+        if (!a || !a.id) return false;
+        if (typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(a)) return false;
+        if (!isAppointmentAutoCompleted(a)) return false;
+        var prods = produtosPorAgendamento[a.id] || [];
+        var temProdutoPendente = prods.some(function(p){
+          if (p.estoque_movimentacao_id) return false;
+          var pr = getProdutoFromCache(p.produto_id);
+          return pr && pr.tem_estoque;
+        });
+        var temPacotePendente = Array.isArray(a.servicos) && a.servicos.some(function(s){
+          return s && s.origem === 'pacote_uso' && s.cliente_pacote_id && !s.credito_consumido;
+        });
+        // Auto-conclusão agora executa efeitos operacionais pendentes:
+        // baixa estoque e/ou consome crédito de pacote. Não altera receita.
+        return temProdutoPendente || temPacotePendente;
+      });
+      for (var i = 0; i < concluidos.length; i++) {
+        try { await consumirCreditosPacoteDoAgendamento(concluidos[i].id); }
+        catch(e){ console.warn('[pacote][auto-conclusao] consumo falhou:', e); }
+        await darBaixaEstoqueAgendamento(concluidos[i].id);
+      }
+      if (concluidos.length > 0) {
+        // Atualiza cache de produtos vendidos (saldos podem ter mudado)
+        await loadProdutosVendaCache(true);
+      }
+    } finally {
+      __varredorRodando = false;
+    }
+  }
+
+  // Dispara a cada 60s (mesma cadência do auto-refresh visual)
+  setInterval(varrerConclusoesEDarBaixa, 60000);
+  // Também após 5s do load inicial (pega agendamentos antigos já concluídos)
+  setTimeout(function(){
+    loadProdutosVendaCache(true).then(function(){ varrerConclusoesEDarBaixa(); });
+  }, 5000);
+
+  // ============================================================
+  // 6) OVERRIDES — abrir modal / salvar / carregar / cancelar
+  // ============================================================
+
+  // 6.1 — openAgendamentoModal: limpa container de produtos e carrega cache
+  var __origOpenAg = window.openAgendamentoModal;
+  window.openAgendamentoModal = function(agId, clienteNome, clienteTel){
+    var ret = __origOpenAg ? __origOpenAg.apply(this, arguments) : undefined;
+    var cont = el('produtos-ag-container');
+    if (cont) cont.innerHTML = '';
+    // Carrega/atualiza cache (não bloqueante para não atrasar o modal)
+    loadProdutosVendaCache().catch(function(){});
+    return ret;
+  };
+
+  // 6.2 — openAgendamentoParaEditar: popula produtos existentes
+  var __origOpenEdit = window.openAgendamentoParaEditar;
+  window.openAgendamentoParaEditar = function(a){
+    var ret = __origOpenEdit ? __origOpenEdit.apply(this, arguments) : undefined;
+    var cont = el('produtos-ag-container');
+    if (cont) cont.innerHTML = '';
+    // Aguarda cache pronto e popula
+    loadProdutosVendaCache().then(function(){
+      var prods = (a && a.id) ? (produtosPorAgendamento[a.id] || []) : [];
+      prods.forEach(function(p){ adicionarBlocoProdutoAg(p); });
+    });
+    return ret;
+  };
+
+  // 6.3 — saveAppointment: depois de salvar o agendamento, persiste produtos
+  var __origSave = window.saveAppointment;
+  window.saveAppointment = async function(e){
+    // Validação prévia (não bloqueia o save de serviços, mas avisa)
+    var col = collectProdutosAg();
+    if (col.erro) {
+      e && e.preventDefault && e.preventDefault();
+      toast(col.erro, 'error');
+      return;
+    }
+    // Determinar agendamento alvo ANTES de chamar o original
+    // (quando é edição, editingAppointmentId já está setado)
+    var editingBefore = (typeof editingAppointmentId !== 'undefined') ? editingAppointmentId : null;
+
+    // Chamar o handler original (que insere/atualiza serviços, mostra toast,
+    // fecha o modal, recarrega lista). Após isso, descobrimos o agendamento.
+    var ret = await (__origSave ? __origSave.apply(this, arguments) : Promise.resolve());
+
+    try {
+      var agendamentoId = editingBefore;
+      if (!agendamentoId) {
+        // Era inserção: não temos retorno direto. Buscamos o mais recente
+        // do tenant para o cliente+data+hora informados (heurística).
+        var data = el('ag-data') ? el('ag-data').value : null;
+        var hora = (el('ag-hora-h') ? el('ag-hora-h').value : '') + ':' +
+                   (el('ag-minuto') ? el('ag-minuto').value : '');
+        var clienteNome = el('ag-cliente') ? el('ag-cliente').value.trim() : '';
+        var tenantId = tid();
+        if (data && tenantId && clienteNome) {
+          var rNew = await supabaseClient.from('agendamentos')
+            .select('id, created_at')
+            .eq('tenant_id', tenantId)
+            .eq('data', data)
+            .eq('hora', hora)
+            .eq('cliente_nome', clienteNome)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (!rNew.error && rNew.data && rNew.data[0]) {
+            agendamentoId = rNew.data[0].id;
+          }
+        }
+      }
+      if (agendamentoId && col.produtos.length > 0) {
+        await saveProdutosDoAgendamento(agendamentoId, col.produtos);
+        // Atualiza cache local imediato
+        produtosPorAgendamento[agendamentoId] = col.produtos.map(function(p){
+          return {
+            produto_id: p.produto_id,
+            quantidade: p.quantidade,
+            preco_unitario: p.preco_unitario,
+            estoque_movimentacao_id: null
+          };
+        });
+        // Recarrega pra refletir estado real
+        if (typeof loadAppointments === 'function') {
+          try { await loadAppointments(); } catch(_){}
+        }
+      } else if (agendamentoId && col.produtos.length === 0 && editingBefore) {
+        // Edição salvou ZERO produtos: limpa os existentes que ainda não tiveram baixa
+        await saveProdutosDoAgendamento(agendamentoId, []);
+        produtosPorAgendamento[agendamentoId] = [];
+      }
+    } catch (err) {
+      console.error('[venda-prod] erro pós-save:', err);
+    }
+    return ret;
+  };
+
+  // 6.4 — loadAppointments: também carrega produtos vendidos por agendamento
+  var __origLoadAg = window.loadAppointments;
+  window.loadAppointments = async function(){
+    var ret = __origLoadAg ? await __origLoadAg.apply(this, arguments) : undefined;
+    try {
+      var tenantId = tid();
+      if (!tenantId) return ret;
+      var q = supabaseClient.from('agendamento_produtos')
+        .select('id, agendamento_id, produto_id, quantidade, preco_unitario, observacao, estoque_movimentacao_id, cliente_levou')
+        .eq('tenant_id', tenantId);
+      var resp = await q;
+      if (resp.error) { console.error('[venda-prod] load erro:', resp.error); return ret; }
+      var byAg = {};
+      (resp.data || []).forEach(function(r){
+        if (!byAg[r.agendamento_id]) byAg[r.agendamento_id] = [];
+        byAg[r.agendamento_id].push(r);
+      });
+      produtosPorAgendamento = byAg;
+      // Anexa em appointments (objetos vivos)
+      if (Array.isArray(appointments)) {
+        appointments.forEach(function(a){
+          a.produtos = byAg[a.id] || [];
+        });
+      }
+    } catch (e) {
+      console.error('[venda-prod] override loadAppointments exceção:', e);
+    }
+    return ret;
+  };
+
+  // 6.5 — deleteAppointment: intercepta para fluxo de cancelamento com produtos
+  // OBS: o original deleta agendamento_servicos primeiro e depois agendamentos.
+  // O ON DELETE CASCADE em agendamento_produtos cuida da limpeza dos vínculos,
+  // mas precisamos PRIMEIRO repor o estoque (se aplicável) ANTES do CASCADE,
+  // pois reporEstoquePorCancelamento depende dos vínculos para funcionar.
+  // Solução: o fluxo de cancelamento via UI (sheetCancelarAgendamento /
+  // confirmarExclusao) é interceptado pra abrir o modal antes.
+
+  // Hook: confirmarExclusao (modal-confirmar-exclusao)
+  var __origConfirmarExc = window.confirmarExclusao;
+  window.confirmarExclusao = function(){
+    var agId = (typeof editingAppointmentId !== 'undefined') ? editingAppointmentId : null;
+    var prods = agId ? (produtosPorAgendamento[agId] || []) : [];
+    if (prods.length > 0) {
+      abrirModalCancelarComProdutos(agId, prods);
+      return;
+    }
+    return __origConfirmarExc ? __origConfirmarExc.apply(this, arguments) : undefined;
+  };
+
+  // Hook: sheetCancelarAgendamento (mobile bottom-sheet)
+  var __origSheetCancel = window.sheetCancelarAgendamento;
+  window.sheetCancelarAgendamento = async function(){
+    // __currentSheetAppointment é interno do script principal; tentamos via state global
+    var a = window.__currentSheetAppointment ||
+            (typeof __currentSheetAppointment !== 'undefined' ? __currentSheetAppointment : null);
+    if (!a) {
+      return __origSheetCancel ? __origSheetCancel.apply(this, arguments) : undefined;
+    }
+    var prods = produtosPorAgendamento[a.id] || [];
+    if (prods.length > 0) {
+      // Fecha o sheet primeiro
+      if (typeof closeAgendamentoBottomSheet === 'function') closeAgendamentoBottomSheet();
+      abrirModalCancelarComProdutos(a.id, prods);
+      return;
+    }
+    return __origSheetCancel ? __origSheetCancel.apply(this, arguments) : undefined;
+  };
+
+  function abrirModalCancelarComProdutos(agendamentoId, produtos){
+    __cancelProdCtx = { agendamentoId: agendamentoId, produtos: produtos };
+    var listaEl = el('cancelar-prod-lista');
+    if (listaEl) {
+      listaEl.innerHTML = produtos.map(function(p){
+        var pc = getProdutoFromCache(p.produto_id);
+        var nome = pc ? pc.nome : 'Produto';
+        var temEstoque = pc ? pc.tem_estoque : false;
+        var jaAbatido = !!p.estoque_movimentacao_id;
+        var info = '';
+        if (temEstoque) {
+          info = jaAbatido ? ' • Já baixado do estoque' : ' • Sem baixa de estoque ainda';
+        } else {
+          info = ' • Sem controle de estoque';
+        }
+        return '<div class="cp-item">' +
+                 '<span>' + escHtml(nome) + '<small style="color:var(--text-muted)">' + info + '</small></span>' +
+                 '<span class="cp-qtd">x ' + fmtQtd(p.quantidade) + '</span>' +
+               '</div>';
+      }).join('');
+    }
+    if (typeof openModal === 'function') openModal('modal-cancelar-com-produtos');
+    else { var m = el('modal-cancelar-com-produtos'); if (m) m.classList.add('active'); }
+  }
+
+  async function confirmarCancelamentoComProdutos(clienteLevou){
+    if (!__cancelProdCtx) return;
+    var ctx = __cancelProdCtx;
+    __cancelProdCtx = null;
+
+    // Botões
+    var btnSim = el('btn-cancel-prod-sim');
+    var btnNao = el('btn-cancel-prod-nao');
+    if (btnSim) btnSim.disabled = true;
+    if (btnNao) btnNao.disabled = true;
+
+    try {
+      var tenantId = tid();
+      // 🐞 DEBUG OBRIGATÓRIO — fluxo cancelamento/venda
+      var __agAtual = (Array.isArray(appointments)
+        ? appointments.find(function(x){ return x && x.id === ctx.agendamentoId; })
+        : null);
+      console.log('[venda-prod][cancelar] início', {
+        id: ctx.agendamentoId,
+        clienteLevou: !!clienteLevou,
+        status: __agAtual && __agAtual.status,
+        conclusion_type: __agAtual && __agAtual.conclusion_type
+      });
+
+      // 🛡️ IDEMPOTÊNCIA — se já está como "cancelado_com_venda", NÃO reprocessa
+      // faturamento/conclusão. Apenas garante baixa de estoque idempotente
+      // (só baixa onde estoque_movimentacao_id IS NULL) e marca cliente_levou.
+      // Cobre execução duplicada do "Sim, levou os produtos".
+      var jaEhCanceladoComVenda = !!(__agAtual
+        && String(__agAtual.conclusion_type || '').trim().toLowerCase() === 'cancelado_com_venda');
+      if (jaEhCanceladoComVenda && clienteLevou) {
+        console.log('[venda-prod][cancelar] já é cancelado_com_venda — pulando re-update, só revalida estoque');
+        try { await darBaixaEstoqueAgendamento(ctx.agendamentoId); } catch(_){}
+        if (typeof closeModal === 'function') {
+          try { closeModal('modal-cancelar-com-produtos'); } catch(_){}
+          try { closeModal('modal-confirmar-exclusao'); } catch(_){}
+          try { closeModal('modal-agendamento'); } catch(_){}
+        }
+        if (typeof loadAppointments === 'function') { try { await loadAppointments(); } catch(_){} }
+        if (typeof renderCalendar === 'function') { try { renderCalendar(); } catch(_){} }
+        if (typeof renderDayDetail === 'function') { try { renderDayDetail(); } catch(_){} }
+        if (typeof loadDashboard === 'function') { try { await loadDashboard(); } catch(_){} }
+        toast('Já estava registrado como venda de produtos.', 'success');
+        return;
+      }
+
+      // Marca cliente_levou em todos os agendamento_produtos do agendamento
+      if (tenantId) {
+        await supabaseClient.from('agendamento_produtos')
+          .update({ cliente_levou: !!clienteLevou })
+          .eq('agendamento_id', ctx.agendamentoId)
+          .eq('tenant_id', tenantId);
+      }
+
+      if (clienteLevou) {
+        // ============================================================
+        // CLIENTE LEVOU OS PRODUTOS:
+        // - O serviço foi cancelado, MAS houve venda de produtos.
+        // - Precisamos: (a) dar baixa no estoque, (b) registrar a
+        //   receita dos produtos no dashboard.
+        // - Para que o dashboard contabilize a venda (o hook do
+        //   dashboard só soma agendamentos com status 'concluido'),
+        //   marcamos o agendamento como CONCLUÍDO em vez de excluí-lo.
+        //   O agendamento permanece no histórico como "venda de
+        //   produto sem serviço prestado" (rastreável por
+        //   conclusion_type='cancelado_com_venda').
+        // ============================================================
+        try {
+          var updPayload = {
+            status: 'concluido',
+            concluded_at: new Date().toISOString(),
+            conclusion_type: 'cancelado_com_venda',
+            updated_at: new Date().toISOString()
+          };
+          var upd = await supabaseClient.from('agendamentos')
+            .update(updPayload)
+            .eq('id', ctx.agendamentoId);
+          if (upd.error) {
+            // Fallback se as colunas extras não existirem
+            console.warn('[venda-prod] update concluído falhou (fallback):', upd.error);
+            await supabaseClient.from('agendamentos')
+              .update({ status: 'concluido', updated_at: new Date().toISOString() })
+              .eq('id', ctx.agendamentoId);
+          }
+        } catch(e) {
+          console.error('[venda-prod] erro marcando como concluído:', e);
+        }
+
+        // Baixa de estoque (idempotente)
+        try { await darBaixaEstoqueAgendamento(ctx.agendamentoId); }
+        catch(e){ console.warn('[venda-prod] baixa estoque falhou:', e); }
+
+        // Fecha modais e atualiza UI
+        if (typeof closeModal === 'function') {
+          try { closeModal('modal-cancelar-com-produtos'); } catch(_){}
+          try { closeModal('modal-confirmar-exclusao'); } catch(_){}
+          try { closeModal('modal-agendamento'); } catch(_){}
+        }
+        if (typeof loadAppointments === 'function') {
+          try { await loadAppointments(); } catch(_){}
+        }
+        // 🐞 DEBUG — confirma estado pós-reload (deve estar fora da agenda e fora do faturamento de serviço)
+        try {
+          var __agPos = appointments.find(function(x){ return x && x.id === ctx.agendamentoId; });
+          console.log('[venda-prod][cancelar] pós-reload', {
+            id: ctx.agendamentoId,
+            status: __agPos && __agPos.status,
+            conclusion_type: __agPos && __agPos.conclusion_type,
+            isCancelled: typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(__agPos),
+            matchesFilter: typeof appointmentMatchesFilter === 'function' && appointmentMatchesFilter(__agPos)
+          });
+        } catch(_){}
+        if (typeof renderCalendar === 'function') { try { renderCalendar(); } catch(_){} }
+        if (typeof renderDayDetail === 'function') { try { renderDayDetail(); } catch(_){} }
+        // ⚠️ ORDEM: aguardar loadDashboard para que a soma de produtos do hook
+        // só rode DEPOIS do appointments atualizado.
+        if (typeof loadDashboard === 'function') { try { await loadDashboard(); } catch(_){} }
+
+        toast('Venda de produtos registrada. Agendamento finalizado.', 'success');
+      } else {
+        // ============================================================
+        // CLIENTE NÃO LEVOU: repõe estoque (se houver baixa) e exclui.
+        // ============================================================
+        await reporEstoquePorCancelamento(ctx.agendamentoId);
+
+        if (typeof window.excluirAgendamento === 'function') {
+          await window.excluirAgendamento();
+        } else if (typeof window.deleteAppointment === 'function') {
+          await window.deleteAppointment(ctx.agendamentoId);
+          if (typeof loadAppointments === 'function') await loadAppointments();
+          if (typeof renderCalendar === 'function') renderCalendar();
+          if (typeof renderDayDetail === 'function') renderDayDetail();
+        }
+
+        if (typeof closeModal === 'function') closeModal('modal-cancelar-com-produtos');
+        toast('Agendamento cancelado.', 'success');
+      }
+    } catch (e) {
+      console.error('[venda-prod] cancelamento erro:', e);
+      toast('Erro ao cancelar agendamento.', 'error');
+    } finally {
+      if (btnSim) btnSim.disabled = false;
+      if (btnNao) btnNao.disabled = false;
+    }
+  }
+
+  // ============================================================
+  // 7) DASHBOARD — adiciona faturamento de produtos (só concluídos)
+  //    Adicionamos como acréscimo ao total exibido em #dash-faturamento
+  //    APÓS o loadDashboard original rodar — assim não quebra a lógica
+  //    de profissionais/serviços.
+  // ============================================================
+  var __origLoadDash = window.loadDashboard;
+  window.loadDashboard = async function(){
+    var ret = __origLoadDash ? await __origLoadDash.apply(this, arguments) : undefined;
+    try {
+      // Soma faturamento de produtos vendidos em agendamentos CONCLUÍDOS no range
+      var range = (typeof getCalendarVisibleDateRange === 'function')
+        ? getCalendarVisibleDateRange() : null;
+      var fInicio = (typeof filtrosAplicados !== 'undefined' && filtrosAplicados.dataInicio)
+        ? filtrosAplicados.dataInicio : (range ? range.start : null);
+      var fFim = (typeof filtrosAplicados !== 'undefined' && filtrosAplicados.dataFim)
+        ? filtrosAplicados.dataFim : (range ? range.end : null);
+
+      if (!Array.isArray(appointments)) return ret;
+
+      var totalProdutos = 0;
+      var qtdProdutos = 0;
+      appointments.forEach(function(a){
+        if (!a || !a.id) return;
+        // 🟣 EXCEÇÃO: "cancelado_com_venda" é tratado como cancelado em todo
+        // o resto do app, mas AQUI ele DEVE entrar — afinal o cliente levou
+        // o produto. Logo, só pulamos cancelados que NÃO sejam venda-de-produto.
+        var ehVendaCancelada = (typeof isCanceladoComVenda === 'function') && isCanceladoComVenda(a);
+        if (!ehVendaCancelada) {
+          if (typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(a)) return;
+          if (typeof isAppointmentAutoCompleted === 'function' && !isAppointmentAutoCompleted(a)) return;
+        }
+        if (fInicio && fFim && a.data) {
+          if (a.data < fInicio || a.data > fFim) return;
+        }
+        var prods = produtosPorAgendamento[a.id] || a.produtos || [];
+        prods.forEach(function(p){
+          var subtotal = (Number(p.preco_unitario) || 0) * (Number(p.quantidade) || 0);
+          totalProdutos += subtotal;
+          qtdProdutos += (Number(p.quantidade) || 0);
+        });
+      });
+
+      // === NOVO: card dedicado de "Venda de Produtos" no dashboard ===
+      var fmt = (typeof formatCurrency === 'function')
+        ? formatCurrency
+        : function(v){ return 'R$ ' + (Number(v)||0).toFixed(2).replace('.', ','); };
+
+      var cardVal = el('dash-venda-produtos');
+      if (cardVal) cardVal.textContent = fmt(totalProdutos);
+      var cardSub = el('dash-venda-produtos-sub');
+      if (cardSub) {
+        cardSub.textContent = qtdProdutos > 0
+          ? (qtdProdutos + ' ' + (qtdProdutos === 1 ? 'item vendido' : 'itens vendidos'))
+          : 'Nenhum item vendido';
+      }
+
+      // 🐞 DEBUG — auditoria do dashboard hook
+      console.log('[venda-prod][dash] soma produtos', {
+        totalProdutos: totalProdutos,
+        qtdProdutos: qtdProdutos,
+        rangeInicio: fInicio,
+        rangeFim: fFim
+      });
+
+      if (totalProdutos > 0) {
+        var fatEl = el('dash-faturamento');
+        if (fatEl) {
+          // 🛡️ ANTI-DUPLA-SOMA: marca o nodo com a última soma de produtos aplicada.
+          // Se loadDashboard rodar duas vezes seguidas (race), evitamos somar
+          // produtos em cima de um total que JÁ inclui produtos.
+          var atualTxt = (fatEl.textContent || '').replace(/[^\d,.-]/g, '').replace(/\./g,'').replace(',', '.');
+          var atual = parseFloat(atualTxt) || 0;
+          var jaSomado = parseFloat(fatEl.dataset.prodSum || '0') || 0;
+          // O loadDashboard original SEMPRE regrava o textContent com o total de
+          // serviços (sem produtos). Então se o valor lido NÃO contém produtos
+          // ainda, jaSomado representa o resíduo de uma execução anterior — não
+          // precisa subtrair. Apenas somamos os produtos atuais ao valor base.
+          var novo = atual + totalProdutos;
+          fatEl.textContent = fmt(novo);
+          fatEl.dataset.prodSum = String(totalProdutos);
+          fatEl.title = 'Inclui ' + fmt(totalProdutos) + ' em produtos vendidos';
+        }
+      } else {
+        var fatEl0 = el('dash-faturamento');
+        if (fatEl0) { fatEl0.dataset.prodSum = '0'; fatEl0.title = ''; }
+      }
+    } catch (e) {
+      console.error('[venda-prod] dashboard hook exceção:', e);
+    }
+    return ret;
+  };
+
+  // ============================================================
+  // 8) REALTIME — escuta agendamento_produtos
+  // ============================================================
+  function setupRealtimeAgProdutos(){
+    if (typeof supabaseClient === 'undefined' || !supabaseClient) return;
+    if (window.__realtimeAgProdutosBound) return;
+    window.__realtimeAgProdutosBound = true;
+    try {
+      supabaseClient
+        .channel('agendamento_produtos_rt')
+        .on('postgres_changes',
+            { event: '*', schema: 'public', table: 'agendamento_produtos' },
+            function(){
+              if (typeof loadAppointments === 'function') {
+                Promise.resolve(loadAppointments()).catch(function(){});
+              }
+            })
+        .subscribe();
+    } catch (e) { console.warn('[venda-prod] realtime falhou:', e); }
+  }
+
+  // ============================================================
+  // 9) BOOT
+  // ============================================================
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(function(){
+      loadProdutosVendaCache(true);
+      setupRealtimeAgProdutos();
+    }, 1500);
+  });
+
+  // ----- exports globais usados em onclick="..." -----
+  window.adicionarBlocoProdutoAg = adicionarBlocoProdutoAg;
+  window.removerBlocoProdutoAg   = removerBlocoProdutoAg;
+  window.onProdutoAgChange       = onProdutoAgChange;
+  window.onProdutoAgQtdChange    = onProdutoAgQtdChange;
+  window.toggleProdutoAgDropdown = toggleProdutoAgDropdown;
+  window.confirmarCancelamentoComProdutos = confirmarCancelamentoComProdutos;
+  window.darBaixaEstoqueAgendamento = darBaixaEstoqueAgendamento;
+  window.loadProdutosVendaCache  = loadProdutosVendaCache;
+
+  console.log('✅ Módulo VENDA DE PRODUTOS NO AGENDAMENTO carregado');
+})();
+
+
+/* ============================================================
+   CONCLUSÃO MANUAL DE ATENDIMENTO (v1)
+   - Reaproveita o mesmo fluxo da auto-conclusão:
+     * status persistido = 'concluido' (faz isAppointmentAutoCompleted retornar true,
+       o que já alimenta dashboard, faturamento e badge "CONCLUÍDO");
+     * darBaixaEstoqueAgendamento(id) é idempotente (só baixa onde
+       estoque_movimentacao_id IS NULL);
+     * o varredor periódico continua funcionando para os demais
+       agendamentos não concluídos manualmente.
+   - Persiste concluded_at e conclusion_type='manual'.
+   - Salva alterações pendentes do formulário ANTES de concluir.
+   ============================================================ */
+(function(){
+  'use strict';
+
+  var __concluindo = false;
+
+  function abrirModalConcluirAtendimento(){
+    if (!editingAppointmentId) return;
+    var ag = appointments.find(function(x){ return x.id === editingAppointmentId; });
+    if (ag && isAppointmentManuallyCompleted(ag)) {
+      if (typeof showToast === 'function') showToast('Este atendimento já foi concluído.');
+      return;
+    }
+    if (ag && isAppointmentCancelled(ag)) {
+      if (typeof showToast === 'function') showToast('Este atendimento está cancelado.');
+      return;
+    }
+    if (typeof openModal === 'function') openModal('modal-concluir-atendimento');
+  }
+
+  async function confirmarConcluirAtendimento(){
+    if (__concluindo) return;
+    var agId = editingAppointmentId;
+    if (!agId) return;
+
+    var btn = document.getElementById('btn-confirmar-concluir-atendimento');
+    var btnTexto = btn ? btn.innerHTML : '';
+    __concluindo = true;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Concluindo...';
+    }
+
+    try {
+      // 🛑 BUGFIX (calendário): NÃO dispare saveAppointment aqui.
+      // Concluir atendimento é OPERACIONAL — não pode reescrever
+      // agendamento_servicos (delete + reinsert), pois isso:
+      //   • muda a ordem/quantidade das linhas (created_at novo);
+      //   • pode reintroduzir uma linha pacote_venda como serviço executável,
+      //     fazendo expandToServiceEvents empurrar o bloco pra frente no
+      //     horário visualmente.
+      // Se o usuário quer salvar mudanças do formulário, deve clicar em
+      // "Salvar" antes de "Concluir". Conclusão NÃO altera estrutura.
+
+      // 2) IDEMPOTÊNCIA: revalida estado atual antes de marcar concluído
+      var tenantId = (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
+      var checkResp = await supabaseClient.from('agendamentos')
+        .select('id, status')
+        .eq('id', agId)
+        .maybeSingle();
+      if (checkResp.error) {
+        console.error('[concluir-manual] check erro:', checkResp.error);
+        if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
+        return;
+      }
+      var statusAtual = checkResp.data && String(checkResp.data.status || '').toLowerCase();
+      if (statusAtual === 'concluido' || statusAtual === 'concluído') {
+        if (typeof showToast === 'function') showToast('Atendimento já estava concluído.');
+        try { closeModal('modal-concluir-atendimento'); } catch(_){}
+        try { closeModal('modal-agendamento'); } catch(_){}
+        return;
+      }
+      if (statusAtual === 'cancelado' || statusAtual === 'excluido' || statusAtual === 'desmarcado') {
+        if (typeof showToast === 'function') showToast('Não é possível concluir um agendamento cancelado.');
+        return;
+      }
+
+      // 3) CONSUME créditos de pacote pendentes.
+      //    Isso é operacional: NÃO cria venda, NÃO recalcula preço e NÃO mexe
+      //    nas linhas pacote_venda já registradas no dashboard.
+      try { await consumirCreditosPacoteDoAgendamento(agId); }
+      catch(e) {
+        console.error('[concluir-manual] consumo de pacote falhou:', e);
+        if (typeof showToast === 'function') showToast(e.message || 'Não foi possível consumir o crédito do pacote.', 'error');
+        return;
+      }
+
+      // 4) PERSISTE conclusão: status + concluded_at + conclusion_type='manual'
+      var updatePayload = {
+        status: 'concluido',
+        concluded_at: new Date().toISOString(),
+        conclusion_type: 'manual',
+        updated_at: new Date().toISOString()
+      };
+      var upd = await supabaseClient.from('agendamentos')
+        .update(updatePayload)
+        .eq('id', agId);
+      if (upd.error) {
+        // Fallback caso as colunas concluded_at/conclusion_type não existam ainda
+        console.warn('[concluir-manual] update falhou (tentando fallback):', upd.error);
+        var upd2 = await supabaseClient.from('agendamentos')
+          .update({ status: 'concluido', updated_at: new Date().toISOString() })
+          .eq('id', agId);
+        if (upd2.error) {
+          console.error('[concluir-manual] update fallback falhou:', upd2.error);
+          if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
+          return;
+        }
+      }
+
+      // 5) BAIXA DE ESTOQUE — reaproveita o MESMO fluxo da auto-conclusão.
+      //    A função é idempotente: só baixa onde estoque_movimentacao_id IS NULL.
+      if (typeof window.darBaixaEstoqueAgendamento === 'function') {
+        try { await window.darBaixaEstoqueAgendamento(agId); }
+        catch(e){ console.warn('[concluir-manual] baixa estoque falhou:', e); }
+      }
+
+      // 6) Atualiza UI
+      try { closeModal('modal-concluir-atendimento'); } catch(_){}
+      try { closeModal('modal-agendamento'); } catch(_){}
+      if (typeof loadAppointments === 'function') {
+        try { await loadAppointments(); } catch(_){}
+      }
+      if (typeof renderDayDetail === 'function') { try { renderDayDetail(); } catch(_){} }
+      if (typeof loadDashboard === 'function') { try { loadDashboard(); } catch(_){} }
+      if (typeof showToast === 'function') showToast('Atendimento concluído com sucesso');
+
+    } catch(e) {
+      console.error('[concluir-manual] exceção:', e);
+      if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
+    } finally {
+      __concluindo = false;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = btnTexto || '<i class="fa-solid fa-circle-check"></i> Concluir atendimento';
+      }
+    }
+  }
+
+  // exports globais
+  window.abrirModalConcluirAtendimento = abrirModalConcluirAtendimento;
+  window.confirmarConcluirAtendimento  = confirmarConcluirAtendimento;
+  window.isAppointmentManuallyCompleted = (typeof isAppointmentManuallyCompleted === 'function')
+    ? isAppointmentManuallyCompleted
+    : function(a){
+        if (!a) return false;
+        var s = String(a.status || '').toLowerCase();
+        return s === 'concluido' || s === 'concluído';
+      };
+
+  console.log('✅ Módulo CONCLUSÃO MANUAL DE ATENDIMENTO carregado');
+})();
+
+/* ============================================================
+   PUSH NOTIFICATIONS — ATIVAÇÃO (v2)
+   - Reaproveita supabaseClient existente do monolito
+   - Converte VAPID public key (base64url) para Uint8Array
+   - Evita duplicidade na tabela push_subscriptions (update por endpoint)
+   - Expõe window.ativarNotificacoes(profissionalId, tenantId)
+   ============================================================ */
+(function () {
+  // VAPID public key — substitua pela sua chave real
+  window.__VAPID_PUBLIC_KEY__ = window.__VAPID_PUBLIC_KEY__ || 'COLE_SUA_VAPID_PUBLIC_KEY_AQUI';
+
+  function __getSupabasePush() {
+    if (typeof supabaseClient !== 'undefined' && supabaseClient) return supabaseClient;
+    if (typeof window !== 'undefined' && window.supabaseClient) return window.supabaseClient;
+    if (typeof supabase !== 'undefined' && supabase) return supabase;
+    return null;
+  }
+
+  function __urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
+
+  // Registro do Service Worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js')
+      .then(() => console.log('Service Worker registrado 🔥'))
+      .catch(err => console.error('Erro SW:', err));
+  }
+
+  // Função global para ativar notificações
+  window.ativarNotificacoes = async function (profissionalId, tenantId) {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert('Push não suportado neste navegador.');
+        return;
+      }
+
+      const sb = __getSupabasePush();
+      if (!sb) {
+        console.error('[push] supabaseClient não encontrado.');
+        alert('Erro interno: cliente Supabase não inicializado.');
+        return;
+      }
+
+      const vapid = window.__VAPID_PUBLIC_KEY__;
+      if (!vapid || vapid.indexOf('COLE_SUA') === 0) {
+        alert('VAPID public key não configurada (window.__VAPID_PUBLIC_KEY__).');
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        alert('Permissão negada 😢');
+        return;
+      }
+
+      const reg = await navigator.serviceWorker.ready;
+
+      // Reaproveita inscrição existente, se houver
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: __urlBase64ToUint8Array(vapid)
+        });
+      }
+
+      const payload = {
+        tenant_id: tenantId,
+        profissional_id: profissionalId,
+        endpoint: sub.endpoint,
+        p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(sub.getKey('p256dh')))),
+        auth:   btoa(String.fromCharCode.apply(null, new Uint8Array(sub.getKey('auth')))),
+        user_agent: navigator.userAgent,
+        updated_at: new Date().toISOString()
+      };
+
+      // Evita duplicidade: verifica se endpoint já existe
+      const { data: existente, error: selErr } = await sb
+        .from('push_subscriptions')
+        .select('id')
+        .eq('endpoint', sub.endpoint)
+        .maybeSingle();
+
+      if (selErr) console.warn('[push] select existente falhou:', selErr);
+
+      if (existente && existente.id) {
+        const { error: upErr } = await sb
+          .from('push_subscriptions')
+          .update(payload)
+          .eq('id', existente.id);
+        if (upErr) {
+          console.error('[push] update falhou:', upErr);
+          alert('Erro ao atualizar inscrição.');
+          return;
+        }
+      } else {
+        const { error: insErr } = await sb
+          .from('push_subscriptions')
+          .insert(payload);
+        if (insErr) {
+          console.error('[push] insert falhou:', insErr);
+          alert('Erro ao salvar inscrição.');
+          return;
+        }
+      }
+
+      alert('Notificações ativadas 🔔');
+    } catch (e) {
+      console.error('[push] exceção em ativarNotificacoes:', e);
+      alert('Erro ao ativar notificações: ' + (e && e.message ? e.message : e));
+    }
+  };
+
+  console.log('✅ Módulo PUSH NOTIFICATIONS carregado');
+})();

@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
   <!-- Cropper.js (carrossel de imagens do agendamento) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.6.1/dist/cropper.min.css">
+  <link rel="stylesheet" href="tabela-precos.css">
   <style>
     .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
     .pcr-app { z-index: 99999 !important; position: fixed !important; }
@@ -304,6 +305,8 @@
         <button class="nav-btn" data-page="clientes"><i class="fa-regular fa-address-book"></i> Clientes</button>
         <button class="nav-btn" data-page="profissionais"><i class="fa-solid fa-scissors"></i> Profissionais</button>
         <button class="nav-btn" data-page="pacotes"><i class="fa-solid fa-box-open"></i> Pacotes</button>
+        <button class="nav-btn" data-page="produtos"><i class="fa-solid fa-box"></i> Produtos</button>
+        <button class="nav-btn" data-page="estoque"><i class="fa-solid fa-warehouse"></i> Estoque</button>
         <button class="nav-btn" data-page="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
         <button class="nav-btn" data-page="configuracoes"><i class="fa-solid fa-gear"></i> Configurações</button>
       </nav>
@@ -353,6 +356,13 @@
         <div class="page-header">
           <h2>Clientes</h2>
           <button class="btn-novo" id="btn-novo-cliente"><i class="fa-solid fa-plus"></i> Novo Cliente</button>
+        </div>
+        <div class="search-bar">
+          <i class="fa-solid fa-magnifying-glass search-bar-icon" aria-hidden="true"></i>
+          <input type="text" id="clients-search-input" class="search-bar-input" placeholder="Buscar cliente por nome..." autocomplete="off" aria-label="Buscar cliente por nome">
+          <button type="button" id="clients-search-clear" class="search-bar-clear" aria-label="Limpar busca" hidden>
+            <i class="fa-solid fa-xmark"></i>
+          </button>
         </div>
         <div class="birthday-banner" id="birthday-banner" style="display:none;"></div>
         <div class="clients-table-wrapper">
@@ -405,7 +415,72 @@
         </div>
       </div>
 
-      <!-- DASHBOARD -->
+
+      <!-- ======================== -->
+      <!-- PRODUTOS -->
+      <!-- ======================== -->
+      <div class="page" id="page-produtos">
+        <div class="page-header">
+          <h2>Produtos</h2>
+          <button class="btn-novo" id="btn-novo-produto" onclick="openModalNovoProduto()"><i class="fa-solid fa-plus"></i> Novo produto</button>
+        </div>
+
+        <div class="produtos-toolbar">
+          <div class="produtos-filter" role="tablist" aria-label="Filtro de produtos">
+            <button type="button" class="produtos-filter-chip is-active" data-prod-filter="ativos" onclick="setProdutoFiltro('ativos')">
+              <span class="dot dot-on"></span> Ativos
+            </button>
+            <button type="button" class="produtos-filter-chip" data-prod-filter="inativos" onclick="setProdutoFiltro('inativos')">
+              <span class="dot dot-off"></span> Inativos
+            </button>
+          </div>
+        </div>
+
+        <div class="search-bar">
+          <i class="fa-solid fa-magnifying-glass search-bar-icon" aria-hidden="true"></i>
+          <input type="text" id="produtos-search-input" class="search-bar-input" placeholder="Buscar produto por nome..." autocomplete="off" aria-label="Buscar produto por nome">
+          <button type="button" id="produtos-search-clear" class="search-bar-clear" aria-label="Limpar busca" hidden>
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="produtos-grid" id="produtos-grid"></div>
+
+        <div class="produtos-empty" id="produtos-empty" hidden>
+          <div class="produtos-empty-icon"><i class="fa-solid fa-box-open"></i></div>
+          <div class="produtos-empty-title">Nenhum produto cadastrado ainda.</div>
+          <button class="btn-novo" type="button" onclick="openModalNovoProduto()"><i class="fa-solid fa-plus"></i> Novo produto</button>
+        </div>
+      </div>
+
+      <!-- ======================== -->
+      <!-- ESTOQUE -->
+      <!-- ======================== -->
+      <div class="page" id="page-estoque">
+        <div class="page-header">
+          <h2>Estoque</h2>
+          <button class="btn-novo" id="btn-nova-mov" onclick="openModalNovaMov()"><i class="fa-solid fa-plus"></i> Nova movimentação</button>
+        </div>
+
+        <div class="search-bar">
+          <i class="fa-solid fa-magnifying-glass search-bar-icon" aria-hidden="true"></i>
+          <input type="text" id="estoque-search-input" class="search-bar-input" placeholder="Buscar produto por nome..." autocomplete="off" aria-label="Buscar produto por nome">
+          <button type="button" id="estoque-search-clear" class="search-bar-clear" aria-label="Limpar busca" hidden>
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div class="estoque-list" id="estoque-list"></div>
+
+        <div class="produtos-empty" id="estoque-empty" hidden>
+          <div class="produtos-empty-icon"><i class="fa-solid fa-warehouse"></i></div>
+          <div class="produtos-empty-title">Nenhum produto com estoque ativo.</div>
+          <p style="color:var(--text-muted); margin-top:6px; font-size:.9rem;">
+            Ative a opção <strong>"Produto com estoque"</strong> ao cadastrar um produto para acompanhá-lo aqui.
+          </p>
+        </div>
+      </div>
+
       <div class="page" id="page-dashboard">
         <div class="page-header">
           <h2>Dashboard</h2>
@@ -443,6 +518,11 @@
           <div class="dash-card">
             <div class="dash-card-title">Faturamento Total</div>
             <div class="dash-card-value" id="dash-faturamento">R$ 0,00</div>
+          </div>
+          <div class="dash-card dash-card--produtos">
+            <div class="dash-card-title"><i class="fa-solid fa-box"></i> Venda de Produtos</div>
+            <div class="dash-card-value" id="dash-venda-produtos">R$ 0,00</div>
+            <div class="dash-card-sub" id="dash-venda-produtos-sub">Nenhum item vendido</div>
           </div>
         </div>
 
@@ -621,6 +701,50 @@
                   </div>
 
               <p class="ac-feedback" id="cfg-geral-feedback" style="display:none;"></p>
+                </div>
+              </div>
+
+              <!-- ============================================================
+                   CLIENTES INATIVOS — destaque na lista de clientes
+                   Persistido em tenant_settings:
+                     destacar_clientes_inativos (boolean)
+                     dias_inatividade_clientes (int)
+                   ============================================================ -->
+              <div class="config-section">
+                <div class="config-section-left">
+                  <h3>Destacar clientes inativos</h3>
+                  <p class="config-help-text">
+                    Exibe um indicador na lista de clientes para aqueles que
+                    não retornam há X dias, ajudando em ações de retenção.
+                  </p>
+                </div>
+                <div class="config-section-right">
+                  <label class="ac-toggle-row" for="cfg-destacar-clientes-inativos">
+                    <input type="checkbox" id="cfg-destacar-clientes-inativos"
+                           onchange="onToggleDestacarClientesInativos(this)">
+                    <span class="ac-toggle-track"><span class="ac-toggle-thumb"></span></span>
+                    <span class="ac-toggle-label">Destacar clientes inativos na lista</span>
+                  </label>
+
+                  <div class="ac-link-box" id="dias-inatividade-box" style="display:none; margin-top:12px;">
+                    <label class="ac-link-label" for="cfg-dias-inatividade-clientes">
+                      Quantidade de dias para considerar inatividade
+                    </label>
+                    <div class="ac-link-row">
+                      <input type="number" id="cfg-dias-inatividade-clientes"
+                             min="1" max="3650" step="1" placeholder="Ex: 30"
+                             style="max-width:160px;">
+                      <button type="button" class="btn-secondary"
+                              onclick="salvarDiasInatividadeClientes()">
+                        <i class="fa-regular fa-floppy-disk"></i> Salvar
+                      </button>
+                    </div>
+                    <small class="config-help-text">
+                      Clientes sem agendamentos há pelo menos esta quantidade
+                      de dias serão marcados como inativos.
+                    </small>
+                  </div>
+                  <p class="ac-feedback" id="cfg-inativos-feedback" style="display:none;"></p>
                 </div>
               </div>
 
@@ -1077,6 +1201,152 @@
                   .pv-global-layout { grid-template-columns: 1fr; }
                 }
 
+
+                /* ── Bloco 4: Link de Agendamento ── */
+                .bk-subgroup-title {
+                  font-size: 0.76rem;
+                  font-weight: 800;
+                  letter-spacing: 0.4px;
+                  color: var(--text-muted);
+                  text-transform: uppercase;
+                  margin: 18px 0 10px;
+                  padding-bottom: 6px;
+                  border-bottom: 1px dashed var(--border);
+                  grid-column: 1 / -1;
+                }
+                .bk-subgroup-title:first-child { margin-top: 0; }
+                .bk-grid-fields {
+                  display: grid;
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  gap: 16px 18px;
+                  align-items: start;
+                }
+                .bk-grid-fields .tema-field { min-width: 0; }
+                .bk-grid-fields input[type="color"] {
+                  width: 52px;
+                  height: 52px;
+                  border-radius: 14px;
+                  border: 1px solid var(--border);
+                  background: var(--bg-card);
+                  cursor: pointer;
+                  padding: 4px;
+                }
+                .bk-grid-fields input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+                .bk-grid-fields input[type="color"]::-webkit-color-swatch { border: none; border-radius: 10px; }
+                .bk-grid-fields input[type="color"]::-moz-color-swatch { border: none; border-radius: 10px; }
+                .bk-preview-shell {
+                  width: 100%;
+                  max-width: 420px;
+                  border-radius: 16px;
+                  overflow: hidden;
+                  border: 1px solid var(--border);
+                  background: var(--bg-card);
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                }
+                .bk-tabs {
+                  display: grid;
+                  grid-template-columns: repeat(5, minmax(0, 1fr));
+                  gap: 4px;
+                  padding: 12px 12px 0;
+                  background: var(--bg-card);
+                }
+                .bk-tab-btn {
+                  min-width: 0;
+                  padding: 8px 4px;
+                  font-size: 0.68rem;
+                  border: none;
+                  background: transparent;
+                  cursor: pointer;
+                  border-bottom: 2px solid transparent;
+                  color: var(--text-muted);
+                  white-space: nowrap;
+                }
+                .bk-preview {
+                  padding: 16px;
+                  min-height: 520px;
+                  font-family: var(--font);
+                  transition: background 0.2s;
+                }
+                .bk-preview-stepper { display: flex; gap: 6px; margin-bottom: 18px; }
+                .bk-preview-step { flex: 1; height: 6px; border-radius: 999px; background: var(--border); transition: background 0.2s; }
+                .bk-preview-h1 { font-size: 1.05rem; font-weight: 800; margin-bottom: 4px; }
+                .bk-preview-sub { font-size: 0.78rem; margin-bottom: 16px; }
+                .bk-preview-card {
+                  padding: 12px 14px;
+                  border-radius: 12px;
+                  border: 1px solid;
+                  margin-bottom: 10px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  gap: 10px;
+                }
+                .bk-preview-card .bk-card-title { font-size: 0.84rem; font-weight: 700; }
+                .bk-preview-card .bk-card-desc { font-size: 0.72rem; margin-top: 2px; }
+                .bk-preview-card .bk-card-price { font-size: 0.84rem; font-weight: 800; white-space: nowrap; }
+                .bk-preview-input {
+                  display: block;
+                  width: 100%;
+                  padding: 10px 12px;
+                  border-radius: 10px;
+                  border: 1px solid;
+                  font-size: 0.82rem;
+                  margin-bottom: 10px;
+                }
+                .bk-preview-cal {
+                  display: grid;
+                  grid-template-columns: repeat(7, 1fr);
+                  gap: 4px;
+                  padding: 10px;
+                  border-radius: 10px;
+                  margin: 10px 0;
+                }
+                .bk-preview-cal .bk-cal-day {
+                  text-align: center;
+                  padding: 8px 0;
+                  font-size: 0.72rem;
+                  border-radius: 6px;
+                }
+                .bk-preview-slots {
+                  display: grid;
+                  grid-template-columns: repeat(4, 1fr);
+                  gap: 6px;
+                  margin-bottom: 12px;
+                }
+                .bk-preview-slot {
+                  text-align: center;
+                  padding: 8px 0;
+                  border-radius: 8px;
+                  border: 1px solid;
+                  font-size: 0.72rem;
+                  font-weight: 700;
+                }
+                .bk-preview-btn {
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 10px 16px;
+                  border-radius: 10px;
+                  font-size: 0.8rem;
+                  font-weight: 800;
+                  border: none;
+                  margin-right: 8px;
+                }
+                .bk-preview-btn.secondary { border: 1px solid; }
+                .bk-preview-success { text-align: center; padding: 30px 0; }
+                .bk-preview-success-icon {
+                  width: 56px;
+                  height: 56px;
+                  border-radius: 50%;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  font-size: 1.6rem;
+                  color: #fff;
+                  margin-bottom: 12px;
+                  font-weight: 900;
+                }
+
                 /* Pickr fixes */
                 .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
                 .pcr-app { z-index: 99999 !important; }
@@ -1401,6 +1671,140 @@
                 </div>
               </div>
 
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 4 — LINK DE AGENDAMENTO
+                   ═══════════════════════════════════ -->
+              <div class="tema-block" id="bk-section">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-link"></i> Link de Agendamento</h3>
+                  <p>Personalize as cores do fluxo público usado pelos clientes no link externo.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="bk-grid-fields">
+                      <div class="bk-subgroup-title">1. Layout geral</div>
+                      <div class="tema-field"><label>Fundo da página</label><div class="tema-picker-row"><input type="color" id="bk-page-bg"><span class="tema-hex-label" id="bk-page-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Texto principal</label><div class="tema-picker-row"><input type="color" id="bk-text"><span class="tema-hex-label" id="bk-text-label"></span></div></div>
+                      <div class="tema-field"><label>Títulos</label><div class="tema-picker-row"><input type="color" id="bk-title"><span class="tema-hex-label" id="bk-title-label"></span></div></div>
+                      <div class="tema-field"><label>Subtítulos</label><div class="tema-picker-row"><input type="color" id="bk-subtitle"><span class="tema-hex-label" id="bk-subtitle-label"></span></div></div>
+                      <div class="tema-field"><label>Bordas</label><div class="tema-picker-row"><input type="color" id="bk-border"><span class="tema-hex-label" id="bk-border-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">2. Botões</div>
+                      <div class="tema-field"><label>Botão primário (fundo)</label><div class="tema-picker-row"><input type="color" id="bk-btn-primary-bg"><span class="tema-hex-label" id="bk-btn-primary-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Botão primário (texto)</label><div class="tema-picker-row"><input type="color" id="bk-btn-primary-text"><span class="tema-hex-label" id="bk-btn-primary-text-label"></span></div></div>
+                      <div class="tema-field"><label>Botão primário (hover)</label><div class="tema-picker-row"><input type="color" id="bk-btn-primary-hover"><span class="tema-hex-label" id="bk-btn-primary-hover-label"></span></div></div>
+                      <div class="tema-field"><label>Botão secundário (fundo)</label><div class="tema-picker-row"><input type="color" id="bk-btn-secondary-bg"><span class="tema-hex-label" id="bk-btn-secondary-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Botão secundário (texto)</label><div class="tema-picker-row"><input type="color" id="bk-btn-secondary-text"><span class="tema-hex-label" id="bk-btn-secondary-text-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">3. Stepper (etapas)</div>
+                      <div class="tema-field"><label>Step ativo</label><div class="tema-picker-row"><input type="color" id="bk-step-active"><span class="tema-hex-label" id="bk-step-active-label"></span></div></div>
+                      <div class="tema-field"><label>Step concluído</label><div class="tema-picker-row"><input type="color" id="bk-step-done"><span class="tema-hex-label" id="bk-step-done-label"></span></div></div>
+                      <div class="tema-field"><label>Step inativo</label><div class="tema-picker-row"><input type="color" id="bk-step-inactive"><span class="tema-hex-label" id="bk-step-inactive-label"></span></div></div>
+                      <div class="tema-field"><label>Texto do step</label><div class="tema-picker-row"><input type="color" id="bk-step-text"><span class="tema-hex-label" id="bk-step-text-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">4. Cards (serviços / profissionais)</div>
+                      <div class="tema-field"><label>Fundo do card</label><div class="tema-picker-row"><input type="color" id="bk-card-bg"><span class="tema-hex-label" id="bk-card-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Fundo hover</label><div class="tema-picker-row"><input type="color" id="bk-card-hover"><span class="tema-hex-label" id="bk-card-hover-label"></span></div></div>
+                      <div class="tema-field"><label>Título do card</label><div class="tema-picker-row"><input type="color" id="bk-card-title"><span class="tema-hex-label" id="bk-card-title-label"></span></div></div>
+                      <div class="tema-field"><label>Descrição</label><div class="tema-picker-row"><input type="color" id="bk-card-desc"><span class="tema-hex-label" id="bk-card-desc-label"></span></div></div>
+                      <div class="tema-field"><label>Preço</label><div class="tema-picker-row"><input type="color" id="bk-card-price"><span class="tema-hex-label" id="bk-card-price-label"></span></div></div>
+                      <div class="tema-field"><label>Borda do card</label><div class="tema-picker-row"><input type="color" id="bk-card-border"><span class="tema-hex-label" id="bk-card-border-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">5. Inputs e campos</div>
+                      <div class="tema-field"><label>Fundo do input</label><div class="tema-picker-row"><input type="color" id="bk-input-bg"><span class="tema-hex-label" id="bk-input-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Texto do input</label><div class="tema-picker-row"><input type="color" id="bk-input-text"><span class="tema-hex-label" id="bk-input-text-label"></span></div></div>
+                      <div class="tema-field"><label>Placeholder</label><div class="tema-picker-row"><input type="color" id="bk-input-placeholder"><span class="tema-hex-label" id="bk-input-placeholder-label"></span></div></div>
+                      <div class="tema-field"><label>Borda</label><div class="tema-picker-row"><input type="color" id="bk-input-border"><span class="tema-hex-label" id="bk-input-border-label"></span></div></div>
+                      <div class="tema-field"><label>Borda em foco</label><div class="tema-picker-row"><input type="color" id="bk-input-focus"><span class="tema-hex-label" id="bk-input-focus-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">6. Calendário (link externo)</div>
+                      <div class="tema-field"><label>Fundo</label><div class="tema-picker-row"><input type="color" id="bk-cal-bg"><span class="tema-hex-label" id="bk-cal-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Cor dos dias</label><div class="tema-picker-row"><input type="color" id="bk-cal-day"><span class="tema-hex-label" id="bk-cal-day-label"></span></div></div>
+                      <div class="tema-field"><label>Dia selecionado (fundo)</label><div class="tema-picker-row"><input type="color" id="bk-cal-day-sel-bg"><span class="tema-hex-label" id="bk-cal-day-sel-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Dia selecionado (texto)</label><div class="tema-picker-row"><input type="color" id="bk-cal-day-sel-text"><span class="tema-hex-label" id="bk-cal-day-sel-text-label"></span></div></div>
+                      <div class="tema-field"><label>Horários disponíveis</label><div class="tema-picker-row"><input type="color" id="bk-cal-slot"><span class="tema-hex-label" id="bk-cal-slot-label"></span></div></div>
+                      <div class="tema-field"><label>Horários selecionados</label><div class="tema-picker-row"><input type="color" id="bk-cal-slot-sel"><span class="tema-hex-label" id="bk-cal-slot-sel-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">7. Modal de confirmação</div>
+                      <div class="tema-field"><label>Fundo</label><div class="tema-picker-row"><input type="color" id="bk-modal-bg"><span class="tema-hex-label" id="bk-modal-bg-label"></span></div></div>
+                      <div class="tema-field"><label>Texto</label><div class="tema-picker-row"><input type="color" id="bk-modal-text"><span class="tema-hex-label" id="bk-modal-text-label"></span></div></div>
+                      <div class="tema-field"><label>Destaque (preço/horário)</label><div class="tema-picker-row"><input type="color" id="bk-modal-highlight"><span class="tema-hex-label" id="bk-modal-highlight-label"></span></div></div>
+
+                      <div class="bk-subgroup-title">8. Tela de sucesso</div>
+                      <div class="tema-field"><label>Ícone de sucesso</label><div class="tema-picker-row"><input type="color" id="bk-success-icon"><span class="tema-hex-label" id="bk-success-icon-label"></span></div></div>
+                      <div class="tema-field"><label>Texto principal</label><div class="tema-picker-row"><input type="color" id="bk-success-text"><span class="tema-hex-label" id="bk-success-text-label"></span></div></div>
+                      <div class="tema-field"><label>Botão novo agendamento</label><div class="tema-picker-row"><input type="color" id="bk-success-btn"><span class="tema-hex-label" id="bk-success-btn-label"></span></div></div>
+                    </div>
+                  </div>
+
+                  <div class="tema-block-preview">
+                    <div class="bk-preview-shell">
+                      <div class="bk-tabs">
+                        <button type="button" data-bk-tab="0" class="bk-tab-btn">Serviço</button>
+                        <button type="button" data-bk-tab="1" class="bk-tab-btn">Profissional</button>
+                        <button type="button" data-bk-tab="2" class="bk-tab-btn">Data/Hora</button>
+                        <button type="button" data-bk-tab="3" class="bk-tab-btn">Confirmar</button>
+                        <button type="button" data-bk-tab="4" class="bk-tab-btn">Sucesso</button>
+                      </div>
+
+                      <div class="bk-preview" id="bk-preview-stage">
+                        <div class="bk-preview-stepper" id="bk-pv-stepper">
+                          <div class="bk-preview-step"></div>
+                          <div class="bk-preview-step"></div>
+                          <div class="bk-preview-step"></div>
+                          <div class="bk-preview-step"></div>
+                        </div>
+
+                        <div class="bk-pv-pane" data-pane="0">
+                          <div class="bk-preview-h1">Escolha um serviço</div>
+                          <div class="bk-preview-sub">Selecione o serviço desejado</div>
+                          <div class="bk-preview-card bk-pv-card"><div><div class="bk-card-title">Corte Feminino</div><div class="bk-card-desc">45 min</div></div><div class="bk-card-price">R$ 80</div></div>
+                          <div class="bk-preview-card bk-pv-card"><div><div class="bk-card-title">Coloração</div><div class="bk-card-desc">2h</div></div><div class="bk-card-price">R$ 220</div></div>
+                        </div>
+
+                        <div class="bk-pv-pane" data-pane="1" style="display:none;">
+                          <div class="bk-preview-h1">Escolha um profissional</div>
+                          <div class="bk-preview-sub">Selecione com quem deseja agendar</div>
+                          <div class="bk-preview-card bk-pv-card"><div><div class="bk-card-title">Maria Silva</div><div class="bk-card-desc">Cabeleireira</div></div></div>
+                          <div class="bk-preview-card bk-pv-card"><div><div class="bk-card-title">Ana Santos</div><div class="bk-card-desc">Colorista</div></div></div>
+                        </div>
+
+                        <div class="bk-pv-pane" data-pane="2" style="display:none;">
+                          <div class="bk-preview-h1">Escolha data e horário</div>
+                          <input type="text" class="bk-preview-input bk-pv-input" placeholder="Buscar..." readonly>
+                          <div class="bk-preview-cal bk-pv-cal" id="bk-pv-cal"></div>
+                          <div class="bk-preview-slots" id="bk-pv-slots"></div>
+                        </div>
+
+                        <div class="bk-pv-pane" data-pane="3" style="display:none;">
+                          <div class="bk-preview-h1">Confirme seu agendamento</div>
+                          <div class="bk-preview-card bk-pv-modal" style="display:block;">
+                            <div style="margin-bottom:8px;"><strong>Serviço:</strong> <span class="bk-pv-highlight">Corte Feminino</span></div>
+                            <div style="margin-bottom:8px;"><strong>Profissional:</strong> Maria Silva</div>
+                            <div style="margin-bottom:8px;"><strong>Data:</strong> <span class="bk-pv-highlight">14/04 às 10:00</span></div>
+                            <div><strong>Total:</strong> <span class="bk-pv-highlight">R$ 80,00</span></div>
+                          </div>
+                          <div style="margin-top:14px;">
+                            <button type="button" class="bk-preview-btn bk-pv-btn-primary">Confirmar</button>
+                            <button type="button" class="bk-preview-btn secondary bk-pv-btn-secondary">Cancelar</button>
+                          </div>
+                        </div>
+
+                        <div class="bk-pv-pane" data-pane="4" style="display:none;">
+                          <div class="bk-preview-success">
+                            <div class="bk-preview-success-icon" id="bk-pv-success-icon">✓</div>
+                            <div class="bk-preview-h1" id="bk-pv-success-text">Agendamento confirmado!</div>
+                            <div class="bk-preview-sub">Você receberá uma confirmação em breve.</div>
+                            <button type="button" class="bk-preview-btn" id="bk-pv-success-btn" style="margin-top:14px;">Novo agendamento</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- ═══════════════════════════════════
                    AÇÕES (SALVAR / RESTAURAR)
                    ═══════════════════════════════════ -->
@@ -1556,6 +1960,20 @@
           <i class="fa-solid fa-circle-plus"></i> Adicionar outro serviço
         </button>
 
+        <!-- ============================================================
+             VENDA DE PRODUTOS NO AGENDAMENTO
+             Estoque é movimentado APENAS na conclusão do agendamento.
+             ============================================================ -->
+        <div class="produtos-ag-section">
+          <div class="produtos-ag-header">
+            <span><i class="fa-solid fa-box-open"></i> Produtos vendidos <small>(opcional)</small></span>
+          </div>
+          <div id="produtos-ag-container"></div>
+          <button type="button" class="btn-add-produto-ag" id="btn-add-produto-ag" onclick="adicionarBlocoProdutoAg()">
+            <i class="fa-solid fa-circle-plus"></i> Adicionar produto
+          </button>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label>Data</label>
@@ -1581,9 +1999,78 @@
           <button type="button" class="btn-delete" id="btn-excluir-agendamento" onclick="confirmarExclusao()" style="display:none;">
             <i class="fa-solid fa-trash"></i> Excluir Agendamento
           </button>
+          <button type="button" class="btn-submit btn-concluir-atendimento" id="btn-concluir-atendimento" onclick="abrirModalConcluirAtendimento()" style="display:none;background:linear-gradient(135deg,#10b981,#059669);">
+            <i class="fa-solid fa-circle-check"></i> Concluir atendimento
+          </button>
           <button type="submit" class="btn-submit">Salvar</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: Confirmar conclusão manual do atendimento
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-concluir-atendimento">
+    <div class="modal modal-small" style="max-width:480px;">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-circle-check" style="color:#10b981;margin-right:8px;"></i>Concluir atendimento</h3>
+        <button class="modal-close" onclick="closeModal('modal-concluir-atendimento')">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:8px 24px 4px;">
+        <p style="margin:0 0 10px;color:var(--text);font-size:0.92rem;">Ao concluir este agendamento, as seguintes ações serão realizadas:</p>
+        <ul style="margin:0 0 14px;padding-left:20px;color:var(--text-muted,#6B7280);font-size:0.88rem;line-height:1.7;">
+          <li>O agendamento será marcado como <strong>concluído</strong></li>
+          <li>Os valores serão lançados no <strong>faturamento</strong></li>
+          <li>O atendimento será registrado no <strong>dashboard e histórico</strong></li>
+          <li>Os <strong>produtos vendidos</strong> terão baixa no <strong>estoque</strong></li>
+        </ul>
+        <div style="background:rgba(245,158,11,0.10);border-left:3px solid #f59e0b;padding:10px 12px;border-radius:6px;margin-bottom:12px;">
+          <p style="margin:0;color:#b45309;font-size:0.83rem;font-weight:500;">
+            <i class="fa-solid fa-triangle-exclamation" style="margin-right:6px;"></i>
+            Esta ação não poderá ser desfeita automaticamente.
+          </p>
+        </div>
+        <p style="margin:0;color:var(--text);font-size:0.92rem;font-weight:600;">Deseja realmente concluir este atendimento?</p>
+      </div>
+      <div class="modal-actions" style="padding:14px 24px 22px;">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-concluir-atendimento')">Cancelar</button>
+        <button type="button" class="btn-submit" id="btn-confirmar-concluir-atendimento" onclick="confirmarConcluirAtendimento()" style="background:linear-gradient(135deg,#10b981,#059669);">
+          <i class="fa-solid fa-circle-check"></i> Concluir atendimento
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       MODAL: Cancelar agendamento com produtos vinculados
+       Pergunta se o cliente levou os produtos antes de decidir
+       se repõe (ou não) o estoque.
+       ============================================================ -->
+  <div class="modal-overlay" id="modal-cancelar-com-produtos">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Cancelar agendamento</h3>
+        <button class="modal-close" onclick="closeModal('modal-cancelar-com-produtos')">&times;</button>
+      </div>
+      <div style="padding: 4px 0 8px;">
+        <p class="cancelar-prod-msg">
+          Este agendamento possui produtos vinculados.<br>
+          <strong>O cliente levou os produtos?</strong>
+        </p>
+        <div id="cancelar-prod-lista" class="cancelar-prod-lista"></div>
+      </div>
+      <div class="modal-actions cancelar-prod-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-cancelar-com-produtos')">
+          Voltar
+        </button>
+        <button type="button" class="btn-delete" id="btn-cancel-prod-nao" onclick="confirmarCancelamentoComProdutos(false)">
+          <i class="fa-solid fa-rotate-left"></i> Não levou — repor estoque
+        </button>
+        <button type="button" class="btn-submit" id="btn-cancel-prod-sim" onclick="confirmarCancelamentoComProdutos(true)">
+          <i class="fa-solid fa-check"></i> Sim, levou os produtos
+        </button>
+      </div>
     </div>
   </div>
 
@@ -2208,6 +2695,7 @@
   <script src="tema-agenda-script.js"></script>
   <!-- <script src="js/utils/format.js"></script> -->
   <script src="script.js"></script>
+  <script src="tabela-precos.js" defer></script>
   <script src="/pwa.js" defer></script>
 
   <!-- MODAL: Confirmar descarte de alterações de quantidade -->
@@ -2449,5 +2937,196 @@
     </div>
   </div>
 
+<!-- 📱 BOTTOM SHEET DE DETALHES DO AGENDAMENTO (Mobile/Tablet) -->
+<div class="apt-sheet-backdrop" id="appointment-sheet" aria-hidden="true">
+  <div class="apt-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="appointment-sheet-title">
+    <div class="apt-sheet-handle" aria-hidden="true"></div>
+    <div class="apt-sheet-header">
+      <h3 id="appointment-sheet-title">Detalhes do agendamento</h3>
+      <button type="button" class="apt-sheet-close" aria-label="Fechar" onclick="closeAgendamentoBottomSheet()">&times;</button>
+    </div>
+    <div class="apt-sheet-body" id="appointment-sheet-body"></div>
+    <div class="apt-sheet-actions">
+      <button type="button" class="apt-sheet-btn apt-sheet-btn-cancel" id="appointment-sheet-cancel" onclick="sheetCancelarAgendamento()">
+        <i class="fa-solid fa-xmark"></i> Cancelar agendamento
+      </button>
+      <button type="button" class="apt-sheet-btn apt-sheet-btn-edit" onclick="sheetEditarAgendamento()">
+        <i class="fa-solid fa-pen"></i> Editar agendamento
+      </button>
+    </div>
+  </div>
+</div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Novo / Editar Produto                                 -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="modal-produto">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-produto-titulo">Novo produto</h3>
+        <button class="modal-close" onclick="closeModal('modal-produto')">&times;</button>
+      </div>
+      <form id="form-produto" autocomplete="off">
+        <div class="produto-upload">
+          <div class="produto-upload-preview" id="produto-foto-preview">
+            <i class="fa-regular fa-image"></i>
+          </div>
+          <div class="produto-upload-actions">
+            <label class="btn-cancel produto-upload-btn" for="produto-foto-input">
+              <i class="fa-solid fa-camera"></i> Escolher imagem
+            </label>
+            <input type="file" id="produto-foto-input" accept="image/jpeg,image/png,image/webp" hidden>
+            <button type="button" class="btn-cancel produto-upload-remove" id="produto-foto-remove" hidden onclick="removerFotoProduto()">
+              <i class="fa-solid fa-trash"></i> Remover
+            </button>
+            <p class="produto-upload-hint">Imagem quadrada (1:1). JPG ou PNG, até 5MB.</p>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Nome *</label>
+          <input type="text" id="produto-nome" maxlength="120" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Valor (R$) *</label>
+            <input type="number" id="produto-valor" min="0" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <label class="form-check-inline" style="margin-top:6px;">
+              <input type="checkbox" id="produto-tem-estoque">
+              Produto com estoque?
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Descrição</label>
+          <textarea id="produto-descricao" rows="3" maxlength="500" placeholder="Detalhes do produto (opcional)"></textarea>
+        </div>
+
+        <label class="form-check-inline">
+          <input type="checkbox" id="produto-ativo" checked>
+          Ativo
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-produto')">Cancelar</button>
+          <button type="submit" class="btn-submit"><i class="fa-solid fa-floppy-disk"></i> Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Crop da imagem do produto (1:1)                       -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="modal-produto-crop">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Recortar imagem</h3>
+        <button class="modal-close" onclick="cancelarCropProduto()">&times;</button>
+      </div>
+      <div class="produto-crop-wrap">
+        <img id="produto-crop-img" alt="Recorte do produto">
+      </div>
+      <div class="produto-crop-controls">
+        <button type="button" class="btn-cancel" onclick="produtoCropZoom(0.1)"><i class="fa-solid fa-magnifying-glass-plus"></i></button>
+        <button type="button" class="btn-cancel" onclick="produtoCropZoom(-0.1)"><i class="fa-solid fa-magnifying-glass-minus"></i></button>
+        <button type="button" class="btn-cancel" onclick="produtoCropReset()"><i class="fa-solid fa-rotate-left"></i> Resetar</button>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="cancelarCropProduto()">Cancelar</button>
+        <button type="button" class="btn-submit" onclick="confirmarCropProduto()"><i class="fa-solid fa-check"></i> Aplicar recorte</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Nova movimentação de estoque                          -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="modal-mov-estoque">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-mov-titulo">Nova movimentação</h3>
+        <button class="modal-close" onclick="closeModal('modal-mov-estoque')">&times;</button>
+      </div>
+      <form id="form-mov-estoque" autocomplete="off">
+        <div class="form-group">
+          <label for="mov-produto">Produto *</label>
+          <input type="text" id="mov-produto-busca" placeholder="Buscar produto..." autocomplete="off">
+          <select id="mov-produto" required size="6" style="margin-top:6px;"></select>
+          <small style="color:var(--text-muted);">Apenas produtos com a flag <strong>"Produto com estoque"</strong> aparecem aqui.</small>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="mov-tipo">Tipo *</label>
+            <select id="mov-tipo" required>
+              <option value="entrada">➕ Entrada</option>
+              <option value="saida">➖ Saída</option>
+              <option value="ajuste">⚙️ Ajuste</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="mov-quantidade">Quantidade *</label>
+            <input type="number" id="mov-quantidade" min="0.01" step="any" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="mov-observacao">Observação</label>
+          <textarea id="mov-observacao" rows="2" maxlength="300" placeholder="Opcional"></textarea>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-mov-estoque')">Cancelar</button>
+          <button type="submit" class="btn-submit"><i class="fa-solid fa-check"></i> Salvar movimentação</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Movimentação rápida (entrada/saída)                   -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="modal-mov-rapida">
+    <div class="modal" style="max-width:380px;">
+      <div class="modal-header">
+        <h3 id="modal-mov-rapida-titulo">Entrada rápida</h3>
+        <button class="modal-close" onclick="closeModal('modal-mov-rapida')">&times;</button>
+      </div>
+      <form id="form-mov-rapida" autocomplete="off">
+        <div id="mov-rapida-produto-info" style="margin-bottom:12px; color:var(--text-muted); font-size:.9rem;"></div>
+        <div class="form-group">
+          <label for="mov-rapida-quantidade">Quantidade *</label>
+          <input type="number" id="mov-rapida-quantidade" min="0.01" step="any" required autofocus>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-mov-rapida')">Cancelar</button>
+          <button type="submit" class="btn-submit" id="btn-mov-rapida-submit"><i class="fa-solid fa-check"></i> Confirmar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
+  <!-- MODAL: Histórico de movimentações                            -->
+  <!-- ============================================================ -->
+  <div class="modal-overlay" id="modal-historico-estoque">
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-header">
+        <h3 id="modal-historico-titulo">Histórico de movimentações</h3>
+        <button class="modal-close" onclick="closeModal('modal-historico-estoque')">&times;</button>
+      </div>
+      <div class="estoque-historico" id="estoque-historico-list">
+        <div style="text-align:center; color:var(--text-muted); padding:20px;">Carregando...</div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-historico-estoque')">Fechar</button>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
+

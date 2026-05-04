@@ -438,6 +438,81 @@
       .preview-side { display: none; }
       .preview-cards { grid-template-columns: 1fr; }
     }
+
+    /* ===== BOOKING THEME (Link de Agendamento) ===== */
+    .bk-subgroup-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #aaa;
+      text-transform: uppercase;
+      margin: 18px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px dashed #2a2a2a;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .bk-subgroup-title:first-child { margin-top: 0; }
+
+    /* Mini-preview do link externo */
+    .bk-preview {
+      border-radius: 14px;
+      padding: 16px;
+      min-height: 560px;
+      font-family: 'Inter', sans-serif;
+      transition: background 0.2s;
+    }
+    .bk-preview-stepper {
+      display: flex; gap: 6px; margin-bottom: 18px;
+    }
+    .bk-preview-step {
+      flex: 1; height: 6px; border-radius: 4px;
+      background: #e5e7eb; transition: background 0.2s;
+    }
+    .bk-preview-h1 { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+    .bk-preview-sub { font-size: 0.78rem; margin-bottom: 16px; }
+    .bk-preview-card {
+      padding: 12px 14px; border-radius: 12px; border: 1px solid;
+      margin-bottom: 10px; cursor: default;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .bk-preview-card .bk-card-title { font-size: 0.85rem; font-weight: 600; }
+    .bk-preview-card .bk-card-desc { font-size: 0.72rem; margin-top: 2px; }
+    .bk-preview-card .bk-card-price { font-size: 0.85rem; font-weight: 700; }
+    .bk-preview-input {
+      display: block; width: 100%;
+      padding: 10px 12px; border-radius: 10px; border: 1px solid;
+      font-size: 0.82rem; margin-bottom: 10px;
+    }
+    .bk-preview-cal {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      gap: 4px; padding: 10px; border-radius: 10px; margin: 10px 0;
+    }
+    .bk-preview-cal .bk-cal-day {
+      text-align: center; padding: 8px 0; font-size: 0.72rem;
+      border-radius: 6px;
+    }
+    .bk-preview-slots {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 6px; margin-bottom: 12px;
+    }
+    .bk-preview-slot {
+      text-align: center; padding: 8px 0; border-radius: 8px;
+      border: 1px solid; font-size: 0.72rem; font-weight: 600;
+    }
+    .bk-preview-btn {
+      display: inline-block; padding: 10px 18px;
+      border-radius: 10px; font-size: 0.8rem; font-weight: 700;
+      border: none; margin-right: 8px; cursor: default;
+    }
+    .bk-preview-btn.secondary { border: 1px solid; }
+    .bk-preview-success {
+      text-align: center; padding: 30px 0;
+    }
+    .bk-preview-success-icon {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.6rem; color: #fff; margin-bottom: 12px;
+    }
   </style>
 </head>
 <body>
@@ -666,6 +741,83 @@
           <div id="tema-font-preview" style="margin-top:10px;font-size:0.8rem;color:#888;">Exemplo de texto com a fonte selecionada</div>
         </div>
 
+        <hr class="divider">
+
+        <!-- ============================================================
+             SEÇÃO: LINK DE AGENDAMENTO (fluxo externo /agendar/{id})
+             ============================================================ -->
+        <div class="tema-section" id="bk-section">
+          <div class="tema-section-title">
+            🔗 Link de Agendamento
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Personalize 100% das cores da página pública usada pelos seus clientes para agendar online (link externo).</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Controle total das cores do fluxo público de agendamento.</div>
+
+          <!-- 1. Layout Geral -->
+          <div class="bk-subgroup-title">🔵 1. Layout geral</div>
+          <div class="color-row"><label>Fundo da página</label><input type="color" id="bk-page-bg"><span class="hex-display" id="bk-page-bg-label"></span></div>
+          <div class="color-row"><label>Texto principal</label><input type="color" id="bk-text"><span class="hex-display" id="bk-text-label"></span></div>
+          <div class="color-row"><label>Títulos</label><input type="color" id="bk-title"><span class="hex-display" id="bk-title-label"></span></div>
+          <div class="color-row"><label>Subtítulos</label><input type="color" id="bk-subtitle"><span class="hex-display" id="bk-subtitle-label"></span></div>
+          <div class="color-row"><label>Bordas</label><input type="color" id="bk-border"><span class="hex-display" id="bk-border-label"></span></div>
+
+          <!-- 2. Botões -->
+          <div class="bk-subgroup-title">🟣 2. Botões</div>
+          <div class="color-row"><label>Botão primário (fundo)</label><input type="color" id="bk-btn-primary-bg"><span class="hex-display" id="bk-btn-primary-bg-label"></span></div>
+          <div class="color-row"><label>Botão primário (texto)</label><input type="color" id="bk-btn-primary-text"><span class="hex-display" id="bk-btn-primary-text-label"></span></div>
+          <div class="color-row"><label>Botão primário (hover)</label><input type="color" id="bk-btn-primary-hover"><span class="hex-display" id="bk-btn-primary-hover-label"></span></div>
+          <div class="color-row"><label>Botão secundário (fundo)</label><input type="color" id="bk-btn-secondary-bg"><span class="hex-display" id="bk-btn-secondary-bg-label"></span></div>
+          <div class="color-row"><label>Botão secundário (texto)</label><input type="color" id="bk-btn-secondary-text"><span class="hex-display" id="bk-btn-secondary-text-label"></span></div>
+
+          <!-- 3. Stepper -->
+          <div class="bk-subgroup-title">🟢 3. Stepper (etapas)</div>
+          <div class="color-row"><label>Step ativo</label><input type="color" id="bk-step-active"><span class="hex-display" id="bk-step-active-label"></span></div>
+          <div class="color-row"><label>Step concluído</label><input type="color" id="bk-step-done"><span class="hex-display" id="bk-step-done-label"></span></div>
+          <div class="color-row"><label>Step inativo</label><input type="color" id="bk-step-inactive"><span class="hex-display" id="bk-step-inactive-label"></span></div>
+          <div class="color-row"><label>Texto do step</label><input type="color" id="bk-step-text"><span class="hex-display" id="bk-step-text-label"></span></div>
+
+          <!-- 4. Cards -->
+          <div class="bk-subgroup-title">🟡 4. Cards (serviços / profissionais)</div>
+          <div class="color-row"><label>Fundo do card</label><input type="color" id="bk-card-bg"><span class="hex-display" id="bk-card-bg-label"></span></div>
+          <div class="color-row"><label>Fundo hover</label><input type="color" id="bk-card-hover"><span class="hex-display" id="bk-card-hover-label"></span></div>
+          <div class="color-row"><label>Título do card</label><input type="color" id="bk-card-title"><span class="hex-display" id="bk-card-title-label"></span></div>
+          <div class="color-row"><label>Descrição</label><input type="color" id="bk-card-desc"><span class="hex-display" id="bk-card-desc-label"></span></div>
+          <div class="color-row"><label>Preço</label><input type="color" id="bk-card-price"><span class="hex-display" id="bk-card-price-label"></span></div>
+          <div class="color-row"><label>Borda do card</label><input type="color" id="bk-card-border"><span class="hex-display" id="bk-card-border-label"></span></div>
+
+          <!-- 5. Inputs -->
+          <div class="bk-subgroup-title">🟠 5. Inputs e campos</div>
+          <div class="color-row"><label>Fundo do input</label><input type="color" id="bk-input-bg"><span class="hex-display" id="bk-input-bg-label"></span></div>
+          <div class="color-row"><label>Texto do input</label><input type="color" id="bk-input-text"><span class="hex-display" id="bk-input-text-label"></span></div>
+          <div class="color-row"><label>Placeholder</label><input type="color" id="bk-input-placeholder"><span class="hex-display" id="bk-input-placeholder-label"></span></div>
+          <div class="color-row"><label>Borda</label><input type="color" id="bk-input-border"><span class="hex-display" id="bk-input-border-label"></span></div>
+          <div class="color-row"><label>Borda em foco</label><input type="color" id="bk-input-focus"><span class="hex-display" id="bk-input-focus-label"></span></div>
+
+          <!-- 6. Calendário externo -->
+          <div class="bk-subgroup-title">🔴 6. Calendário (link externo)</div>
+          <div class="color-row"><label>Fundo</label><input type="color" id="bk-cal-bg"><span class="hex-display" id="bk-cal-bg-label"></span></div>
+          <div class="color-row"><label>Cor dos dias</label><input type="color" id="bk-cal-day"><span class="hex-display" id="bk-cal-day-label"></span></div>
+          <div class="color-row"><label>Dia selecionado (fundo)</label><input type="color" id="bk-cal-day-sel-bg"><span class="hex-display" id="bk-cal-day-sel-bg-label"></span></div>
+          <div class="color-row"><label>Dia selecionado (texto)</label><input type="color" id="bk-cal-day-sel-text"><span class="hex-display" id="bk-cal-day-sel-text-label"></span></div>
+          <div class="color-row"><label>Horários disponíveis</label><input type="color" id="bk-cal-slot"><span class="hex-display" id="bk-cal-slot-label"></span></div>
+          <div class="color-row"><label>Horários selecionados</label><input type="color" id="bk-cal-slot-sel"><span class="hex-display" id="bk-cal-slot-sel-label"></span></div>
+
+          <!-- 7. Modal -->
+          <div class="bk-subgroup-title">🟤 7. Modal de confirmação</div>
+          <div class="color-row"><label>Fundo</label><input type="color" id="bk-modal-bg"><span class="hex-display" id="bk-modal-bg-label"></span></div>
+          <div class="color-row"><label>Texto</label><input type="color" id="bk-modal-text"><span class="hex-display" id="bk-modal-text-label"></span></div>
+          <div class="color-row"><label>Destaque (preço/horário)</label><input type="color" id="bk-modal-highlight"><span class="hex-display" id="bk-modal-highlight-label"></span></div>
+
+          <!-- 8. Sucesso -->
+          <div class="bk-subgroup-title">🟢 8. Tela de sucesso</div>
+          <div class="color-row"><label>Ícone de sucesso</label><input type="color" id="bk-success-icon"><span class="hex-display" id="bk-success-icon-label"></span></div>
+          <div class="color-row"><label>Texto principal</label><input type="color" id="bk-success-text"><span class="hex-display" id="bk-success-text-label"></span></div>
+          <div class="color-row"><label>Botão "novo agendamento"</label><input type="color" id="bk-success-btn"><span class="hex-display" id="bk-success-btn-label"></span></div>
+        </div>
+
         <!-- Ações -->
         <div class="tema-actions">
           <button class="btn-reset" id="te-btn-reset" onclick="resetarTema()">Restaurar Padrão</button>
@@ -727,7 +879,102 @@
             </div>
           </div>
         </div>
+
+        <!-- ============================================================
+             PREVIEW DO LINK DE AGENDAMENTO (fluxo público)
+             ============================================================ -->
+        <div class="preview-label" style="margin-top:24px;">
+          <span>🔗</span>
+          <span>Pré-visualização do link de agendamento</span>
+        </div>
+        <div class="preview-frame">
+          <!-- Tabs simulando os 4 passos -->
+          <div style="display:flex;gap:6px;padding:12px 14px 0;background:transparent;">
+            <button type="button" data-bk-tab="0" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Serviço</button>
+            <button type="button" data-bk-tab="1" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Profissional</button>
+            <button type="button" data-bk-tab="2" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Data/Hora</button>
+            <button type="button" data-bk-tab="3" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Confirmar</button>
+            <button type="button" data-bk-tab="4" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Sucesso</button>
+          </div>
+
+          <div class="bk-preview" id="bk-preview-stage">
+            <!-- Stepper -->
+            <div class="bk-preview-stepper" id="bk-pv-stepper">
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+            </div>
+
+            <!-- Pane: Serviço -->
+            <div class="bk-pv-pane" data-pane="0">
+              <div class="bk-preview-h1" id="bk-pv-h1-0">Escolha um serviço</div>
+              <div class="bk-preview-sub" id="bk-pv-sub-0">Selecione o serviço desejado</div>
+              <div class="bk-preview-card bk-pv-card">
+                <div>
+                  <div class="bk-card-title">Corte Feminino</div>
+                  <div class="bk-card-desc">45 min</div>
+                </div>
+                <div class="bk-card-price">R$ 80</div>
+              </div>
+              <div class="bk-preview-card bk-pv-card">
+                <div>
+                  <div class="bk-card-title">Coloração</div>
+                  <div class="bk-card-desc">2h</div>
+                </div>
+                <div class="bk-card-price">R$ 220</div>
+              </div>
+            </div>
+
+            <!-- Pane: Profissional -->
+            <div class="bk-pv-pane" data-pane="1" style="display:none;">
+              <div class="bk-preview-h1">Escolha um profissional</div>
+              <div class="bk-preview-sub">Selecione com quem deseja agendar</div>
+              <div class="bk-preview-card bk-pv-card">
+                <div><div class="bk-card-title">Maria Silva</div><div class="bk-card-desc">Cabeleireira</div></div>
+              </div>
+              <div class="bk-preview-card bk-pv-card">
+                <div><div class="bk-card-title">Ana Santos</div><div class="bk-card-desc">Colorista</div></div>
+              </div>
+            </div>
+
+            <!-- Pane: Data + Hora -->
+            <div class="bk-pv-pane" data-pane="2" style="display:none;">
+              <div class="bk-preview-h1">Escolha data e horário</div>
+              <input type="text" class="bk-preview-input bk-pv-input" placeholder="Buscar..." readonly>
+              <div class="bk-preview-cal bk-pv-cal" id="bk-pv-cal"></div>
+              <div class="bk-preview-slots" id="bk-pv-slots"></div>
+            </div>
+
+            <!-- Pane: Confirmação -->
+            <div class="bk-pv-pane" data-pane="3" style="display:none;">
+              <div class="bk-preview-h1">Confirme seu agendamento</div>
+              <div class="bk-preview-card bk-pv-modal" style="display:block;">
+                <div style="margin-bottom:8px;"><strong>Serviço:</strong> <span class="bk-pv-highlight">Corte Feminino</span></div>
+                <div style="margin-bottom:8px;"><strong>Profissional:</strong> Maria Silva</div>
+                <div style="margin-bottom:8px;"><strong>Data:</strong> <span class="bk-pv-highlight">14/04 às 10:00</span></div>
+                <div><strong>Total:</strong> <span class="bk-pv-highlight">R$ 80,00</span></div>
+              </div>
+              <div style="margin-top:14px;">
+                <button class="bk-preview-btn bk-pv-btn-primary">Confirmar</button>
+                <button class="bk-preview-btn secondary bk-pv-btn-secondary">Cancelar</button>
+              </div>
+            </div>
+
+            <!-- Pane: Sucesso -->
+            <div class="bk-pv-pane" data-pane="4" style="display:none;">
+              <div class="bk-preview-success">
+                <div class="bk-preview-success-icon" id="bk-pv-success-icon">✓</div>
+                <div class="bk-preview-h1" id="bk-pv-success-text">Agendamento confirmado!</div>
+                <div class="bk-preview-sub">Você receberá uma confirmação em breve.</div>
+                <button class="bk-preview-btn" id="bk-pv-success-btn" style="margin-top:14px;">Novo agendamento</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+    </div>
+  </div>
     </div>
   </div>
 
