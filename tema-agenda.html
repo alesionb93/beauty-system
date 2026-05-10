@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#652AF4">
+  <title>Editor de Tema da Agenda | Slotify</title>
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ===== TEMA EDITOR - ESTILOS ISOLADOS ===== */
+    .tema-editor-page {
+      min-height: 100vh;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      font-family: 'Inter', sans-serif;
+      padding: 24px;
+    }
+
+    .tema-header { margin-bottom: 24px; }
+    .tema-header h1 { font-size: 1.25rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .tema-header .back-link { font-size: 0.75rem; color: #888; cursor: pointer; text-decoration: none; }
+    .tema-header .back-link:hover { color: #fff; }
+
+    .tema-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    @media (max-width: 900px) {
+      .tema-grid { grid-template-columns: 1fr; }
+    }
+
+    .tema-panel {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 12px;
+      padding: 28px;
+    }
+
+    .tema-section { margin-bottom: 28px; }
+    .tema-section-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tema-section-desc {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 14px;
+    }
+
+    .color-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .color-row label {
+      font-size: 0.8rem;
+      color: #aaa;
+      min-width: 180px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .color-row input[type="color"] {
+      width: 48px;
+      height: 48px;
+      min-width: 48px;
+      min-height: 48px;
+      border: 2px solid #333;
+      border-radius: 8px;
+      cursor: pointer;
+      background: transparent;
+      padding: 3px;
+      flex-shrink: 0;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+    }
+    .color-row input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+    .color-row input[type="color"]::-webkit-color-swatch { border-radius: 4px; border: none; }
+    .color-row input[type="color"]::-moz-color-swatch { border-radius: 4px; border: none; }
+
+    /* ========== FIX: desbloqueio dos inputs de cor ==========
+       Causa: vários <label> englobam <span class="tt-wrapper"><span class="tt-box">
+       com position:absolute, sobrepondo o <input type="color"> ao lado.
+       Além disso, <label> sem 'for' captura cliques sem repassar ao input.
+       Solução: garantir que o input fique sempre acima e clicável,
+       e que o label/tooltip não roubem cliques. ==========================*/
+    .color-row { position: relative; z-index: 1; }
+    .color-row label {
+      pointer-events: none; /* texto do label não captura clique */
+      z-index: 0;
+    }
+    .color-row label .tt-wrapper {
+      pointer-events: auto; /* tooltip continua hoverable */
+    }
+    .color-row input[type="color"],
+    .color-row input[type="text"] {
+      position: relative;
+      z-index: 5;
+      pointer-events: auto !important;
+      cursor: pointer;
+    }
+    .color-row input[type="text"] { cursor: text; }
+    /* tooltip não pode cobrir o swatch */
+    .color-row .tt-box { z-index: 10; pointer-events: none; }
+
+    .color-row .hex-display {
+      font-size: 0.75rem;
+      color: #666;
+      font-family: monospace;
+    }
+
+    /* Tooltip */
+    .tt-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .tt-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: #888;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: help;
+      flex-shrink: 0;
+      font-weight: 700;
+      margin-left: 4px;
+    }
+    .tt-box {
+      display: none;
+      position: absolute;
+      left: 28px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: #1a1a1a;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.72rem;
+      color: #ddd;
+      width: 240px;
+      z-index: 999;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+      line-height: 1.5;
+      pointer-events: none;
+    }
+    .tt-wrapper:hover .tt-box { display: block; }
+
+    .color-chips {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #222;
+      margin: 24px 0;
+    }
+
+    /* Logo upload */
+    .logo-drop {
+      border: 2px dashed #333;
+      border-radius: 12px;
+      padding: 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .logo-drop:hover { border-style: solid; }
+    .logo-drop img {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 12px;
+    }
+    .logo-drop .initials-circle {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      font-weight: 700;
+      background: rgba(255,255,255,0.03);
+      margin-bottom: 12px;
+    }
+    .logo-drop .upload-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid;
+      background: transparent;
+      margin-bottom: 6px;
+    }
+    .logo-drop .upload-hint {
+      font-size: 0.6rem;
+      color: #666;
+    }
+
+    /* Font selector */
+    .font-options {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .font-option {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: transparent;
+      color: #ccc;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .font-option:hover { border-color: #555; }
+    .font-option.active {
+      border-color: var(--te-gold, #7c3aed);
+      color: var(--te-gold, #7c3aed);
+      background: rgba(124,58,237,0.08);
+    }
+
+    /* Action buttons */
+    .tema-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn-reset {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-save-theme {
+      padding: 10px 24px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      color: #fff;
+      transition: all 0.2s;
+    }
+    .btn-save-theme:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    /* Feedback */
+    .tema-feedback {
+      display: none;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      margin-top: 12px;
+      text-align: center;
+    }
+
+    /* ===== PREVIEW ===== */
+    .preview-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .preview-frame {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #222;
+    }
+
+    .preview-sidebar {
+      display: flex;
+      min-height: 500px;
+    }
+
+    .preview-side {
+      width: 200px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .preview-side .side-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .preview-side .side-logo img {
+      width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+    }
+    .preview-side .side-logo .side-initials {
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700;
+    }
+    .preview-side .side-logo span { font-size: 0.8rem; font-weight: 600; }
+
+    .side-item {
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.6);
+      cursor: default;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+    .side-item.active {
+      font-weight: 600;
+    }
+
+    .preview-main {
+      flex: 1;
+      padding: 20px;
+    }
+
+    .preview-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    .preview-topbar h2 {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .preview-topbar .topbar-btn {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      border: none;
+      cursor: default;
+    }
+
+    .preview-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .preview-card {
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid;
+    }
+    .preview-card .card-time {
+      font-size: 0.7rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .preview-card .card-name {
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .preview-card .card-service {
+      font-size: 0.7rem;
+      color: #888;
+    }
+
+    /* Preview Calendar */
+    .preview-cal-wrapper {
+      border-radius: 10px;
+      padding: 12px;
+      margin-top: 12px;
+    }
+    .preview-cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .preview-cal-header .cal-nav {
+      font-size: 0.85rem;
+      cursor: default;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .preview-cal-header .cal-month {
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .preview-calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .preview-calendar .cal-day {
+      text-align: center;
+      padding: 6px 4px;
+      font-size: 0.65rem;
+      border-radius: 6px;
+    }
+    .preview-calendar .cal-day.header {
+      font-weight: 700;
+      font-size: 0.6rem;
+    }
+    .preview-calendar .cal-day.today {
+      font-weight: 700;
+    }
+
+    @media (max-width: 700px) {
+      .preview-side { display: none; }
+      .preview-cards { grid-template-columns: 1fr; }
+    }
+
+    /* ===== BOOKING THEME (Link de Agendamento) ===== */
+    .bk-subgroup-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #aaa;
+      text-transform: uppercase;
+      margin: 18px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px dashed #2a2a2a;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .bk-subgroup-title:first-child { margin-top: 0; }
+
+    /* Mini-preview do link externo */
+    .bk-preview {
+      border-radius: 14px;
+      padding: 16px;
+      min-height: 560px;
+      font-family: 'Inter', sans-serif;
+      transition: background 0.2s;
+    }
+    .bk-preview-stepper {
+      display: flex; gap: 6px; margin-bottom: 18px;
+    }
+    .bk-preview-step {
+      flex: 1; height: 6px; border-radius: 4px;
+      background: #e5e7eb; transition: background 0.2s;
+    }
+    .bk-preview-h1 { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+    .bk-preview-sub { font-size: 0.78rem; margin-bottom: 16px; }
+    .bk-preview-card {
+      padding: 12px 14px; border-radius: 12px; border: 1px solid;
+      margin-bottom: 10px; cursor: default;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .bk-preview-card .bk-card-title { font-size: 0.85rem; font-weight: 600; }
+    .bk-preview-card .bk-card-desc { font-size: 0.72rem; margin-top: 2px; }
+    .bk-preview-card .bk-card-price { font-size: 0.85rem; font-weight: 700; }
+    .bk-preview-input {
+      display: block; width: 100%;
+      padding: 10px 12px; border-radius: 10px; border: 1px solid;
+      font-size: 0.82rem; margin-bottom: 10px;
+    }
+    .bk-preview-cal {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      gap: 4px; padding: 10px; border-radius: 10px; margin: 10px 0;
+    }
+    .bk-preview-cal .bk-cal-day {
+      text-align: center; padding: 8px 0; font-size: 0.72rem;
+      border-radius: 6px;
+    }
+    .bk-preview-slots {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 6px; margin-bottom: 12px;
+    }
+    .bk-preview-slot {
+      text-align: center; padding: 8px 0; border-radius: 8px;
+      border: 1px solid; font-size: 0.72rem; font-weight: 600;
+    }
+    .bk-preview-btn {
+      display: inline-block; padding: 10px 18px;
+      border-radius: 10px; font-size: 0.8rem; font-weight: 700;
+      border: none; margin-right: 8px; cursor: default;
+    }
+    .bk-preview-btn.secondary { border: 1px solid; }
+    .bk-preview-success {
+      text-align: center; padding: 30px 0;
+    }
+    .bk-preview-success-icon {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 1.6rem; color: #fff; margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="tema-editor-page">
+    <!-- Header -->
+    <div class="tema-header">
+      <h1>🎨 Editor de Tema da Agenda</h1>
+      <a href="agenda.html" class="back-link">‹ Voltar para Agenda</a>
+    </div>
+
+    <div class="tema-grid">
+      <!-- LEFT: Editor Panel -->
+      <div class="tema-panel">
+        <!-- Cor Principal -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🎨 Cor Principal
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cor destaque do sistema. Usada em botões, links, itens ativos do menu e destaques visuais. As variações (clara, escura, fundo, borda) são geradas automaticamente.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Defina a cor destaque usada em botões, links e destaques.</div>
+          <div class="color-row">
+            <label>Cor principal</label>
+            <input type="color" id="tema-gold" value="#7c3aed">
+            <input type="text" id="tema-gold-hex" value="#7c3aed" maxlength="7" style="width:80px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;padding:6px 8px;font-family:monospace;font-size:0.8rem;" oninput="syncColorFromHex()">
+          </div>
+          <div class="color-chips" id="tema-color-chips"></div>
+        </div>
+
+        <!-- Cor do Texto -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            ✏️ Cor do Texto
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cor padrão de todos os textos e títulos da interface da agenda. Ajuste para garantir contraste com o fundo.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Cor padrão dos textos e títulos da interface.</div>
+          <div class="color-row">
+            <label>Cor do texto</label>
+            <input type="color" id="tema-text-color" value="#ffffff">
+            <input type="text" id="tema-text-color-hex" value="#ffffff" maxlength="7" style="width:80px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#ccc;padding:6px 8px;font-family:monospace;font-size:0.8rem;" oninput="syncTextColorFromHex()">
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Cores de Fundo -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🖌️ Cores de Fundo
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cores das áreas de fundo da interface. Inclui o fundo da página, cartões de agendamento, efeito hover e menu lateral.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Personalize os fundos da interface.</div>
+
+          <div class="color-row">
+            <label>
+              Fundo da página
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo principal de toda a tela da agenda. É a cor que aparece atrás de todos os elementos.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-bg" value="#0f0a1a">
+            <span class="hex-display" id="tema-bg-label">#0f0a1a</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Cartão
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo dos cartões de agendamento — os blocos que mostram horário, nome do cliente e serviço.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-card" value="#1a1030">
+            <span class="hex-display" id="tema-card-label">#1a1030</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Cartão ao passar o mouse
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do cartão quando você passa o mouse por cima. Dá feedback visual de interação ao usuário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-card-hover" value="#241540">
+            <span class="hex-display" id="tema-card-hover-label">#241540</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Menu lateral
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo do menu de navegação à esquerda, onde ficam os links como Agenda, Clientes, Serviços, etc.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-sidebar-bg" value="#1e1145">
+            <span class="hex-display" id="tema-sidebar-bg-label">#1e1145</span>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Cores do Calendário -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            📅 Calendário
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Cores específicas do mini-calendário mensal da agenda. Controle borda, texto dos dias, título do mês e aparência do dia selecionado.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Cores específicas do mini-calendário da agenda.</div>
+
+          <div class="color-row">
+            <label>
+              Borda do calendário
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor da borda ao redor do bloco do calendário mensal.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-border" value="#333333">
+            <span class="hex-display" id="tema-cal-border-label">#333333</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Texto dos dias
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor dos números dos dias e dos nomes dos dias da semana (Dom, Seg, Ter…).</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-text" value="#888888">
+            <span class="hex-display" id="tema-cal-text-label">#888888</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Título do mês
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do texto do mês e ano exibido no topo do calendário (ex: "Abril 2026").</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-month" value="#ffffff">
+            <span class="hex-display" id="tema-cal-month-label">#ffffff</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Dia selecionado (fundo)
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor de fundo do dia atualmente selecionado no calendário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-selected-bg" value="#7c3aed">
+            <span class="hex-display" id="tema-cal-selected-bg-label">#7c3aed</span>
+          </div>
+
+          <div class="color-row">
+            <label>
+              Dia selecionado (texto)
+              <span class="tt-wrapper">
+                <span class="tt-icon">?</span>
+                <span class="tt-box">Cor do número do dia selecionado no calendário.</span>
+              </span>
+            </label>
+            <input type="color" id="tema-cal-selected-text" value="#ffffff">
+            <span class="hex-display" id="tema-cal-selected-text-label">#ffffff</span>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Logo -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🖼️ Logo do Menu
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Altera apenas a logo exibida no menu lateral da agenda. Não afeta a logo cadastral do tenant em Dados Cadastrais.</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Altera apenas a logo exibida no menu lateral. Não afeta a logo cadastral do tenant.</div>
+          <div class="logo-drop" id="te-logo-drop" onclick="document.getElementById('tema-logo-input').click()">
+            <img id="tema-logo-img" src="" style="display:none;">
+            <div class="initials-circle" id="tema-logo-icon">BS</div>
+            <br>
+            <span class="upload-btn">Enviar Imagem</span>
+            <br>
+            <span class="upload-hint">256×256 PNG Transparente</span>
+          </div>
+          <input type="file" id="tema-logo-input" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onTemaLogoChange(this)">
+          <button id="btn-remover-tema-logo" style="display:none;margin-top:8px;background:none;border:1px solid #555;color:#ccc;padding:6px 14px;border-radius:6px;font-size:0.7rem;cursor:pointer;" onclick="removerTemaLogo()">Remover Logo</button>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Fonte -->
+        <div class="tema-section">
+          <div class="tema-section-title">
+            🔤 Tipografia
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Fonte usada em toda a interface da agenda. Escolha entre as opções disponíveis.</span>
+            </span>
+          </div>
+          <div class="font-options" id="te-font-options">
+            <button class="font-option active" data-font="Inter" style="font-family:'Inter'" onclick="selecionarFonte(this)">Inter</button>
+            <button class="font-option" data-font="Poppins" style="font-family:'Poppins'" onclick="selecionarFonte(this)">Poppins</button>
+            <button class="font-option" data-font="Playfair Display" style="font-family:'Playfair Display'" onclick="selecionarFonte(this)">Playfair</button>
+          </div>
+          <input type="hidden" id="tema-font" value="Inter">
+          <div id="tema-font-preview" style="margin-top:10px;font-size:0.8rem;color:#888;">Exemplo de texto com a fonte selecionada</div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- ============================================================
+             SEÇÃO: LINK DE AGENDAMENTO (fluxo externo /agendar/{id})
+             ============================================================ -->
+        <div class="tema-section" id="bk-section">
+          <div class="tema-section-title">
+            🔗 Link de Agendamento
+            <span class="tt-wrapper">
+              <span class="tt-icon">?</span>
+              <span class="tt-box">Personalize 100% das cores da página pública usada pelos seus clientes para agendar online (link externo).</span>
+            </span>
+          </div>
+          <div class="tema-section-desc">Controle total das cores do fluxo público de agendamento.</div>
+
+          <!-- 1. Layout Geral -->
+          <div class="bk-subgroup-title">🔵 1. Layout geral</div>
+          <div class="color-row"><label>Fundo da página</label><input type="color" id="bk-page-bg"><span class="hex-display" id="bk-page-bg-label"></span></div>
+          <div class="color-row"><label>Texto principal</label><input type="color" id="bk-text"><span class="hex-display" id="bk-text-label"></span></div>
+          <div class="color-row"><label>Títulos</label><input type="color" id="bk-title"><span class="hex-display" id="bk-title-label"></span></div>
+          <div class="color-row"><label>Subtítulos</label><input type="color" id="bk-subtitle"><span class="hex-display" id="bk-subtitle-label"></span></div>
+          <div class="color-row"><label>Bordas</label><input type="color" id="bk-border"><span class="hex-display" id="bk-border-label"></span></div>
+
+          <!-- 2. Botões -->
+          <div class="bk-subgroup-title">🟣 2. Botões</div>
+          <div class="color-row"><label>Botão primário (fundo)</label><input type="color" id="bk-btn-primary-bg"><span class="hex-display" id="bk-btn-primary-bg-label"></span></div>
+          <div class="color-row"><label>Botão primário (texto)</label><input type="color" id="bk-btn-primary-text"><span class="hex-display" id="bk-btn-primary-text-label"></span></div>
+          <div class="color-row"><label>Botão primário (hover)</label><input type="color" id="bk-btn-primary-hover"><span class="hex-display" id="bk-btn-primary-hover-label"></span></div>
+          <div class="color-row"><label>Botão secundário (fundo)</label><input type="color" id="bk-btn-secondary-bg"><span class="hex-display" id="bk-btn-secondary-bg-label"></span></div>
+          <div class="color-row"><label>Botão secundário (texto)</label><input type="color" id="bk-btn-secondary-text"><span class="hex-display" id="bk-btn-secondary-text-label"></span></div>
+
+          <!-- 3. Stepper -->
+          <div class="bk-subgroup-title">🟢 3. Stepper (etapas)</div>
+          <div class="color-row"><label>Step ativo</label><input type="color" id="bk-step-active"><span class="hex-display" id="bk-step-active-label"></span></div>
+          <div class="color-row"><label>Step concluído</label><input type="color" id="bk-step-done"><span class="hex-display" id="bk-step-done-label"></span></div>
+          <div class="color-row"><label>Step inativo</label><input type="color" id="bk-step-inactive"><span class="hex-display" id="bk-step-inactive-label"></span></div>
+          <div class="color-row"><label>Texto do step</label><input type="color" id="bk-step-text"><span class="hex-display" id="bk-step-text-label"></span></div>
+
+          <!-- 4. Cards -->
+          <div class="bk-subgroup-title">🟡 4. Cards (serviços / profissionais)</div>
+          <div class="color-row"><label>Fundo do card</label><input type="color" id="bk-card-bg"><span class="hex-display" id="bk-card-bg-label"></span></div>
+          <div class="color-row"><label>Fundo hover</label><input type="color" id="bk-card-hover"><span class="hex-display" id="bk-card-hover-label"></span></div>
+          <div class="color-row"><label>Título do card</label><input type="color" id="bk-card-title"><span class="hex-display" id="bk-card-title-label"></span></div>
+          <div class="color-row"><label>Descrição</label><input type="color" id="bk-card-desc"><span class="hex-display" id="bk-card-desc-label"></span></div>
+          <div class="color-row"><label>Preço</label><input type="color" id="bk-card-price"><span class="hex-display" id="bk-card-price-label"></span></div>
+          <div class="color-row"><label>Borda do card</label><input type="color" id="bk-card-border"><span class="hex-display" id="bk-card-border-label"></span></div>
+
+          <!-- 5. Inputs -->
+          <div class="bk-subgroup-title">🟠 5. Inputs e campos</div>
+          <div class="color-row"><label>Fundo do input</label><input type="color" id="bk-input-bg"><span class="hex-display" id="bk-input-bg-label"></span></div>
+          <div class="color-row"><label>Texto do input</label><input type="color" id="bk-input-text"><span class="hex-display" id="bk-input-text-label"></span></div>
+          <div class="color-row"><label>Placeholder</label><input type="color" id="bk-input-placeholder"><span class="hex-display" id="bk-input-placeholder-label"></span></div>
+          <div class="color-row"><label>Borda</label><input type="color" id="bk-input-border"><span class="hex-display" id="bk-input-border-label"></span></div>
+          <div class="color-row"><label>Borda em foco</label><input type="color" id="bk-input-focus"><span class="hex-display" id="bk-input-focus-label"></span></div>
+
+          <!-- 6. Calendário externo -->
+          <div class="bk-subgroup-title">🔴 6. Calendário (link externo)</div>
+          <div class="color-row"><label>Fundo</label><input type="color" id="bk-cal-bg"><span class="hex-display" id="bk-cal-bg-label"></span></div>
+          <div class="color-row"><label>Cor dos dias</label><input type="color" id="bk-cal-day"><span class="hex-display" id="bk-cal-day-label"></span></div>
+          <div class="color-row"><label>Dia selecionado (fundo)</label><input type="color" id="bk-cal-day-sel-bg"><span class="hex-display" id="bk-cal-day-sel-bg-label"></span></div>
+          <div class="color-row"><label>Dia selecionado (texto)</label><input type="color" id="bk-cal-day-sel-text"><span class="hex-display" id="bk-cal-day-sel-text-label"></span></div>
+          <div class="color-row"><label>Horários disponíveis</label><input type="color" id="bk-cal-slot"><span class="hex-display" id="bk-cal-slot-label"></span></div>
+          <div class="color-row"><label>Horários selecionados</label><input type="color" id="bk-cal-slot-sel"><span class="hex-display" id="bk-cal-slot-sel-label"></span></div>
+
+          <!-- 7. Modal -->
+          <div class="bk-subgroup-title">🟤 7. Modal de confirmação</div>
+          <div class="color-row"><label>Fundo</label><input type="color" id="bk-modal-bg"><span class="hex-display" id="bk-modal-bg-label"></span></div>
+          <div class="color-row"><label>Texto</label><input type="color" id="bk-modal-text"><span class="hex-display" id="bk-modal-text-label"></span></div>
+          <div class="color-row"><label>Destaque (preço/horário)</label><input type="color" id="bk-modal-highlight"><span class="hex-display" id="bk-modal-highlight-label"></span></div>
+
+          <!-- 8. Sucesso -->
+          <div class="bk-subgroup-title">🟢 8. Tela de sucesso</div>
+          <div class="color-row"><label>Ícone de sucesso</label><input type="color" id="bk-success-icon"><span class="hex-display" id="bk-success-icon-label"></span></div>
+          <div class="color-row"><label>Texto principal</label><input type="color" id="bk-success-text"><span class="hex-display" id="bk-success-text-label"></span></div>
+          <div class="color-row"><label>Botão "novo agendamento"</label><input type="color" id="bk-success-btn"><span class="hex-display" id="bk-success-btn-label"></span></div>
+        </div>
+
+        <!-- Ações -->
+        <div class="tema-actions">
+          <button class="btn-reset" id="te-btn-reset" onclick="resetarTema()">Restaurar Padrão</button>
+          <button class="btn-save-theme" id="te-btn-save" onclick="salvarTema()">Salvar Tema da Agenda</button>
+        </div>
+        <div class="tema-feedback" id="tema-feedback"></div>
+      </div>
+
+      <!-- RIGHT: Preview -->
+      <div>
+        <div class="preview-label">
+          <span>👁️</span>
+          <span>Veja como ficará a agenda.</span>
+        </div>
+        <div class="preview-frame" id="te-preview">
+          <div class="preview-sidebar">
+            <!-- Sidebar -->
+            <div class="preview-side" id="tp-sidebar">
+              <div class="side-logo">
+                <div class="side-initials" id="tp-logo">BS</div>
+                <span id="tp-brand-name">Beauty Salon</span>
+              </div>
+              <div class="side-item active" id="tp-side-active">📅 Agenda</div>
+              <div class="side-item">👥 Clientes</div>
+              <div class="side-item">💇 Serviços</div>
+              <div class="side-item">📊 Relatórios</div>
+              <div class="side-item">⚙️ Configurações</div>
+            </div>
+
+            <!-- Main content -->
+            <div class="preview-main" id="tp-body">
+              <div class="preview-topbar">
+                <h2 id="tp-title">Hoje, 14 Abril</h2>
+                <button class="topbar-btn" id="tp-btn1">+ Novo</button>
+              </div>
+
+              <div class="preview-cards">
+                <div class="preview-card" id="tp-card1">
+                  <div class="card-time" id="tp-card-time1">09:00</div>
+                  <div class="card-name">Maria Silva</div>
+                  <div class="card-service">Corte + Escova</div>
+                </div>
+                <div class="preview-card" id="tp-card2">
+                  <div class="card-time" id="tp-card-time2">10:30</div>
+                  <div class="card-name">Ana Santos</div>
+                  <div class="card-service">Coloração</div>
+                </div>
+              </div>
+
+              <!-- Calendar preview -->
+              <div class="preview-cal-wrapper" id="tp-cal-wrapper">
+                <div class="preview-cal-header">
+                  <span class="cal-nav" id="tp-cal-nav-l">&lt;</span>
+                  <span class="cal-month" id="tp-cal-month">Abril 2026</span>
+                  <span class="cal-nav" id="tp-cal-nav-r">&gt;</span>
+                </div>
+                <div class="preview-calendar" id="tp-cal-grid"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============================================================
+             PREVIEW DO LINK DE AGENDAMENTO (fluxo público)
+             ============================================================ -->
+        <div class="preview-label" style="margin-top:24px;">
+          <span>🔗</span>
+          <span>Pré-visualização do link de agendamento</span>
+        </div>
+        <div class="preview-frame">
+          <!-- Tabs simulando os 4 passos -->
+          <div style="display:flex;gap:6px;padding:12px 14px 0;background:transparent;">
+            <button type="button" data-bk-tab="0" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Serviço</button>
+            <button type="button" data-bk-tab="1" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Profissional</button>
+            <button type="button" data-bk-tab="2" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Data/Hora</button>
+            <button type="button" data-bk-tab="3" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Confirmar</button>
+            <button type="button" data-bk-tab="4" class="bk-tab-btn" style="flex:1;padding:6px 4px;font-size:0.7rem;border:none;background:transparent;cursor:pointer;border-bottom:2px solid transparent;">Sucesso</button>
+          </div>
+
+          <div class="bk-preview" id="bk-preview-stage">
+            <!-- Stepper -->
+            <div class="bk-preview-stepper" id="bk-pv-stepper">
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+              <div class="bk-preview-step"></div>
+            </div>
+
+            <!-- Pane: Serviço -->
+            <div class="bk-pv-pane" data-pane="0">
+              <div class="bk-preview-h1" id="bk-pv-h1-0">Escolha um serviço</div>
+              <div class="bk-preview-sub" id="bk-pv-sub-0">Selecione o serviço desejado</div>
+              <div class="bk-preview-card bk-pv-card">
+                <div>
+                  <div class="bk-card-title">Corte Feminino</div>
+                  <div class="bk-card-desc">45 min</div>
+                </div>
+                <div class="bk-card-price">R$ 80</div>
+              </div>
+              <div class="bk-preview-card bk-pv-card">
+                <div>
+                  <div class="bk-card-title">Coloração</div>
+                  <div class="bk-card-desc">2h</div>
+                </div>
+                <div class="bk-card-price">R$ 220</div>
+              </div>
+            </div>
+
+            <!-- Pane: Profissional -->
+            <div class="bk-pv-pane" data-pane="1" style="display:none;">
+              <div class="bk-preview-h1">Escolha um profissional</div>
+              <div class="bk-preview-sub">Selecione com quem deseja agendar</div>
+              <div class="bk-preview-card bk-pv-card">
+                <div><div class="bk-card-title">Maria Silva</div><div class="bk-card-desc">Cabeleireira</div></div>
+              </div>
+              <div class="bk-preview-card bk-pv-card">
+                <div><div class="bk-card-title">Ana Santos</div><div class="bk-card-desc">Colorista</div></div>
+              </div>
+            </div>
+
+            <!-- Pane: Data + Hora -->
+            <div class="bk-pv-pane" data-pane="2" style="display:none;">
+              <div class="bk-preview-h1">Escolha data e horário</div>
+              <input type="text" class="bk-preview-input bk-pv-input" placeholder="Buscar..." readonly>
+              <div class="bk-preview-cal bk-pv-cal" id="bk-pv-cal"></div>
+              <div class="bk-preview-slots" id="bk-pv-slots"></div>
+            </div>
+
+            <!-- Pane: Confirmação -->
+            <div class="bk-pv-pane" data-pane="3" style="display:none;">
+              <div class="bk-preview-h1">Confirme seu agendamento</div>
+              <div class="bk-preview-card bk-pv-modal" style="display:block;">
+                <div style="margin-bottom:8px;"><strong>Serviço:</strong> <span class="bk-pv-highlight">Corte Feminino</span></div>
+                <div style="margin-bottom:8px;"><strong>Profissional:</strong> Maria Silva</div>
+                <div style="margin-bottom:8px;"><strong>Data:</strong> <span class="bk-pv-highlight">14/04 às 10:00</span></div>
+                <div><strong>Total:</strong> <span class="bk-pv-highlight">R$ 80,00</span></div>
+              </div>
+              <div style="margin-top:14px;">
+                <button class="bk-preview-btn bk-pv-btn-primary">Confirmar</button>
+                <button class="bk-preview-btn secondary bk-pv-btn-secondary">Cancelar</button>
+              </div>
+            </div>
+
+            <!-- Pane: Sucesso -->
+            <div class="bk-pv-pane" data-pane="4" style="display:none;">
+              <div class="bk-preview-success">
+                <div class="bk-preview-success-icon" id="bk-pv-success-icon">✓</div>
+                <div class="bk-preview-h1" id="bk-pv-success-text">Agendamento confirmado!</div>
+                <div class="bk-preview-sub">Você receberá uma confirmação em breve.</div>
+                <button class="bk-preview-btn" id="bk-pv-success-btn" style="margin-top:14px;">Novo agendamento</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+  <script src="tema-agenda-script.js"></script>
+</body>
+</html>

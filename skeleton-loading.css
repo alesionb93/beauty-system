@@ -1,0 +1,85 @@
+/* ============================================================
+   SKELETON LOADING — Slotify (Agendamentos) v2
+   Seletores reais detectados no agenda.html:
+     • Card calendário:  .calendar-card
+       - Nav:            .calendar-nav  (#prev-month / #month-year / #next-month)
+       - Weekdays:       .calendar-weekdays
+       - Grid dias:      #calendar-days
+     • Card detalhe:     .day-detail-card
+       - Header data:    #day-detail-header
+       - Lista:          #day-appointments  (.timeline-container)
+   ============================================================ */
+
+@keyframes sk-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+@keyframes sk-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sk {
+  display: block;
+  background: #1f1b2e;
+  background-image: linear-gradient(90deg, #1f1b2e 0px, #2a2440 80px, #1f1b2e 160px);
+  background-size: 800px 100%;
+  background-repeat: no-repeat;
+  border-radius: 8px;
+  animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+
+/* tema claro: o app é light por padrão (--bg #F8F8F6) */
+:root {
+  --sk-base:  #ECECF2;
+  --sk-hi:    #F7F7FB;
+}
+body:not(.tema-fullscreen) .sk {
+  background: var(--sk-base);
+  background-image: linear-gradient(90deg, var(--sk-base) 0px, var(--sk-hi) 80px, var(--sk-base) 160px);
+}
+
+.sk-circle  { border-radius: 50%; }
+.sk-line    { height: 12px; border-radius: 6px; }
+.sk-line-sm { height: 9px;  border-radius: 5px; }
+.sk-line-lg { height: 18px; border-radius: 8px; }
+
+/* ---------- Calendário ---------- */
+.calendar-card .sk-cal,
+.day-detail-card .sk-day { animation: sk-fade-in .25s ease-out; }
+
+.sk-cal__nav {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 8px 14px;
+}
+.sk-cal__nav .sk-arrow { width: 22px; height: 22px; }
+.sk-cal__nav .sk-month { width: 110px; height: 14px; }
+
+.sk-cal__weekdays {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  gap: 6px; padding: 0 4px 10px;
+}
+.sk-cal__weekdays .sk { height: 8px; }
+
+.sk-cal__grid {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  gap: 6px; padding: 0 4px;
+}
+.sk-cal__grid .sk { aspect-ratio: 1 / 1; border-radius: 8px; }
+
+/* ---------- Detalhe do dia ---------- */
+.sk-day__title { width: 240px; height: 20px; margin: 4px 0 22px; }
+.sk-appt {
+  display: flex; gap: 14px; padding: 14px;
+  margin-bottom: 12px; border-radius: 12px;
+  background: rgba(108,58,237,0.04);
+  border: 1px solid rgba(108,58,237,0.10);
+}
+.sk-appt__time { width: 56px; height: 56px; flex-shrink: 0; border-radius: 10px; }
+.sk-appt__body { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+.sk-appt__body .sk-name { width: 60%; height: 14px; }
+.sk-appt__body .sk-desc { width: 85%; height: 10px; }
+.sk-appt__body .sk-dur  { width: 35%; height: 10px; }
+
+.sk-leaving       { animation: sk-fade-in .2s ease-out reverse forwards; }
+.sk-content-enter { animation: sk-fade-in .35s ease-out both; }
