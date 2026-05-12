@@ -1,0 +1,1869 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#652AF4">
+  <title>Slotify</title>
+  <meta name="description" content="Slotify - Sistema de agendamento para salões de beleza">
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css">
+  <style>
+    .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
+    .pcr-app { z-index: 99999 !important; position: fixed !important; }
+    body.tema-fullscreen .sidebar { display: none !important; }
+    body.tema-fullscreen .main-content { margin-left: 0 !important; }
+    body.tema-fullscreen .hamburger { display: none !important; }
+
+    /* ===== Vínculo Profissional Cards ===== */
+    .prof-vinculo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    @media (max-width: 600px) {
+      .prof-vinculo-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .prof-vinculo-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      padding: 16px 12px;
+      border: 2px solid var(--border, #e0e0e0);
+      border-radius: 12px;
+      background: var(--bg-card, #fff);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .prof-vinculo-card:hover {
+      border-color: var(--gold, #6c63ff);
+      box-shadow: 0 2px 12px rgba(108,99,255,0.08);
+    }
+    .prof-vinculo-card.selected {
+      border-color: var(--gold, #6c63ff);
+      background: color-mix(in srgb, var(--gold, #6c63ff) 6%, var(--bg-card, #fff));
+      box-shadow: 0 2px 16px rgba(108,99,255,0.12);
+    }
+    .prof-vinculo-card input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .prof-vinculo-card .pvc-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      background: color-mix(in srgb, var(--gold, #6c63ff) 10%, transparent);
+      color: var(--gold, #6c63ff);
+      flex-shrink: 0;
+    }
+    .prof-vinculo-card.selected .pvc-icon {
+      background: var(--gold, #6c63ff);
+      color: #fff;
+    }
+    .prof-vinculo-card .pvc-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text, #222);
+      line-height: 1.2;
+    }
+    .prof-vinculo-card .pvc-desc {
+      font-size: 0.72rem;
+      color: var(--text-muted, #888);
+      line-height: 1.3;
+    }
+    .prof-vinculo-sub {
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border, #e0e0e0);
+      background: var(--bg-card, #fff);
+      display: none;
+    }
+    .prof-vinculo-sub.visible {
+      display: block;
+    }
+    .prof-vinculo-sub select {
+      width: 100%;
+    }
+    .prof-vinculo-preview {
+      margin-top: 8px;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: rgba(72,187,120,0.08);
+      border: 1px solid rgba(72,187,120,0.25);
+      font-size: 0.82rem;
+      color: #38a169;
+      display: none;
+    }
+    .prof-vinculo-preview.visible {
+      display: block;
+    }
+
+    /* Upload foto para criar automático */
+    .prof-vinculo-foto-upload {
+      margin-top: 10px;
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px dashed var(--border, #e0e0e0);
+      background: var(--bg-card, #fff);
+      display: none;
+      text-align: center;
+    }
+    .prof-vinculo-foto-upload.visible {
+      display: block;
+    }
+    .prof-vinculo-foto-upload label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text, #222);
+      display: block;
+      margin-bottom: 8px;
+    }
+    .prof-vinculo-foto-upload .foto-preview-circle {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: var(--gold-bg, rgba(108,58,237,0.08));
+      color: var(--gold, #6c63ff);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin: 0 auto 8px;
+      overflow: hidden;
+      border: 2px dashed var(--gold-border, rgba(108,58,237,0.2));
+    }
+    .prof-vinculo-foto-upload .foto-preview-circle img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .prof-vinculo-foto-upload .btn-upload-foto {
+      display: inline-block;
+      padding: 6px 16px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid var(--gold-border, rgba(108,58,237,0.2));
+      background: var(--gold-bg, rgba(108,58,237,0.08));
+      color: var(--gold, #6c63ff);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .prof-vinculo-foto-upload .btn-upload-foto:hover {
+      background: var(--gold, #6c63ff);
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hamburger -->
+  <button class="hamburger" id="hamburger"><i class="fa-solid fa-bars"></i></button>
+
+  <!-- Sidebar overlay -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <button class="close-sidebar" id="close-sidebar"><i class="fa-solid fa-xmark"></i></button>
+      <div class="sidebar-header">
+        <img src="beautySystemLogo.png" alt="Slotify" id="sidebar-logo">
+        <div class="brand">
+          <h2>Slotify</h2>
+          <p>Agendamento</p>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-page="agendamentos"><i class="fa-regular fa-calendar"></i> Agendamentos</button>
+        <button class="nav-btn" data-page="clientes"><i class="fa-regular fa-address-book"></i> Clientes</button>
+        <button class="nav-btn" data-page="profissionais"><i class="fa-solid fa-scissors"></i> Profissionais</button>
+        <button class="nav-btn" data-page="pacotes"><i class="fa-solid fa-box-open"></i> Pacotes</button>
+        <button class="nav-btn" data-page="dashboard"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+        <button class="nav-btn" data-page="configuracoes"><i class="fa-solid fa-gear"></i> Configurações</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-info" id="user-info"></div>
+        <button class="btn-sair" id="btn-sair"><i class="fa-solid fa-right-from-bracket"></i> Sair</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+
+      <!-- AGENDAMENTOS -->
+      <div class="page active" id="page-agendamentos">
+        <div class="page-header">
+          <h2>Agendamentos</h2>
+          <div class="page-header-actions">
+            <button class="btn-filter admin-only" id="btn-filtrar-agendas" title="Filtrar agendas"><i class="fa-solid fa-filter"></i> Filtrar</button>
+            <button class="btn-novo" id="btn-novo-agendamento"><i class="fa-solid fa-plus"></i> Novo</button>
+          </div>
+        </div>
+        <!-- Filtro de profissionais (admin) -->
+        <div class="filter-bar admin-only" id="filter-bar" style="display:none;">
+          <div class="filter-chips" id="filter-chips"></div>
+        </div>
+        <div class="agenda-grid">
+          <div class="calendar-card">
+            <div class="calendar-nav">
+              <button id="prev-month">&lt;</button>
+              <span class="month-year" id="month-year"></span>
+              <button id="next-month">&gt;</button>
+            </div>
+            <div class="calendar-weekdays">
+              <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+            </div>
+            <div class="calendar-days" id="calendar-days"></div>
+          </div>
+          <div class="day-detail-card">
+            <div class="day-detail-header" id="day-detail-header">Selecione uma data</div>
+            <div class="timeline-container" id="day-appointments"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CLIENTES -->
+      <div class="page" id="page-clientes">
+        <div class="page-header">
+          <h2>Clientes</h2>
+          <button class="btn-novo" id="btn-novo-cliente"><i class="fa-solid fa-plus"></i> Novo Cliente</button>
+        </div>
+        <div class="birthday-banner" id="birthday-banner" style="display:none;"></div>
+        <div class="clients-table-wrapper">
+          <table class="clients-table">
+            <thead><tr><th>Nome</th><th>Telefone</th><th>Nascimento</th><th class="col-acoes">Ações</th></tr></thead>
+            <tbody id="clients-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PROFISSIONAIS -->
+      <div class="page" id="page-profissionais">
+        <div class="page-header">
+          <h2>Profissionais & Serviços</h2>
+          <div class="page-header-actions">
+            <button class="btn-novo admin-only" id="btn-add-profissional" onclick="openModalCriarProfissional()" style="display:none;">
+              <i class="fa-solid fa-user-plus"></i> Adicionar Profissional
+            </button>
+            <button class="btn-filter admin-only" id="btn-gerenciar-servicos" onclick="openModalGerenciarServicos()" style="display:none;">
+              <i class="fa-solid fa-gear"></i> Gerenciar Serviços
+            </button>
+          </div>
+        </div>
+        <div class="professionals-grid" id="professionals-grid"></div>
+      </div>
+
+
+
+      <!-- PACOTES -->
+      <div class="page" id="page-pacotes">
+        <div class="page-header">
+          <h2>Pacotes</h2>
+          <button class="btn-novo" id="btn-novo-pacote" onclick="openModalNovoPacote()"><i class="fa-solid fa-plus"></i> Novo Pacote</button>
+        </div>
+        <div class="pacotes-table-wrapper">
+          <table class="pacotes-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Serviço</th>
+                <th>Qtd.</th>
+                <th>Total</th>
+                <th>Validade</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="pacotes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="page" id="page-dashboard">
+        <div class="page-header">
+          <h2>Dashboard</h2>
+        </div>
+        <div class="dash-filters">
+          <div class="form-group">
+            <label>Data Início</label>
+            <input type="date" id="dash-inicio">
+          </div>
+          <div class="form-group">
+            <label>Data Fim</label>
+            <input type="date" id="dash-fim">
+          </div>
+          <div class="form-group" id="dash-prof-wrapper">
+            <label>Profissional</label>
+            <select id="dash-prof-select">
+              <option value="__all__">Todos os profissionais</option>
+            </select>
+          </div>
+          <button class="btn-submit btn-dash-apply" onclick="loadDashboard()">Aplicar</button>
+        </div>
+        <div class="dash-grid">
+          <div class="dash-card">
+            <div class="dash-card-title">Total de Agendamentos</div>
+            <div class="dash-card-value" id="dash-total-ag">0</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Ticket Médio</div>
+            <div class="dash-card-value" id="dash-ticket">R$ 0,00</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Total Serviços</div>
+            <div class="dash-card-value" id="dash-total-servicos">0</div>
+          </div>
+          <div class="dash-card">
+            <div class="dash-card-title">Faturamento Total</div>
+            <div class="dash-card-value" id="dash-faturamento">R$ 0,00</div>
+          </div>
+        </div>
+
+        <div class="dash-section">
+          <h3>Faturamento por Horário</h3>
+          <div class="dash-chart" id="dash-chart-horarios"></div>
+        </div>
+
+        <div class="dash-section">
+          <h3>Por Profissional</h3>
+          <div class="dash-table-wrapper">
+            <table class="dash-table">
+              <thead><tr><th>Profissional</th><th>Atendimentos</th><th>Serviços</th><th>Faturamento</th></tr></thead>
+              <tbody id="dash-prof-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="dash-row">
+          <div class="dash-section dash-half">
+            <h3>Top 10 Serviços</h3>
+            <div class="dash-table-wrapper">
+              <table class="dash-table">
+                <thead><tr><th>Serviço</th><th>Qtd</th><th>Valor Total</th></tr></thead>
+                <tbody id="dash-top-servicos"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="dash-section dash-half">
+            <h3>Top 10 Clientes</h3>
+            <div class="dash-table-wrapper">
+              <table class="dash-table">
+                <thead><tr><th>Cliente</th><th>Atendimentos</th></tr></thead>
+                <tbody id="dash-top-clientes"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ======================== -->
+      <!-- CONFIGURAÇÕES -->
+      <!-- ======================== -->
+      <div class="page" id="page-configuracoes">
+        <div class="page-header">
+          <h2>Configurações</h2>
+        </div>
+
+        <div class="config-layout">
+          <!-- Menu lateral interno -->
+          <div class="config-sidebar">
+            <button class="config-tab active" data-config-tab="meu-perfil">
+              <i class="fa-regular fa-user"></i> Meu Perfil
+            </button>
+            <button class="config-tab admin-only-tab" data-config-tab="usuarios" id="tab-usuarios">
+              <i class="fa-solid fa-users"></i> Usuários
+            </button>
+            <button class="config-tab" data-config-tab="dados-cadastrais">
+              <i class="fa-solid fa-building"></i> Dados Cadastrais
+            </button>
+            <button class="config-tab master-only-tab" data-config-tab="tema-agenda">
+              <i class="fa-solid fa-palette"></i> Tema da Agenda
+            </button>
+          </div>
+
+          <!-- Conteúdo das abas -->
+          <div class="config-content">
+
+            <!-- ABA: Meu Perfil -->
+            <div class="config-panel active" id="config-meu-perfil">
+              <div class="config-section">
+                <div class="config-section-left">
+                  <h3>Informações pessoais</h3>
+                  <p class="config-help-text">As informações pessoais são necessárias para que o proprietário deste usuário seja facilmente identificado.</p>
+                </div>
+                <div class="config-section-right">
+                  <div class="form-group">
+                    <label>Nome completo</label>
+                    <input type="text" id="perfil-nome" placeholder="Seu nome">
+                  </div>
+                  <div class="form-group">
+                    <label>E-mail</label>
+                    <input type="email" id="perfil-email" placeholder="seu@email.com" readonly>
+                  </div>
+
+                </div>
+              </div>
+
+
+
+              <div class="config-actions">
+                <button class="btn-alterar-senha" onclick="openModal('modal-alterar-senha')">
+                  <i class="fa-solid fa-pen"></i> ALTERAR SENHA
+                </button>
+                <button class="btn-submit btn-salvar-perfil" onclick="salvarPerfil()">
+                  SALVAR ALTERAÇÕES <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- ABA: Usuários (ADMIN ONLY) -->
+            <div class="config-panel" id="config-usuarios">
+              <div class="config-section-header">
+                <h3>
+                  Usuários do Sistema
+                  <span class="users-count-badge users-count-badge--ativos" id="users-count-ativos">0 ativos</span>
+                  <span class="users-count-badge users-count-badge--inativos" id="users-count-inativos">0 inativos</span>
+                </h3>
+                <button class="btn-novo" id="btn-novo-usuario" onclick="openModalCriarUsuario()">
+                  <i class="fa-solid fa-plus"></i> Novo Usuário
+                </button>
+              </div>
+
+              <!-- Filtros -->
+              <div class="users-filters-bar">
+                <div class="users-filter-search">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input
+                    type="text"
+                    id="users-filter-search-input"
+                    placeholder="Buscar por nome ou email"
+                    oninput="onUsuariosFilterChange()"
+                  >
+                </div>
+
+                <div class="users-filter-permissao">
+                  <label for="users-filter-permissao-select">Permissão</label>
+                  <select id="users-filter-permissao-select" onchange="onUsuariosFilterChange()">
+                    <option value="todos">Todos grupos</option>
+                    <option value="admin">Admin</option>
+                    <option value="colaborador">Colaborador</option>
+                  </select>
+                </div>
+
+                <label class="users-filter-checkbox">
+                  <input type="checkbox" id="users-filter-show-inactive" onchange="onUsuariosFilterChange()">
+                  <span>Exibir inativos</span>
+                </label>
+
+                <button type="button" class="btn-buscar-users" onclick="onUsuariosFilterChange()">
+                  BUSCAR
+                </button>
+              </div>
+
+              <div class="config-users-table-wrapper">
+                <table class="config-users-table">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>Email</th>
+                      <th>Permissão</th>
+                      <th>Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody id="usuarios-tbody"></tbody>
+                </table>
+              </div>
+              <!-- Mobile: cards -->
+              <div class="config-users-cards" id="usuarios-cards"></div>
+            </div>
+
+            <!-- ABA: Dados Cadastrais -->
+            <div class="config-panel" id="config-dados-cadastrais">
+              <div class="config-section-header">
+                <h3>Dados Cadastrais do Estabelecimento</h3>
+              </div>
+
+              <div class="dados-cadastrais-logo-area">
+                <div class="dados-cadastrais-logo-preview" id="dc-logo-preview">
+                  <i class="fa-solid fa-image"></i>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <label class="btn-upload-foto">
+                    <i class="fa-solid fa-upload"></i> Alterar logo
+                    <input type="file" accept="image/*" id="dc-logo-input" onchange="onDcLogoChange(this)" style="display:none;">
+                  </label>
+                  <button type="button" class="btn-remover-foto" onclick="removerDcLogo()" id="btn-remover-dc-logo" style="display:none;">Remover logo</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label>Razão Social</label>
+                <input type="text" id="dc-razao-social" placeholder="Razão social">
+              </div>
+              <div class="form-group">
+                <label>Nome Fantasia</label>
+                <input type="text" id="dc-nome-fantasia" placeholder="Nome fantasia">
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>CPF/CNPJ</label>
+                  <input type="text" id="dc-cpf-cnpj" placeholder="000.000.000-00" maxlength="18">
+                </div>
+                <div class="form-group">
+                  <label>Telefone</label>
+                  <input type="tel" id="dc-telefone" placeholder="(99) 99999-9999">
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Email</label>
+                <input type="email" id="dc-email" placeholder="contato@salao.com">
+              </div>
+
+              <div id="dc-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+              <div class="config-actions">
+                <div></div>
+                <button class="btn-submit btn-salvar-perfil" onclick="salvarDadosCadastrais()">
+                  SALVAR ALTERAÇÕES <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- ABA: Tema da Agenda (ADMIN ONLY) -->
+            <div class="config-panel master-only-panel" id="config-tema-agenda">
+              <style>
+                /* ===== TEMA EDITOR — 3 BLOCOS ===== */
+                .tema-block {
+                  background: var(--bg-card);
+                  border: 1px solid var(--border);
+                  border-radius: 18px;
+                  box-shadow: var(--shadow-sm);
+                  overflow: hidden;
+                  margin-bottom: 28px;
+                }
+                .tema-block-header {
+                  padding: 20px 24px 12px;
+                }
+                .tema-block-header h3 {
+                  font-size: 1.05rem;
+                  color: var(--text);
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  margin-bottom: 4px;
+                }
+                .tema-block-header p {
+                  color: var(--text-muted);
+                  font-size: 0.85rem;
+                  line-height: 1.5;
+                }
+                .tema-block-content {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 0;
+                }
+                .tema-block-controls {
+                  padding: 0 24px 24px;
+                  border-right: 1px solid var(--border);
+                }
+                .tema-block-preview {
+                  padding: 20px;
+                  background: rgba(0,0,0,0.02);
+                  display: flex;
+                  align-items: flex-start;
+                  justify-content: center;
+                  min-height: 280px;
+                }
+                .tema-grid-2 {
+                  display: grid;
+                  grid-template-columns: 1fr 1fr;
+                  gap: 16px 18px;
+                  align-items: start;
+                }
+                .tema-field {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 8px;
+                }
+                .tema-field > label,
+                .tema-field-title {
+                  font-size: 0.84rem;
+                  font-weight: 600;
+                  color: var(--text);
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                }
+                .tema-picker-row {
+                  display: flex;
+                  align-items: center;
+                  gap: 12px;
+                  min-height: 52px;
+                }
+                .tema-hex-input {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: monospace;
+                  width: 110px;
+                }
+                .tema-hex-label {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: monospace;
+                  display: inline-flex;
+                  align-items: center;
+                  min-width: 100px;
+                }
+                .tema-select {
+                  height: 44px;
+                  border: 1px solid var(--border);
+                  border-radius: 12px;
+                  padding: 0 14px;
+                  background: var(--bg-card);
+                  color: var(--text);
+                  font-size: 0.88rem;
+                  font-family: var(--font);
+                  width: 100%;
+                }
+                .tema-help {
+                  position: relative;
+                  display: inline-flex;
+                  align-items: center;
+                }
+                .tema-help-icon {
+                  width: 18px; height: 18px; border-radius: 999px;
+                  border: 1px solid rgba(108,58,237,0.24);
+                  background: rgba(108,58,237,0.08);
+                  color: var(--gold); font-size: 11px; font-weight: 700;
+                  display: inline-flex; align-items: center; justify-content: center;
+                  cursor: help;
+                }
+                .tema-help-box {
+                  position: fixed; min-width: 220px; max-width: 280px;
+                  background: var(--bg-card); color: var(--text);
+                  border: 1px solid var(--border); border-radius: 12px;
+                  box-shadow: 0 12px 28px rgba(15,23,42,0.16);
+                  padding: 10px 14px; font-size: 0.8rem; line-height: 1.5;
+                  opacity: 0; pointer-events: none;
+                  transition: opacity 0.18s ease; z-index: 99999; display: none;
+                }
+                .tema-help:hover .tema-help-box { opacity: 1; display: block; }
+                .tema-font-preview-box {
+                  margin-top: 12px; padding: 14px;
+                  background: rgba(108,58,237,0.06);
+                  border: 1px solid rgba(108,58,237,0.12);
+                  border-radius: 14px; color: var(--text);
+                }
+                .tema-logo-row {
+                  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+                }
+                .tema-logo-preview {
+                  width: 80px; height: 80px; border-radius: 18px;
+                  background: rgba(108,58,237,0.08);
+                  border: 1px dashed rgba(108,58,237,0.28);
+                  display: flex; align-items: center; justify-content: center;
+                  overflow: hidden; flex-shrink: 0;
+                }
+                .tema-logo-preview img { width: 100%; height: 100%; object-fit: contain; }
+                .tema-logo-placeholder {
+                  width: 100%; height: 100%;
+                  display: inline-flex; align-items: center; justify-content: center;
+                  color: var(--gold); font-weight: 700; font-size: 1.1rem;
+                }
+                .tema-upload-actions { display: flex; flex-direction: column; gap: 8px; }
+
+                /* ── Preview: Bloco 1 (Global) ── */
+                .pv-global-frame {
+                  width: 100%; max-width: 400px;
+                  border-radius: 14px; overflow: hidden;
+                  border: 1px solid var(--border);
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                }
+                .pv-global-layout {
+                  display: grid;
+                  grid-template-columns: 140px 1fr;
+                  min-height: 300px;
+                }
+                .tema-preview-sidebar {
+                  padding: 16px 12px; color: #fff;
+                }
+                .tema-preview-brand {
+                  display: flex; align-items: center; gap: 8px;
+                  margin-bottom: 16px; padding-bottom: 12px;
+                  border-bottom: 1px solid rgba(255,255,255,0.12);
+                }
+                .tema-preview-logo {
+                  width: 36px; height: 36px; border-radius: 10px;
+                  display: flex; align-items: center; justify-content: center;
+                  font-weight: 700; font-size: 0.75rem; overflow: hidden;
+                }
+                .tema-preview-brand-text { display: flex; flex-direction: column; gap: 2px; }
+                .tema-preview-brand-text strong { font-size: 0.72rem; line-height: 1.2; }
+                .tema-preview-brand-text span { font-size: 0.62rem; }
+                .tema-preview-menu { display: flex; flex-direction: column; gap: 4px; }
+                .tema-preview-menu-item {
+                  padding: 8px 10px; border-radius: 8px;
+                  font-size: 0.72rem; font-weight: 500;
+                  border-left: 3px solid transparent;
+                }
+                .pv-global-main { padding: 16px; }
+                .pv-global-topbar {
+                  display: flex; justify-content: space-between;
+                  align-items: center; margin-bottom: 14px;
+                }
+                .pv-global-topbar h4 { font-size: 0.9rem; font-weight: 700; }
+                .pv-global-btns { display: flex; gap: 6px; }
+                .pv-global-btn {
+                  height: 30px; padding: 0 12px; border-radius: 999px;
+                  font-size: 0.68rem; font-weight: 600;
+                  border: 1px solid transparent;
+                  display: inline-flex; align-items: center; gap: 4px;
+                }
+                .pv-global-placeholder {
+                  height: 60px; border-radius: 10px;
+                  border: 1px dashed rgba(0,0,0,0.12);
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 0.7rem; color: var(--text-muted);
+                }
+
+                /* ── Preview: Bloco 2 (Calendário) ── */
+                .pv-cal-frame {
+                  width: 100%; max-width: 340px;
+                  border-radius: 14px; overflow: hidden;
+                  padding: 18px;
+                }
+                .tema-preview-cal-header {
+                  display: flex; align-items: center;
+                  justify-content: space-between; margin-bottom: 14px;
+                }
+                .tema-preview-cal-header button {
+                  width: 28px; height: 28px; border-radius: 8px;
+                  background: transparent; border: none; font-size: 1rem;
+                }
+                .tema-preview-weekdays {
+                  display: grid; grid-template-columns: repeat(7, 1fr);
+                  gap: 4px; margin-bottom: 8px;
+                }
+                .tema-preview-weekdays span {
+                  text-align: center; font-size: 0.68rem; font-weight: 500;
+                }
+                .tema-preview-cal-grid {
+                  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+                }
+                .tema-preview-cal-day {
+                  width: 100%; min-height: 32px; border-radius: 8px;
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 0.78rem;
+                }
+                .tema-preview-cal-day.is-empty {
+                  background: transparent !important; box-shadow: none !important;
+                }
+
+                /* ── Preview: Bloco 3 (Agendamento) ── */
+                .pv-appt-frame {
+                  width: 100%; max-width: 380px;
+                  border-radius: 14px; overflow: hidden;
+                  padding: 18px;
+                }
+                .pv-appt-day-title {
+                  font-size: 0.95rem; font-weight: 700; margin-bottom: 16px;
+                }
+                .pv-appt-timeline { display: flex; flex-direction: column; gap: 4px; }
+                .pv-appt-time-row {
+                  display: grid; grid-template-columns: 48px 1fr;
+                  gap: 10px; align-items: start; min-height: 56px;
+                }
+                .tema-preview-time { font-size: 0.78rem; padding-top: 4px; }
+                .tema-preview-line {
+                  border-top: 1px solid rgba(0,0,0,0.06);
+                  position: relative; min-height: 56px;
+                }
+                .tp-appt-block {
+                  position: relative; border-radius: 10px;
+                  padding: 8px 10px; display: flex; flex-direction: column; gap: 2px;
+                  margin-top: 4px;
+                }
+                .tp-appt-block .appt-time { font-size: 0.72rem; font-weight: 700; }
+                .tp-appt-block .appt-client { font-size: 0.78rem; font-weight: 600; }
+                .tp-appt-block .appt-service { font-size: 0.7rem; }
+
+                @media (max-width: 1100px) {
+                  .tema-block-content { grid-template-columns: 1fr; }
+                  .tema-block-controls { border-right: none; border-bottom: 1px solid var(--border); }
+                }
+                @media (max-width: 700px) {
+                  .tema-grid-2 { grid-template-columns: 1fr; }
+                  .pv-global-layout { grid-template-columns: 1fr; }
+                }
+
+                /* Pickr fixes */
+                .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
+                .pcr-app { z-index: 99999 !important; }
+              </style>
+
+              <div class="config-section-header">
+                <h3>Tema da Agenda</h3>
+                <p style="color:var(--gold);font-size:0.9rem;margin-top:4px;">Personalize a aparência da agenda sem afetar os dados cadastrais do tenant.</p>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 1 — TEMA GLOBAL
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-palette"></i> Tema Global</h3>
+                  <p>Cor de destaque, fundo da página, menu lateral e textos.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <label>Cor de destaque</label>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-gold" data-default="#6C3AED"></div>
+                          <input type="text" class="tema-hex-input" id="tema-gold-hex" value="#6C3AED" maxlength="7" oninput="syncColorFromHex()">
+                        </div>
+                        <div id="tema-color-chips" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"></div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Fundo da página
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Área principal atrás dos cartões e calendário.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-bg" data-default="#F8F8F6"></div>
+                          <span class="tema-hex-label" id="tema-bg-label">#F8F8F6</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Menu lateral
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Barra de navegação à esquerda com logo e links.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-sidebar-bg" data-default="#1B1340"></div>
+                          <span class="tema-hex-label" id="tema-sidebar-bg-label">#1B1340</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <label>Cor do texto</label>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-text-color" data-default="#1A1A2E"></div>
+                          <input type="text" class="tema-hex-input" id="tema-text-color-hex" value="#1A1A2E" maxlength="7" oninput="syncTextColorFromHex()">
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do título da página
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Cor do título "Agendamentos" no topo da página.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-page-title-color" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-page-title-color-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <label>Fonte</label>
+                        <select id="tema-font" class="tema-select">
+                          <option value="Inter">Inter</option>
+                          <option value="Poppins">Poppins</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                        </select>
+                        <div class="tema-font-preview-box">
+                          <span id="tema-font-preview" style="font-size:0.9rem;">Exemplo de texto com a fonte</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Logo -->
+                    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+                      <div class="tema-field-title" style="margin-bottom:10px;"><i class="fa-solid fa-image"></i> Logo do menu lateral</div>
+                      <div class="tema-logo-row">
+                        <div class="tema-logo-preview" id="tema-logo-preview">
+                          <span class="tema-logo-placeholder" id="tema-logo-icon">BS</span>
+                          <img id="tema-logo-img" alt="Logo" style="display:none;">
+                        </div>
+                        <div class="tema-upload-actions">
+                          <label class="btn-upload-foto" style="cursor:pointer;display:inline-flex;align-items:center;gap:8px;">
+                            <i class="fa-solid fa-upload"></i> Enviar logo
+                            <input type="file" accept="image/*" id="tema-logo-input" style="display:none;" onchange="onTemaLogoChange(this)">
+                          </label>
+                          <button type="button" class="btn-remover-foto" id="btn-remover-tema-logo" style="display:none;" onclick="removerTemaLogo()">Remover logo</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Global -->
+                  <div class="tema-block-preview">
+                    <div class="pv-global-frame">
+                      <div class="pv-global-layout">
+                        <div class="tema-preview-sidebar" id="tp-sidebar">
+                          <div class="tema-preview-brand">
+                            <div class="tema-preview-logo" id="tp-logo">BS</div>
+                            <div class="tema-preview-brand-text">
+                              <strong id="tp-brand-name">Slotify</strong>
+                              <span id="tp-brand-caption">Agenda</span>
+                            </div>
+                          </div>
+                          <div class="tema-preview-menu">
+                            <div class="tema-preview-menu-item is-active" id="tp-menu-active">📅 Agendamentos</div>
+                            <div class="tema-preview-menu-item">👥 Clientes</div>
+                            <div class="tema-preview-menu-item">✂️ Profissionais</div>
+                            <div class="tema-preview-menu-item">📊 Dashboard</div>
+                            <div class="tema-preview-menu-item">⚙️ Configurações</div>
+                          </div>
+                        </div>
+                        <div class="pv-global-main" id="tp-global-body">
+                          <div class="pv-global-topbar">
+                            <h4 id="tp-global-title">Agendamentos</h4>
+                            <div class="pv-global-btns">
+                              <div class="pv-global-btn" id="tp-global-filter-btn"><i class="fa-solid fa-filter"></i> Filtrar</div>
+                              <div class="pv-global-btn" id="tp-global-new-btn"><i class="fa-solid fa-plus"></i> Novo</div>
+                            </div>
+                          </div>
+                          <div class="pv-global-placeholder">Conteúdo da página</div>
+                          <div class="pv-global-placeholder" style="margin-top:8px;height:40px;">Cards de agendamento</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 2 — CALENDÁRIO
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-calendar-days"></i> Calendário</h3>
+                  <p>Cores do cartão, borda, texto dos dias, título do mês e dia selecionado.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cartão (fundo)
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Fundo do card do calendário e do detalhe do dia.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-card" data-default="#FFFFFF"></div>
+                          <span class="tema-hex-label" id="tema-card-label">#FFFFFF</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cartão hover
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Estado ao passar o mouse sobre os dias.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-card-hover" data-default="#F0F0EE"></div>
+                          <span class="tema-hex-label" id="tema-card-hover-label">#F0F0EE</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Borda do calendário
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Contorno do card do calendário mensal.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-border" data-default="#E5E7EB"></div>
+                          <span class="tema-hex-label" id="tema-cal-border-label">#E5E7EB</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Texto dos dias
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Números e nomes dos dias da semana.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-text" data-default="#6B7280"></div>
+                          <span class="tema-hex-label" id="tema-cal-text-label">#6B7280</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Título do mês
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Texto "Abril 2026" no topo do calendário.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-month" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-cal-month-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Dia selecionado (fundo)</div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-selected-bg" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-cal-selected-bg-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Dia selecionado (texto)</div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-cal-selected-text" data-default="#FFFFFF"></div>
+                          <span class="tema-hex-label" id="tema-cal-selected-text-label">#FFFFFF</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Calendário -->
+                  <div class="tema-block-preview">
+                    <div class="pv-cal-frame" id="tp-cal-card">
+                      <div class="tema-preview-cal-header">
+                        <button type="button" id="tp-cal-nav-l">‹</button>
+                        <strong id="tp-cal-month" style="font-size:0.9rem;">Abril 2026</strong>
+                        <button type="button" id="tp-cal-nav-r">›</button>
+                      </div>
+                      <div class="tema-preview-weekdays" id="tp-cal-weekdays">
+                        <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+                      </div>
+                      <div class="tema-preview-cal-grid" id="tp-cal-grid"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   BLOCO 3 — AGENDAMENTO
+                   ═══════════════════════════════════ -->
+              <div class="tema-block">
+                <div class="tema-block-header">
+                  <h3><i class="fa-solid fa-clock"></i> Card de Agendamento</h3>
+                  <p>Personalize a borda, horário, nome do cliente, serviço e fundo do box.</p>
+                </div>
+                <div class="tema-block-content">
+                  <div class="tema-block-controls">
+                    <div class="tema-grid-2">
+                      <div class="tema-field">
+                        <div class="tema-field-title">Borda lateral
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Barra colorida na esquerda do card de agendamento.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-border" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-appt-border-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do horário
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Ex: "13:00 – 14:30"</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-time" data-default="#6C3AED"></div>
+                          <span class="tema-hex-label" id="tema-appt-time-label">#6C3AED</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do cliente
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Nome do cliente no card.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-client" data-default="#1A1A2E"></div>
+                          <span class="tema-hex-label" id="tema-appt-client-label">#1A1A2E</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Cor do serviço
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Texto do serviço (ex: "Design de sobrancelhas").</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-service" data-default="#6B7280"></div>
+                          <span class="tema-hex-label" id="tema-appt-service-label">#6B7280</span>
+                        </div>
+                      </div>
+                      <div class="tema-field">
+                        <div class="tema-field-title">Fundo do box
+                          <span class="tema-help"><span class="tema-help-icon">?</span><span class="tema-help-box">Background do card de agendamento na timeline.</span></span>
+                        </div>
+                        <div class="tema-picker-row">
+                          <div class="pickr-mount" id="tema-appt-bg" data-default="rgba(108,58,237,0.08)"></div>
+                          <span class="tema-hex-label" id="tema-appt-bg-label">rgba(108,58,237,0.08)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Preview Agendamento -->
+                  <div class="tema-block-preview">
+                    <div class="pv-appt-frame" id="tp-appt-card-bg">
+                      <div class="pv-appt-day-title" id="tp-appt-day-header">terça-feira, 14 de abril</div>
+                      <div class="pv-appt-timeline" id="tp-appt-timeline">
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">12:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">13:00</div>
+                          <div class="tema-preview-line">
+                            <div class="tp-appt-block" style="margin-top:4px;">
+                              <span class="appt-time">13:00 – 14:30</span>
+                              <span class="appt-client">Teste</span>
+                              <span class="appt-service">Design de sobrancelhas</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">14:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">15:00</div>
+                          <div class="tema-preview-line">
+                            <div class="tp-appt-block" style="margin-top:4px;">
+                              <span class="appt-time">15:00 – 15:30</span>
+                              <span class="appt-client">Maria Silva</span>
+                              <span class="appt-service">Corte + Escova</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="pv-appt-time-row">
+                          <div class="tema-preview-time">16:00</div>
+                          <div class="tema-preview-line"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════
+                   AÇÕES (SALVAR / RESTAURAR)
+                   ═══════════════════════════════════ -->
+              <div class="config-actions" style="margin-top:20px;">
+                <button type="button" class="btn-alterar-senha" onclick="resetarTema()">
+                  <i class="fa-solid fa-rotate-left"></i> RESTAURAR PADRÃO
+                </button>
+                <button type="button" class="btn-submit btn-salvar-perfil" onclick="salvarTema()">
+                  SALVAR TEMA <i class="fa-solid fa-check"></i>
+                </button>
+              </div>
+              <div id="tema-feedback" style="display:none;margin-top:12px;padding:10px 16px;border-radius:8px;font-size:0.9rem;text-align:center;"></div>
+            </div>
+
+
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- MODAL: Identificação do Cliente -->
+  <div class="modal-overlay" id="modal-identificacao">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Identificação do Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-identificacao')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Telefone</label>
+        <input type="tel" id="id-telefone" placeholder="(99) 99999-9999">
+      </div>
+      <div id="id-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-identificacao')">Cancelar</button>
+        <button class="btn-submit" onclick="consultarCliente()">Consultar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Agendamento -->
+  <div class="modal-overlay" id="modal-agendamento">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-agendamento-titulo">Novo Agendamento</h3>
+        <button class="modal-close" onclick="closeModal('modal-agendamento')">&times;</button>
+      </div>
+      <form id="form-agendamento" onsubmit="saveAppointment(event)">
+        <input type="hidden" id="ag-id" value="">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cliente</label>
+            <input type="text" id="ag-cliente" required readonly>
+          </div>
+          <div class="form-group">
+            <label>Telefone</label>
+            <input type="tel" id="ag-telefone" required readonly>
+          </div>
+        </div>
+
+        <!-- Container de serviços (múltiplos) -->
+        <div id="servicos-container"></div>
+
+        <button type="button" class="btn-add-servico" id="btn-add-servico" onclick="adicionarBlocoServico()">
+          <i class="fa-solid fa-circle-plus"></i> Adicionar outro serviço
+        </button>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Data</label>
+            <input type="date" id="ag-data" required>
+          </div>
+          <div class="form-group">
+            <label>Hora</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <select id="ag-hora-h" required style="flex:1;">
+                <option value="07">07</option>
+                <option value="08">08</option>
+                <option value="09" selected>09</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+                <option value="13">13</option>
+                <option value="14">14</option>
+                <option value="15">15</option>
+                <option value="16">16</option>
+                <option value="17">17</option>
+                <option value="18">18</option>
+                <option value="19">19</option>
+                <option value="20">20</option>
+                <option value="21">21</option>
+              </select>
+              <span style="font-weight:600;color:var(--text-muted);">:</span>
+              <select id="ag-minuto" required style="flex:1;">
+                <option value="00" selected>00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-delete" id="btn-excluir-agendamento" onclick="confirmarExclusao()" style="display:none;">
+            <i class="fa-solid fa-trash"></i> Excluir Agendamento
+          </button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+
+  <!-- MODAL: Pacote -->
+  <div class="modal-overlay" id="modal-pacote">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-pacote-titulo">Novo Pacote</h3>
+        <button class="modal-close" onclick="closeModal('modal-pacote')">&times;</button>
+      </div>
+      <form id="form-pacote">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="pacote-nome" required>
+        </div>
+        <div class="form-group">
+          <label>Serviço</label>
+          <select id="pacote-servico-id" required></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Quantidade total</label>
+            <input type="number" id="pacote-quantidade-total" min="1" step="1" required>
+          </div>
+          <div class="form-group">
+            <label>Validade (dias)</label>
+            <input type="number" id="pacote-validade-dias" min="1" step="1" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tipo de desconto</label>
+            <select id="pacote-tipo-desconto" required>
+              <option value="percentual">Percentual</option>
+              <option value="valor">Valor fixo no pacote</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Valor do desconto</label>
+            <input type="number" id="pacote-valor-desconto" min="0" step="0.01" required>
+          </div>
+        </div>
+        <div class="pacote-preview" id="pacote-preview">
+          <div><span>Preço original</span><strong>R$ 0,00</strong></div>
+          <div><span>Preço por uso</span><strong>R$ 0,00</strong></div>
+          <div><span>Total do pacote</span><strong>R$ 0,00</strong></div>
+        </div>
+        <label class="form-check-inline">
+          <input type="checkbox" id="pacote-ativo" checked>
+          Ativo
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-pacote')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmação de exclusão -->
+  <div class="modal-overlay" id="modal-confirmar-exclusao">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Confirmar Exclusão</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-exclusao')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza que deseja excluir este agendamento?</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-exclusao')">Não</button>
+        <button class="btn-delete" onclick="excluirAgendamento()">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  
+  <!-- MODAL: Confirmar Ativar Usuário -->
+  <div class="modal-overlay" id="modal-confirmar-ativar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Ativar usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-ativar-usuario')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza de que deseja ativar este usuário? Você poderá inativá-lo posteriormente.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-ativar-usuario')">Cancelar</button>
+        <button class="btn-ativar" onclick="confirmToggleUsuarioAtivo()">Ativar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar Inativar Usuário -->
+  <div class="modal-overlay" id="modal-confirmar-inativar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Inativar usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-inativar-usuario')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza de que deseja inativar este usuário? Você poderá ativá-lo posteriormente.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-inativar-usuario')">Cancelar</button>
+        <button class="btn-delete" onclick="confirmToggleUsuarioAtivo()">Inativar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade de Base (LEGADO - mantido para compatibilidade) -->
+  <div class="modal-overlay" id="modal-base-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Quantidade de Base</h3>
+        <button class="modal-close" onclick="closeModal('modal-base-qtd')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Selecione a quantidade (gramas)</label>
+        <select id="base-qtd-select"></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-base-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarBaseQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade de Pigmentação (LEGADO - mantido para compatibilidade) -->
+  <div class="modal-overlay" id="modal-pigmento-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Quantidade de Pigmentação</h3>
+        <button class="modal-close" onclick="closeModal('modal-pigmento-qtd')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label>Selecione a quantidade (gramas)</label>
+        <select id="pigmento-qtd-select"></select>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-pigmento-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarPigmentoQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Quantidade Dinâmica (NOVO - usado por todos os serviços com cores) -->
+  <div class="modal-overlay" id="modal-dynamic-qtd">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-dynamic-qtd-titulo">Quantidade</h3>
+        <button class="modal-close" onclick="closeModal('modal-dynamic-qtd')">&times;</button>
+      </div>
+      <div class="form-group" id="dynamic-qtd-body">
+        <!-- Conteúdo gerado dinamicamente pelo JS -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-dynamic-qtd')">Cancelar</button>
+        <button class="btn-submit" onclick="confirmarDynamicQtd()">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Cliente -->
+  <div class="modal-overlay" id="modal-cliente">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-cliente-title">Novo Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-cliente')">&times;</button>
+      </div>
+      <form id="form-cliente" onsubmit="saveClient(event)">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="cl-nome" required>
+        </div>
+        <div class="form-group">
+          <label>Telefone</label>
+          <input type="tel" id="cl-telefone" required>
+        </div>
+        <div class="form-group">
+          <label>Data de Nascimento</label>
+          <input type="date" id="cl-nascimento">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-cliente')">Cancelar</button>
+          <button type="submit" class="btn-submit" id="btn-cliente-submit">Cadastrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Histórico do Cliente -->
+  <div class="modal-overlay" id="modal-historico">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Histórico do Cliente</h3>
+        <button class="modal-close" onclick="closeModal('modal-historico')">&times;</button>
+      </div>
+      <div id="historico-conteudo"></div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gerenciar Serviços -->
+  <div class="modal-overlay" id="modal-gerenciar-servicos">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>Gerenciar Serviços</h3>
+        <button class="modal-close" onclick="closeModal('modal-gerenciar-servicos')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="servico-crud-header">
+          <button class="btn-novo" onclick="openCriarServico()"><i class="fa-solid fa-plus"></i> Novo Serviço</button>
+        </div>
+        <div id="lista-servicos-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/Editar Serviço -->
+  <div class="modal-overlay" id="modal-crud-servico">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-crud-servico-titulo">Novo Serviço</h3>
+        <button class="modal-close" onclick="closeModal('modal-crud-servico')">&times;</button>
+      </div>
+      <form onsubmit="salvarServicoCrud(event)">
+        <input type="hidden" id="svc-crud-id">
+        <div class="form-group">
+          <label>Nome do Serviço</label>
+          <input type="text" id="svc-crud-nome" required placeholder="Ex: Corte Feminino">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Preço (R$)</label>
+            <input type="number" id="svc-crud-preco" required step="0.01" min="0" placeholder="150.00">
+          </div>
+          <div class="form-group">
+            <label>Duração (min)</label>
+            <input type="number" id="svc-crud-duracao" required min="5" step="5" placeholder="60">
+          </div>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <label class="checkbox-label" style="display: flex; align-items: flex-start; gap: 8px; cursor: pointer; word-break: break-word; overflow-wrap: break-word; min-width: 0;">
+            <input type="checkbox" id="svc-crud-usa-cores" style="flex-shrink: 0; margin-top: 3px;">
+            <span style="flex: 1; min-width: 0;">🎨 Este serviço utiliza sistema de cores</span>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-crud-servico')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Vincular Serviços a Profissional (EDITAR PROFISSIONAL) -->
+  <div class="modal-overlay" id="modal-vincular-servicos">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Editar Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-vincular-servicos')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Seção: dados do profissional -->
+        <div class="edit-prof-section">
+          <div class="edit-prof-foto-area">
+            <div class="avatar avatar--lg" id="edit-prof-avatar-preview">?</div>
+            <div class="edit-prof-foto-actions">
+              <label class="btn-upload-foto" id="edit-prof-foto-label">
+                <i class="fa-solid fa-camera"></i> Alterar foto
+                <input type="file" accept="image/*" id="edit-prof-foto-input" onchange="onEditProfFotoChange(this)" style="display:none;">
+              </label>
+              <button type="button" class="btn-remover-foto" onclick="removerEditProfFoto()">Remover</button>
+              <p class="foto-recomendacao">Recomendado: 96×96px, formato quadrado (JPG ou PNG)</p>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Nome do Profissional</label>
+            <input type="text" id="edit-prof-nome" placeholder="Nome">
+          </div>
+          <input type="hidden" id="edit-prof-id">
+          <input type="hidden" id="edit-prof-old-nome">
+        </div>
+
+        <hr style="border-color: var(--border); margin: 20px 0;">
+
+        <!-- Seção: serviços vinculados -->
+        <h4 style="color: var(--gold); font-family: var(--font-display); margin-bottom: 12px;">Serviços vinculados</h4>
+        <div id="vincular-servicos-list" class="vincular-servicos-list"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-delete" onclick="confirmarExcluirProfissional()" style="flex:0 0 auto; padding: 12px 16px;">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+        <button class="btn-cancel" onclick="closeModal('modal-vincular-servicos')">Cancelar</button>
+        <button class="btn-submit" onclick="salvarEdicaoProfissional()">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Profissional -->
+  <div class="modal-overlay" id="modal-criar-profissional">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-profissional')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovoProfissional(event)">
+        <div class="form-group">
+          <label>Nome do Profissional</label>
+          <input type="text" id="novo-prof-nome" required placeholder="Ex: Maria Silva">
+        </div>
+
+        <div class="form-group">
+          <label>Foto</label>
+          <div class="criar-prof-foto-area">
+            <div class="avatar avatar--lg" id="novo-prof-avatar-preview">?</div>
+            <div class="criar-prof-foto-actions">
+              <label class="btn-upload-foto">
+                <i class="fa-solid fa-camera"></i> Escolher foto
+                <input type="file" accept="image/*" id="novo-prof-foto-input" onchange="onNovoProfFotoChange(this)" style="display:none;">
+              </label>
+              <p class="foto-recomendacao">Recomendado: 96×96px, formato quadrado (JPG ou PNG)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Serviços</label>
+          <p class="config-help-text" style="margin-bottom:8px;">Selecione os serviços que este profissional realiza.</p>
+          <div id="novo-prof-servicos-list" class="vincular-servicos-list"></div>
+        </div>
+
+        <div id="criar-prof-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-profissional')">Cancelar</button>
+          <button type="submit" class="btn-submit">Criar Profissional</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Confirmar exclusão de profissional -->
+  <div class="modal-overlay" id="modal-confirmar-excluir-prof">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Excluir Profissional</h3>
+        <button class="modal-close" onclick="closeModal('modal-confirmar-excluir-prof')">&times;</button>
+      </div>
+      <p style="color:var(--text-muted); margin-bottom:20px;">Tem certeza que deseja excluir este profissional? Todos os vínculos de serviços serão removidos.</p>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal('modal-confirmar-excluir-prof')">Não</button>
+        <button class="btn-delete" onclick="executarExcluirProfissional()">Sim, Excluir</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Gerenciar Cores do Serviço -->
+  <div class="modal-overlay" id="modal-gerenciar-cores">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>🎨 Cores — <span id="cores-servico-nome"></span></h3>
+        <button class="modal-close" onclick="tentarFecharModalCores()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="cores-servico-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar/Editar Cor -->
+  <div class="modal-overlay" id="modal-crud-cor">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3 id="modal-crud-cor-titulo">Nova Cor</h3>
+        <button class="modal-close" onclick="closeModal('modal-crud-cor')">&times;</button>
+      </div>
+      <form onsubmit="salvarCorCrud(event)">
+        <input type="hidden" id="cor-crud-id">
+        <div class="form-group">
+          <label>Nome da cor</label>
+          <input type="text" id="cor-crud-nome" required placeholder="Ex: 1-0">
+        </div>
+        <div class="form-group">
+          <label>Cor</label>
+          <div class="cor-picker-row">
+            <input type="color" id="cor-crud-picker" value="#888888" onchange="onCorPickerChange(this)">
+            <input type="text" id="cor-crud-hex" value="#888888" placeholder="#RRGGBB" oninput="onCorHexInput(this)" maxlength="7">
+            <div class="cor-crud-preview" id="cor-crud-preview" style="background:#888888"></div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-crud-cor')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ======================== -->
+  <!-- MODAIS DE CONFIGURAÇÕES -->
+  <!-- ======================== -->
+
+  <!-- MODAL: Alterar Senha -->
+  <div class="modal-overlay" id="modal-alterar-senha">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Alterar Senha</h3>
+        <button class="modal-close" onclick="closeModal('modal-alterar-senha')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovaSenha(event)">
+        <div class="form-group">
+          <label>Senha atual</label>
+          <input type="password" id="senha-atual" required placeholder="Digite sua senha atual">
+        </div>
+        <div class="form-group">
+          <label>Nova senha</label>
+          <input type="password" id="senha-nova" required placeholder="Mínimo 6 caracteres" minlength="6">
+        </div>
+        <div class="form-group">
+          <label>Confirmar nova senha</label>
+          <input type="password" id="senha-confirmar" required placeholder="Repita a nova senha" minlength="6">
+        </div>
+        <div id="senha-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-alterar-senha')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar Nova Senha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Criar Usuário -->
+  <div class="modal-overlay" id="modal-criar-usuario">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Criar Novo Usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-criar-usuario')">&times;</button>
+      </div>
+      <form onsubmit="salvarNovoUsuario(event)">
+        <!-- Seção: Informações de acesso -->
+        <div class="config-form-section">
+          <h4>Informações de acesso</h4>
+          <p class="config-help-text">Informe o login e o grupo de permissões no qual pertence o usuário.</p>
+
+          <div class="form-group">
+            <label>Grupo de acesso</label>
+            <select id="novo-user-role" required>
+              <option value="colaborador">Colaborador</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Seção: Informações pessoais -->
+        <div class="config-form-section">
+          <h4>Informações pessoais</h4>
+          <p class="config-help-text">As informações pessoais são necessárias para identificação do usuário.</p>
+          <div class="form-group">
+            <label>Nome completo (obrigatório)</label>
+            <input type="text" id="novo-user-nome" required placeholder="Nome completo">
+          </div>
+          <div class="form-group">
+            <label>E-mail (obrigatório)</label>
+            <input type="email" id="novo-user-email" required placeholder="email@exemplo.com">
+          </div>
+
+        </div>
+
+
+        <!-- Seção: Vínculo com Profissional -->
+        <div class="config-form-section">
+          <h4 style="color:var(--gold); font-family:var(--font-display); margin-bottom:4px;">Vínculo com Profissional</h4>
+          <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:10px;">Defina se este usuário será vinculado a um profissional na agenda.</p>
+
+          <div class="prof-vinculo-grid" id="novo-user-prof-options">
+            <!-- Sem vínculo -->
+            <label class="prof-vinculo-card selected" onclick="selectProfVinculo(this, 'nenhum', 'novo')">
+              <input type="radio" name="novo-user-prof-tipo" value="nenhum" checked>
+              <div class="pvc-icon"><i class="fa-solid fa-user"></i></div>
+              <span class="pvc-title">Sem vínculo</span>
+              <span class="pvc-desc">Usuário sem profissional</span>
+            </label>
+            <!-- Vincular existente -->
+            <label class="prof-vinculo-card" onclick="selectProfVinculo(this, 'existente', 'novo')">
+              <input type="radio" name="novo-user-prof-tipo" value="existente">
+              <div class="pvc-icon"><i class="fa-solid fa-link"></i></div>
+              <span class="pvc-title">Vincular existente</span>
+              <span class="pvc-desc">Selecione um profissional</span>
+            </label>
+            <!-- Criar novo -->
+            <label class="prof-vinculo-card" onclick="selectProfVinculo(this, 'criar', 'novo')">
+              <input type="radio" name="novo-user-prof-tipo" value="criar">
+              <div class="pvc-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+              <span class="pvc-title">Criar automático</span>
+              <span class="pvc-desc">Cria com o nome do usuário</span>
+            </label>
+          </div>
+
+          <div class="prof-vinculo-sub" id="novo-user-prof-select-wrapper">
+            <label style="font-size:0.82rem; font-weight:600; color:var(--text); margin-bottom:6px; display:block;">Profissional</label>
+            <select id="novo-user-profissional-id">
+              <option value="">-- Selecione um profissional --</option>
+            </select>
+          </div>
+
+          <div class="prof-vinculo-preview" id="novo-user-prof-criar-preview">
+            ✓ Profissional será criado com o nome: <strong id="novo-user-prof-criar-nome">—</strong>
+          </div>
+
+          <div class="prof-vinculo-foto-upload" id="novo-user-prof-foto-upload">
+            <label>Foto do profissional (opcional)</label>
+            <div class="foto-preview-circle" id="novo-user-prof-foto-preview">
+              <i class="fa-solid fa-camera"></i>
+            </div>
+            <label class="btn-upload-foto" for="novo-user-prof-foto-input">
+              <i class="fa-solid fa-upload"></i> Escolher foto
+            </label>
+            <input type="file" id="novo-user-prof-foto-input" accept="image/*" style="display:none;" onchange="onNovoUserProfFotoChange(this)">
+          </div>
+        </div>
+
+        <div id="criar-user-feedback" style="display:none; margin-bottom:12px; font-size:0.9rem;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-criar-usuario')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Editar Usuário -->
+  <div class="modal-overlay" id="modal-editar-usuario">
+    <div class="modal modal-small">
+      <div class="modal-header">
+        <h3>Editar Usuário</h3>
+        <button class="modal-close" onclick="closeModal('modal-editar-usuario')">&times;</button>
+      </div>
+      <form onsubmit="salvarEdicaoUsuario(event)">
+        <input type="hidden" id="edit-user-id">
+        <div class="form-group">
+          <label>Nome</label>
+          <input type="text" id="edit-user-nome" required>
+        </div>
+
+        <div class="form-group">
+          <label>Permissão</label>
+          <select id="edit-user-role" required>
+            <option value="colaborador">Colaborador</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+
+        <!-- Seção: Vínculo com Profissional -->
+        <div style="margin-top:16px;">
+          <h4 style="color:var(--gold); font-family:var(--font-display); margin-bottom:4px; font-size:0.95rem;">Vínculo com Profissional</h4>
+          <div class="prof-vinculo-grid" id="edit-user-prof-options" style="grid-template-columns:1fr 1fr; margin-top:8px;">
+            <label class="prof-vinculo-card selected" onclick="selectProfVinculo(this, 'nenhum', 'edit')">
+              <input type="radio" name="edit-user-prof-tipo" value="nenhum" checked>
+              <div class="pvc-icon"><i class="fa-solid fa-user"></i></div>
+              <span class="pvc-title">Sem vínculo</span>
+              <span class="pvc-desc">Remover profissional</span>
+            </label>
+            <label class="prof-vinculo-card" onclick="selectProfVinculo(this, 'existente', 'edit')">
+              <input type="radio" name="edit-user-prof-tipo" value="existente">
+              <div class="pvc-icon"><i class="fa-solid fa-link"></i></div>
+              <span class="pvc-title">Vincular existente</span>
+              <span class="pvc-desc">Selecione um profissional</span>
+            </label>
+          </div>
+          <div class="prof-vinculo-sub" id="edit-user-prof-select-wrapper">
+            <label style="font-size:0.82rem; font-weight:600; color:var(--text); margin-bottom:6px; display:block;">Profissional</label>
+            <select id="edit-user-profissional-id">
+              <option value="">-- Selecione --</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-editar-usuario')">Cancelar</button>
+          <button type="submit" class="btn-submit">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+  <script src="tema-agenda-script.js"></script>
+  <!-- <script src="js/utils/format.js"></script> -->
+  <script src="script.js"></script>
+  <script src="/pwa.js" defer></script>
+
+  <!-- MODAL: Confirmar descarte de alterações de quantidade -->
+  <div class="modal-overlay" id="modal-confirmar-descarte-qtd">
+    <div class="modal modal-small" style="max-width:420px;border-radius:var(--radius,12px);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.15)">
+      <div class="modal-header" style="border-bottom:none;padding:28px 28px 8px">
+        <h3 style="font-size:1.05rem;font-weight:700;color:var(--text)">Você tem alterações não salvas</h3>
+      </div>
+      <div class="modal-body" style="text-align:left;padding:0 28px 12px">
+        <p style="color:var(--text-muted,#6B7280);font-size:0.9rem;margin:0;line-height:1.5">Se sair agora, as alterações serão perdidas.</p>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:10px;justify-content:flex-end;padding:16px 28px 28px;border-top:none">
+        <button type="button" class="btn-secondary" style="border-radius:8px;padding:10px 20px;font-size:0.88rem" onclick="continuarEditandoQtd()">Continuar editando</button>
+        <button type="button" class="btn-danger-fill" onclick="descartarAlteracoesQtd()">Descartar alterações</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

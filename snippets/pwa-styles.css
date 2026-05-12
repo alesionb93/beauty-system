@@ -1,0 +1,132 @@
+/* ==========================================================================
+   PWA — Botão "Instalar app" + Banner iOS
+   Cole este bloco no FINAL do seu estilos.css.
+   Usa as mesmas cores do tema (#7a1f5c). Ajuste se quiser.
+   ========================================================================== */
+
+/* Botão flutuante de instalação (Android / Desktop) */
+.pwa-install-btn {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7a1f5c 0%, #b14a8a 100%);
+  color: #fff;
+  font: 600 14px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(122, 31, 92, 0.35);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.pwa-install-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(122, 31, 92, 0.45);
+}
+
+.pwa-install-btn:active {
+  transform: translateY(0);
+}
+
+.pwa-install-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.pwa-install-btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+}
+
+@media (max-width: 480px) {
+  .pwa-install-btn {
+    right: 12px;
+    bottom: 12px;
+    padding: 10px 14px;
+  }
+  .pwa-install-btn__label {
+    display: none;
+  }
+}
+
+/* Banner discreto para iOS */
+.pwa-ios-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px solid rgba(122, 31, 92, 0.15);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1f1f1f;
+  animation: pwaBannerIn 0.25s ease-out;
+}
+
+.pwa-ios-banner__content {
+  flex: 1;
+}
+
+.pwa-ios-banner__content strong {
+  display: block;
+  font-size: 15px;
+  margin-bottom: 4px;
+  color: #7a1f5c;
+}
+
+.pwa-ios-banner__content p {
+  margin: 0;
+  color: #444;
+}
+
+.pwa-ios-banner__icon {
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.pwa-ios-banner__close {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.06);
+  color: #555;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pwa-ios-banner__close:hover {
+  background: rgba(0, 0, 0, 0.12);
+}
+
+@keyframes pwaBannerIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Quando estiver rodando como app, esconde tudo (defesa extra) */
+@media all and (display-mode: standalone) {
+  .pwa-install-btn,
+  .pwa-ios-banner {
+    display: none !important;
+  }
+}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="pt-BR" data-magic-link="1">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Agendamento</title>
+    <style>
+      /* Casca mínima — o restante vem do shell injetado de agendamento-cliente.html */
+      html, body { margin: 0; padding: 0; background: #0b0b0c; color: #fff; }
+
+      /* Loader simples enquanto o shell legado é injetado */
+      #aw-boot {
+        position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+        font: 500 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        z-index: 999999; background: #0b0b0c; color: #e5e7eb;
+      }
+      #aw-boot .dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; margin-right: 10px; animation: aw-pulse 1s ease-in-out infinite; }
+      @keyframes aw-pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+
+      /* Tela de erro (token inválido / expirado) */
+      #aw-invalid {
+        display: none; position: fixed; inset: 0; align-items: center; justify-content: center;
+        flex-direction: column; gap: 12px; padding: 24px; text-align: center;
+        font: 500 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b0b0c; color: #e5e7eb; z-index: 999998;
+      }
+      #aw-invalid h1 { font-size: 20px; margin: 0; }
+      #aw-invalid p { margin: 0; opacity: .8; max-width: 420px; }
+
+      /*
+        MAGIC LINK — esconder por completo a etapa de identificação manual.
+        O motor legado (agendamento-cliente.js) renderiza essas seções,
+        mas no fluxo mágico já entramos identificados via WhatsApp.
+        Selecionamos com data-magic-link="1" no <html> para não impactar o fluxo público.
+      */
+      html[data-magic-link="1"] [data-step="identificacao"],
+      html[data-magic-link="1"] [data-step="identificacao-cadastro"],
+      html[data-magic-link="1"] #step-identificacao,
+      html[data-magic-link="1"] #step-cadastro,
+      html[data-magic-link="1"] .step-identificacao,
+      html[data-magic-link="1"] .step-cadastro,
+      html[data-magic-link="1"] [data-ac-step="phone"],
+      html[data-magic-link="1"] [data-ac-step="identify"],
+      html[data-magic-link="1"] [data-ac-step="register"] {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="aw-boot"><span class="dot"></span> Carregando sua agenda…</div>
+
+    <div id="aw-invalid">
+      <h1>Link expirado</h1>
+      <p>Este link de agendamento não é mais válido. Volte para a conversa no WhatsApp e peça um novo link.</p>
+    </div>
+
+    <!-- SDK Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <!-- Configuração global do Supabase (compatibilidade com motor legado) -->
+    <script>
+      window.SUPABASE_URL = 'https://krmvgrfwoanzajlsvjvm.supabase.co';
+      window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtybXZncmZ3b2FuemFqbHN2anZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYxMzY0MDcsImV4cCI6MjA5MTcxMjQwN30.1x4_zxPzCXONYBvH7wbkLiUPr-kq_T0KCdG3EhruzVQ';
+    </script>
+
+    <!-- Bootstrap do fluxo mágico (injeta o shell legado e dispara identificação automática) -->
+    <script src="/agendamento-whatsapp.js?v=4" defer></script>
+  </body>
+</html>

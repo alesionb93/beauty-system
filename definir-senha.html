@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#652AF4">
+  <title>Definir Senha - Beauty System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root {
+      --primary: #5B21B6;
+      --primary-600: #6D28D9;
+      --primary-300: #A78BFA;
+      --bg-grad: linear-gradient(135deg, #6D28D9 0%, #5B21B6 50%, #4C1D95 100%);
+      --text: #1F2937;
+      --text-muted: #6B7280;
+      --field-bg: #F3F4F6;
+      --field-border: #E5E7EB;
+      --error: #DC2626;
+      --success: #16A34A;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      color: var(--text);
+      background: var(--bg-grad);
+    }
+
+    .ds-wrapper {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      gap: 18px;
+    }
+
+    .ds-logo {
+      max-width: 110px;
+      width: 22vw;
+      min-width: 80px;
+      height: auto;
+      filter: brightness(0) invert(1);
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    .ds-card {
+      width: 100%;
+      max-width: 460px;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+      padding: 28px 28px 24px;
+    }
+
+    .ds-card h1 {
+      color: var(--primary);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      margin: 0 0 20px;
+    }
+
+    .ds-field { margin-bottom: 16px; }
+    .ds-field label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+
+    .ds-input-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .ds-input-wrap input {
+      width: 100%;
+      padding: 12px 44px 12px 18px;
+      background: var(--field-bg);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      font-size: 0.95rem;
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s, background .15s;
+      font-family: inherit;
+    }
+    .ds-input-wrap input::placeholder { color: #9CA3AF; }
+    .ds-input-wrap input:focus {
+      border-color: var(--primary-300);
+      background: #fff;
+    }
+    .ds-eye {
+      position: absolute;
+      right: 14px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--primary);
+      padding: 4px;
+      font-size: 1rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .ds-eye:focus { outline: none; }
+
+    .ds-submit {
+      width: 100%;
+      padding: 13px;
+      margin-top: 4px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: background .15s, opacity .15s;
+      font-family: inherit;
+    }
+    .ds-submit:hover:not(:disabled) { background: var(--primary-600); }
+    .ds-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .ds-rules {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+      display: grid;
+      gap: 6px;
+    }
+    .ds-rules li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      transition: color .15s;
+    }
+    .ds-rules li .ds-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.65rem;
+      color: #fff;
+      background: #9CA3AF;
+      flex-shrink: 0;
+      transition: background .15s;
+    }
+    .ds-rules li.ok { color: var(--text); }
+    .ds-rules li.ok .ds-icon { background: var(--success); }
+
+    .ds-msg {
+      text-align: center;
+      font-size: 0.82rem;
+      margin-top: 12px;
+      min-height: 18px;
+    }
+    .ds-msg.error { color: var(--error); }
+    .ds-msg.success { color: var(--success); }
+
+    /* Loading / fatal overlay */
+    .ds-overlay {
+      position: fixed; inset: 0;
+      background: rgba(91, 33, 182, 0.92);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+      padding: 20px; text-align: center;
+      font-size: 0.95rem;
+    }
+    .ds-overlay a { color: #FDE68A; text-decoration: none; font-weight: 600; }
+
+    /* Toast (top-center) */
+    .ds-toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: var(--success);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 2000;
+      opacity: 0;
+      transition: opacity .25s, transform .25s;
+    }
+    .ds-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .ds-toast.error { background: var(--error); }
+
+    /* Responsivo — sem scroll */
+    @media (max-height: 720px) {
+      .ds-card { padding: 20px 22px; }
+      .ds-card h1 { margin-bottom: 14px; font-size: 1rem; }
+      .ds-field { margin-bottom: 12px; }
+      .ds-rules { margin-top: 12px; }
+      .ds-logo { max-width: 80px; }
+    }
+    @media (max-height: 600px) {
+      .ds-wrapper { gap: 10px; }
+      .ds-logo { max-width: 60px; }
+      .ds-card { padding: 16px 18px; }
+      .ds-rules li { font-size: 0.75rem; }
+    }
+    @media (max-width: 380px) {
+      .ds-card { padding: 22px 18px; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading / Fatal overlay -->
+  <div id="loading" class="ds-overlay">Validando convite...</div>
+
+  <div class="ds-wrapper">
+    <img src="beautySystemLogo.png" alt="Beauty System" class="ds-logo" />
+
+    <div class="ds-card">
+      <h1>CADASTRO DE NOVA SENHA</h1>
+
+      <form id="form-senha" style="display:none;" novalidate>
+        <div class="ds-field">
+          <label for="senha">Nova senha</label>
+          <div class="ds-input-wrap">
+            <input type="password" id="senha" placeholder="Digite a nova senha" autocomplete="new-password" required />
+            <button type="button" class="ds-eye" data-target="senha" aria-label="Mostrar senha">
+              <i class="fa-regular fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="ds-field">
+          <label for="senha2">Confirmação de senha</label>
+          <div class="ds-input-wrap">
+            <input type="password" id="senha2" placeholder="Digite a confirmação de senha" autocomplete="new-password" required />
+            <button type="button" class="ds-eye" data-target="senha2" aria-label="Mostrar senha">
+              <i class="fa-regular fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="btn-salvar" class="ds-submit">CRIAR NOVA SENHA</button>
+
+        <ul class="ds-rules" id="ds-rules">
+          <li data-rule="len">     <span class="ds-icon"><i class="fa-solid fa-xmark"></i></span>Pelo menos 8 dígitos</li>
+          <li data-rule="upper">   <span class="ds-icon"><i class="fa-solid fa-xmark"></i></span>1 letra maiúscula</li>
+          <li data-rule="lower">   <span class="ds-icon"><i class="fa-solid fa-xmark"></i></span>1 letra minúscula</li>
+          <li data-rule="num">     <span class="ds-icon"><i class="fa-solid fa-xmark"></i></span>1 número</li>
+          <li data-rule="special"> <span class="ds-icon"><i class="fa-solid fa-xmark"></i></span>1 caractere especial</li>
+        </ul>
+
+        <p id="msg" class="ds-msg"></p>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script>
+    const loadingEl = document.getElementById('loading');
+    const formEl = document.getElementById('form-senha');
+    const msgEl = document.getElementById('msg');
+    const btnEl = document.getElementById('btn-salvar');
+    const senhaEl = document.getElementById('senha');
+    const senha2El = document.getElementById('senha2');
+    const rulesEl = document.getElementById('ds-rules');
+
+    const watchdog = window.setTimeout(function() {
+      if (loadingEl && loadingEl.style.display !== 'none') {
+        showFatal(
+          '<div style="max-width:340px;">' +
+          '<p><strong>Não foi possível validar o link.</strong></p>' +
+          '<p style="font-size:0.85rem;">O link pode estar expirado, incompleto ou a configuração do ambiente STG não está correta.</p>' +
+          '<p style="font-size:0.85rem;"><a href="index.html">Voltar para o login</a></p>' +
+          '</div>'
+        );
+      }
+    }, 12000);
+
+    function showMsg(text, type) {
+      msgEl.textContent = text;
+      msgEl.className = 'ds-msg ' + (type || '');
+    }
+
+    function showFatal(html) {
+      clearTimeout(watchdog);
+      if (formEl) formEl.style.display = 'none';
+      if (loadingEl) {
+        loadingEl.style.display = 'flex';
+        loadingEl.innerHTML = html;
+      }
+    }
+
+    function showForm() {
+      clearTimeout(watchdog);
+      loadingEl.style.display = 'none';
+      formEl.style.display = 'block';
+    }
+
+    function showToast(text, type) {
+      var t = document.createElement('div');
+      t.className = 'ds-toast' + (type === 'error' ? ' error' : '');
+      var icon = type === 'error' ? 'fa-circle-xmark' : 'fa-circle-check';
+      t.innerHTML = '<i class="fa-solid ' + icon + '"></i><span>' + text + '</span>';
+      document.body.appendChild(t);
+      requestAnimationFrame(function(){ t.classList.add('show'); });
+      setTimeout(function(){
+        t.classList.remove('show');
+        setTimeout(function(){ t.remove(); }, 300);
+      }, 2800);
+    }
+
+    /* === Validação em tempo real (100% reativa) ===
+       Bug anterior: o ícone de check ficava "preso" mesmo quando o usuário
+       apagava caracteres e a regra deixava de ser atendida.
+       Causa: o listener cobria apenas o evento 'input' e não normalizava o
+       valor — caracteres invisíveis (zero-width, espaço extra) ou alterações
+       que não disparam 'input' (autofill, drag-drop, alteração via JS quando
+       o tipo do campo é trocado) deixavam o estado dessincronizado.
+       Correção: cobrir múltiplos eventos, recalcular SEMPRE do zero, sempre
+       remover/adicionar a classe 'ok' baseado no booleano atual (sem
+       short-circuit) e ler o value via requestAnimationFrame quando precisar
+       cobrir autofill. */
+    function checkRules(value) {
+      var v = (value == null) ? '' : String(value);
+      return {
+        len: v.length >= 8,
+        upper: /[A-Z]/.test(v),
+        lower: /[a-z]/.test(v),
+        num: /[0-9]/.test(v),
+        // "Caractere especial": qualquer caractere visível que NÃO seja
+        // letra ASCII nem dígito. Exclui espaços/tabs/quebras de linha
+        // para evitar falso-positivo (ex.: usuário cola texto com espaço).
+        special: /[^A-Za-z0-9\s]/.test(v),
+      };
+    }
+
+    function renderRules(value) {
+      var r = checkRules(value);
+      var lis = rulesEl.querySelectorAll('li');
+      Array.prototype.forEach.call(lis, function(li) {
+        var rule = li.getAttribute('data-rule');
+        var ok = r[rule] === true; // booleano estrito
+        // toggle com 2º arg força o estado correto sem depender do anterior
+        li.classList.toggle('ok', ok);
+        var icon = li.querySelector('.ds-icon i');
+        if (icon) {
+          var nextClass = ok ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+          if (icon.className !== nextClass) icon.className = nextClass;
+        }
+      });
+      return r;
+    }
+
+    // Re-render robusto: cobre digitação, paste, cut, autofill, drag-drop,
+    // troca de type=password↔text pelo botão "olho", e qualquer mudança
+    // assíncrona que não dispare 'input' imediatamente.
+    function scheduleRender() {
+      // requestAnimationFrame garante leitura do valor APÓS o navegador
+      // aplicar a mudança (necessário para autofill em alguns browsers).
+      requestAnimationFrame(function() { renderRules(senhaEl.value); });
+    }
+    ['input', 'change', 'keyup', 'paste', 'cut', 'blur', 'focus']
+      .forEach(function(ev) { senhaEl.addEventListener(ev, scheduleRender); });
+
+    // Estado inicial: garante X em todos os critérios ao montar a tela.
+    renderRules('');
+
+    /* === Toggle senha (olho) === */
+    Array.prototype.forEach.call(document.querySelectorAll('.ds-eye'), function(btn) {
+      btn.addEventListener('click', function() {
+        var id = btn.getAttribute('data-target');
+        var input = document.getElementById(id);
+        if (!input) return;
+        var isPwd = input.type === 'password';
+        input.type = isPwd ? 'text' : 'password';
+        var icon = btn.querySelector('i');
+        if (icon) icon.className = isPwd ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye';
+        // Revalida após troca de type — alguns navegadores não disparam
+        // 'input' nessa mudança e o estado visual das regras pode dessincar.
+        if (id === 'senha') scheduleRender();
+      });
+    });
+
+    /* === Auth helpers (mantido do original) === */
+    function getHashParams() {
+      const hash = (window.location.hash || '').replace(/^#/, '');
+      return new URLSearchParams(hash);
+    }
+    function getQueryParams() {
+      return new URLSearchParams(window.location.search || '');
+    }
+    function extractAuthPayload() {
+      const query = getQueryParams();
+      const hash = getHashParams();
+      return {
+        code: query.get('code'),
+        token_hash: query.get('token_hash'),
+        type: query.get('type') || hash.get('type') || 'recovery',
+        access_token: hash.get('access_token'),
+        refresh_token: hash.get('refresh_token'),
+        error: query.get('error') || hash.get('error'),
+        error_description: query.get('error_description') || hash.get('error_description'),
+        error_code: query.get('error_code') || hash.get('error_code')
+      };
+    }
+
+    function getSupabaseClient() {
+      if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+        throw new Error('SDK do Supabase não carregou. Verifique o script CDN.');
+      }
+      if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
+        throw new Error('config.js não carregou SUPABASE_URL/SUPABASE_ANON_KEY.');
+      }
+      return window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY, {
+        auth: { detectSessionInUrl: false, persistSession: false, autoRefreshToken: false },
+      });
+    }
+
+    const sb = getSupabaseClient();
+
+    async function establishSession(authPayload) {
+      if (authPayload.access_token && authPayload.refresh_token) {
+        const { data, error } = await sb.auth.setSession({
+          access_token: authPayload.access_token,
+          refresh_token: authPayload.refresh_token,
+        });
+        if (error || !data.session) {
+          throw new Error(error?.message || 'Não foi possível validar a sessão do convite.');
+        }
+        return data.session;
+      }
+      if (authPayload.code) {
+        const { data, error } = await sb.auth.exchangeCodeForSession(authPayload.code);
+        if (error || !data.session) {
+          throw new Error(error?.message || 'Não foi possível trocar o código por sessão.');
+        }
+        return data.session;
+      }
+      if (authPayload.token_hash) {
+        const verifyType = authPayload.type === 'invite' ? 'invite' : 'recovery';
+        const { data, error } = await sb.auth.verifyOtp({
+          token_hash: authPayload.token_hash,
+          type: verifyType,
+        });
+        if (error || !data.session) {
+          throw new Error(error?.message || 'Não foi possível validar o token do e-mail.');
+        }
+        return data.session;
+      }
+      throw new Error('Nenhum token de autenticação foi encontrado na URL.');
+    }
+
+    async function init() {
+      try {
+        const authPayload = extractAuthPayload();
+
+        if (authPayload.error || authPayload.error_code || authPayload.error_description) {
+          showFatal(
+            '<div style="max-width:340px;">' +
+            '<p><strong>Link inválido ou expirado.</strong></p>' +
+            '<p style="font-size:0.85rem;">' +
+            decodeURIComponent((authPayload.error_description || authPayload.error || '').replace(/\+/g, ' ')) +
+            '</p>' +
+            '<p style="font-size:0.85rem;"><a href="index.html">Voltar para o login</a></p>' +
+            '</div>'
+          );
+          return;
+        }
+
+        if (!authPayload.code && !authPayload.token_hash && !(authPayload.access_token && authPayload.refresh_token)) {
+          showFatal(
+            '<div style="max-width:340px;">' +
+            '<p><strong>Acesso inválido.</strong></p>' +
+            '<p style="font-size:0.85rem;">Abra esta página somente pelo link recebido no e-mail.</p>' +
+            '<p style="font-size:0.85rem;"><a href="index.html">Voltar para o login</a></p>' +
+            '</div>'
+          );
+          return;
+        }
+
+        await establishSession(authPayload);
+
+        try {
+          const cleanUrl = window.location.origin + window.location.pathname;
+          history.replaceState(null, '', cleanUrl);
+        } catch (_) {}
+
+        showForm();
+      } catch (err) {
+        console.error('[definir-senha] init error:', err);
+        showFatal(
+          '<div style="max-width:340px;">' +
+          '<p><strong>Não foi possível validar o convite.</strong></p>' +
+          '<p style="font-size:0.85rem;">' + ((err && err.message) ? err.message : 'Link inválido ou expirado.') + '</p>' +
+          '<p style="font-size:0.85rem;"><a href="index.html">Voltar para o login</a></p>' +
+          '</div>'
+        );
+      }
+    }
+
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const senha = senhaEl.value;
+      const senha2 = senha2El.value;
+
+      const r = renderRules(senha);
+      const allOk = r.len && r.upper && r.lower && r.num && r.special;
+
+      if (!allOk) {
+        showMsg('A senha não segue os padrões de segurança, deve conter letras maiúsculas e minúsculas, números e caractere especial.', 'error');
+        return;
+      }
+      if (senha !== senha2) {
+        showMsg('As senhas não coincidem.', 'error');
+        return;
+      }
+
+      btnEl.disabled = true;
+      showMsg('Salvando...', '');
+
+      try {
+        const { error } = await sb.auth.updateUser({ password: senha });
+        if (error) throw error;
+
+        showMsg('', '');
+        showToast('Senha criada com sucesso! Redirecionando...', 'success');
+
+        try { await sb.auth.signOut({ scope: 'global' }); } catch (_) {}
+
+        try {
+          Object.keys(localStorage).forEach((k) => {
+            if (k.startsWith('sb-') || k.includes('supabase')) localStorage.removeItem(k);
+          });
+          Object.keys(sessionStorage).forEach((k) => {
+            if (k.startsWith('sb-') || k.includes('supabase')) sessionStorage.removeItem(k);
+          });
+        } catch (_) {}
+
+        setTimeout(() => {
+          window.location.href = 'index.html?senha_criada=1';
+        }, 1500);
+      } catch (err) {
+        console.error('[definir-senha] updateUser error:', err);
+        showMsg('Erro ao salvar: ' + ((err && err.message) ? err.message : 'tente novamente'), 'error');
+        btnEl.disabled = false;
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>

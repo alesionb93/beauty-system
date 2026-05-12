@@ -1,0 +1,207 @@
+/* =====================================================================
+   DASHBOARD-PAGAMENTOS.CSS — Add-on isolado (v1)
+   100% baseado em theme tokens (multi-tenant safe)
+   ===================================================================== */
+
+.dash-pag-root {
+  display: flex; flex-direction: column; gap: 16px;
+  margin: 22px 0;
+}
+
+.dash-pag-header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap;
+}
+.dash-pag-header h3 {
+  margin: 0; font-size: 16px; font-weight: 700;
+  color: var(--text, #1a1a2e);
+  display: flex; align-items: center; gap: 8px;
+}
+.dash-pag-header h3 i { color: var(--gold, #6c3aed); }
+.dash-pag-help {
+  font-size: 12px; color: var(--text-muted, #6b7280);
+}
+
+/* ===== Grid superior (3 cards) ===== */
+.dash-pag-grid-top {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+@media (max-width: 1024px) {
+  .dash-pag-grid-top { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .dash-pag-grid-top { grid-template-columns: 1fr; }
+}
+
+.dash-pag-card {
+  background: var(--surface-card, var(--bg-card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.05));
+  display: flex; flex-direction: column; gap: 12px;
+  min-width: 0;
+}
+.dash-pag-card--full { grid-column: 1 / -1; }
+
+.dash-pag-card-title {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  font-size: 13px; font-weight: 600;
+  color: var(--text-muted, #6b7280);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.dash-pag-card-title i { color: var(--gold, #6c3aed); }
+
+/* ===== Recebido vs Pendente ===== */
+.dash-pag-rec-pend {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+}
+.dash-pag-rp-item {
+  padding: 10px 12px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--border, #e5e7eb);
+}
+.dash-pag-rp-rec {
+  background: color-mix(in srgb, #10b981 8%, transparent);
+  border-color: color-mix(in srgb, #10b981 25%, transparent);
+}
+.dash-pag-rp-pen {
+  background: color-mix(in srgb, #f59e0b 8%, transparent);
+  border-color: color-mix(in srgb, #f59e0b 25%, transparent);
+}
+.dash-pag-rp-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-muted, #6b7280); font-weight: 600;
+}
+.dash-pag-rp-val { font-size: 20px; font-weight: 700; color: var(--text, #1a1a2e); }
+.dash-pag-rp-sub { font-size: 11px; color: var(--text-muted, #6b7280); }
+
+.dash-pag-progress {
+  width: 100%; height: 8px;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  border-radius: 999px; overflow: hidden;
+}
+.dash-pag-progress-bar {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  transition: width .35s ease;
+}
+
+/* ===== Faturamento por forma (barras horizontais) ===== */
+.dash-pag-formas-list { display: flex; flex-direction: column; gap: 10px; }
+.dash-pag-forma-row { display: flex; flex-direction: column; gap: 4px; }
+.dash-pag-forma-head {
+  display: grid;
+  grid-template-columns: 12px 1fr auto auto;
+  gap: 8px; align-items: center;
+  font-size: 13px;
+}
+.dash-pag-forma-label { color: var(--text, #1a1a2e); font-weight: 500; }
+.dash-pag-forma-val { font-weight: 700; color: var(--text, #1a1a2e); }
+.dash-pag-forma-pct {
+  font-size: 11px; color: var(--text-muted, #6b7280);
+  min-width: 46px; text-align: right;
+}
+.dash-pag-forma-bar {
+  height: 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted, #6b7280) 12%, transparent);
+  overflow: hidden;
+}
+.dash-pag-forma-fill { height: 100%; transition: width .3s ease; }
+
+.dash-pag-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  display: inline-block; flex-shrink: 0;
+}
+
+/* ===== Ticket médio ===== */
+.dash-pag-ticket-list { display: flex; flex-direction: column; gap: 8px; }
+.dash-pag-ticket-row {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 8px; align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border, #e5e7eb);
+  font-size: 13px;
+}
+.dash-pag-ticket-row:last-child { border-bottom: none; }
+.dash-pag-ticket-label { color: var(--text, #1a1a2e); }
+.dash-pag-ticket-val { font-weight: 700; color: var(--text, #1a1a2e); }
+.dash-pag-ticket-qtd {
+  grid-column: 2 / -1;
+  font-size: 11px; color: var(--text-muted, #6b7280);
+  margin-top: -4px;
+}
+
+/* ===== Chart ===== */
+.dash-pag-chart-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+#dash-pag-chart { display: block; max-width: 100%; }
+.dash-pag-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 14px;
+  font-size: 12px; color: var(--text-muted, #6b7280);
+}
+.dash-pag-leg { display: inline-flex; align-items: center; gap: 6px; }
+.dash-pag-leg i {
+  width: 10px; height: 10px; border-radius: 2px;
+  display: inline-block;
+}
+
+/* ===== Lista de pendências ===== */
+.dash-pag-pend-list {
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 420px; overflow-y: auto;
+}
+.dash-pag-pend-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  cursor: pointer; transition: .15s;
+}
+.dash-pag-pend-row:hover {
+  border-color: var(--gold, #6c3aed);
+  background: color-mix(in srgb, var(--gold, #6c3aed) 4%, transparent);
+  transform: translateY(-1px);
+}
+.dash-pag-pend-row:focus-visible {
+  outline: 2px solid var(--gold, #6c3aed); outline-offset: 2px;
+}
+.dash-pag-pend-main { min-width: 0; flex: 1; }
+.dash-pag-pend-cliente {
+  font-weight: 600; color: var(--text, #1a1a2e);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dash-pag-pend-meta {
+  font-size: 12px; color: var(--text-muted, #6b7280);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin-top: 2px;
+}
+.dash-pag-pend-meta em { font-style: normal; color: var(--gold, #6c3aed); }
+.dash-pag-pend-side { text-align: right; flex-shrink: 0; }
+.dash-pag-pend-valor {
+  font-size: 15px; font-weight: 700;
+  color: #f59e0b;
+}
+.dash-pag-pend-data { font-size: 11px; color: var(--text-muted, #6b7280); }
+
+.dash-pag-empty {
+  padding: 18px; text-align: center;
+  color: var(--text-muted, #6b7280);
+  font-size: 13px; font-style: italic;
+}
+
+/* ===== Mobile ===== */
+@media (max-width: 520px) {
+  .dash-pag-card { padding: 14px; }
+  .dash-pag-rec-pend { grid-template-columns: 1fr; }
+  .dash-pag-rp-val { font-size: 18px; }
+  .dash-pag-pend-row { flex-direction: column; align-items: flex-start; }
+  .dash-pag-pend-side { text-align: left; }
+}
