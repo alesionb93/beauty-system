@@ -35,7 +35,7 @@
   if (window.__SLOTIFY_ANALYTICS_CANCEL_LOADED__) return;
   window.__SLOTIFY_ANALYTICS_CANCEL_LOADED__ = true;
 
-  console.log('%c📉 analytics-cancelamentos.js v5 carregado (motivos flex + fallback por log)',
+  console.log('%c📉 analytics-cancelamentos.js v6 carregado (cancelado-com-venda inclui concluído excluído)',
     'background:#ef4444;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------------------------------------------------------
@@ -725,6 +725,80 @@
   }
 
   // -------------------------------------------------------------------
+  // Cancelado com Venda via cancelamento_log:
+  // conta entradas no período cujo status anterior era "concluído"
+  // (agendamento concluído que foi posteriormente excluído/cancelado).
+  // -------------------------------------------------------------------
+  function isStatusConcluido(v) {
+    if (v == null) return false;
+    var s = String(v).toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return s === 'concluido' || s === 'completed' || s === 'done' || s === 'finalizado';
+  }
+  function logIndicaConcluidoExcluido(r) {
+    if (!r) return false;
+    var payloads = motivoPayloads(r);
+    var prevKeys = [
+      'status_anterior', 'statusAnterior', 'previous_status', 'previousStatus',
+      'status_prev', 'prev_status', 'old_status', 'oldStatus', 'status_old',
+      'status_before', 'statusBefore', 'status_origem', 'from_status', 'fromStatus'
+    ];
+    for (var i = 0; i < payloads.length; i++) {
+      var obj = payloads[i] || {};
+      for (var k = 0; k < prevKeys.length; k++) {
+        if (isStatusConcluido(obj[prevKeys[k]])) return true;
+      }
+      // conclusion_type capturado no momento do cancelamento
+      if (isStatusConcluido(obj.conclusion_type) || isStatusConcluido(obj.conclusionType)) return true;
+      // marcação explícita
+      var s = String(obj.status || '').toLowerCase();
+      if (s === 'cancelado_com_venda') return true;
+    }
+    return false;
+  }
+
+  async function fetchCanceladoComVendaFromLog(tenantId, periodo, agIdsJaContados) {
+    var sb = getSb();
+    if (!sb || !tenantId) return 0;
+    try {
+      var sinceIso = periodo.inicio + 'T00:00:00.000Z';
+      var untilIso = addDaysISO(periodo.fim, 1) + 'T00:00:00.000Z';
+      var res = await sb
+        .from('cancelamento_log')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('created_at', sinceIso)
+        .lt('created_at', untilIso);
+      if (res.error) { console.warn('[acan] cancelado-com-venda log err', res.error); return 0; }
+
+      var jaContados = {};
+      (agIdsJaContados || []).forEach(function (id) { jaContados[String(id)] = true; });
+
+      // Dedup por agendamento (último log por ag).
+      var byAg = {};
+      (res.data || []).forEach(function (r) {
+        var agId = getLogAgendamentoId(r);
+        if (!agId) return;
+        var prev = byAg[String(agId)];
+        if (!prev || (r.created_at && r.created_at > prev.created_at)) {
+          byAg[String(agId)] = r;
+        }
+      });
+
+      var count = 0;
+      Object.keys(byAg).forEach(function (agId) {
+        if (jaContados[agId]) return; // já contado via window.appointments
+        if (logIndicaConcluidoExcluido(byAg[agId])) count++;
+      });
+      console.log('[AnalyticsCancelamentos] Cancelado-com-venda extra via log (concluído excluído):', count);
+      return count;
+    } catch (e) {
+      console.warn('[acan] cancelado-com-venda log exception', e);
+      return 0;
+    }
+  }
+
+  // -------------------------------------------------------------------
   // Render orquestrador
   // -------------------------------------------------------------------
   var _renderSeq = 0;
@@ -744,10 +818,27 @@
 
       var seq = ++_renderSeq;
       var tenantId = getTenantId();
-      var motivos = await fetchMotivos(tenantId, periodo, stats.agIdsCancelados);
+
+      // IDs já reconhecidos como cancelado-com-venda em window.appointments
+      var jaContadosCcv = [];
+      (appts || []).forEach(function (ag) {
+        if (!dentroDoPeriodo(ag, periodo)) return;
+        if (!profissionalCasa(ag, periodo)) return;
+        if (isCanceladoComVenda(ag) && ag.id) jaContadosCcv.push(ag.id);
+      });
+
+      var [motivos, ccvExtra] = await Promise.all([
+        fetchMotivos(tenantId, periodo, stats.agIdsCancelados),
+        fetchCanceladoComVendaFromLog(tenantId, periodo, jaContadosCcv)
+      ]);
       if (seq !== _renderSeq) return; // chegou render mais novo
       // só renderiza se ainda estiver no dashboard
       if (!document.getElementById('acan-root')) return;
+
+      if (ccvExtra > 0) {
+        stats.canceladoComVenda = (stats.canceladoComVenda || 0) + ccvExtra;
+        renderCards(stats, periodo);
+      }
       renderMotivos(motivos);
     } catch (e) {
       console.error('[acan] render err', e);

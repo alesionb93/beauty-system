@@ -5,8 +5,8 @@
    ANTIGA em cache. Force reload (Ctrl+F5) ou suba CACHE_VERSION
    no service-worker.js.
    ============================================================ */
-window.__SCRIPT_JS_VERSION__ = 'v14-cancelamento-flag-explicita-2026-05-12';
-console.log('%c✅ SCRIPT.JS v14 INICIOU — cancelamento flag explícita ATIVA', 'background:#16a34a;color:#fff;padding:4px 8px;border-radius:4px;font-weight:700', window.__SCRIPT_JS_VERSION__);
+window.__SCRIPT_JS_VERSION__ = 'v15-config-colaborador-meu-perfil-2026-05-13';
+console.log('%c✅ SCRIPT.JS v15 INICIOU — config colaborador restrita a Meu Perfil', 'background:#16a34a;color:#fff;padding:4px 8px;border-radius:4px;font-weight:700', window.__SCRIPT_JS_VERSION__);
 try { document.documentElement.setAttribute('data-script-version', window.__SCRIPT_JS_VERSION__); } catch(_) {}
 try {
   if (/icons\/Beauti-System/i.test(location.pathname)) {
@@ -949,6 +949,19 @@ async function applyPermissions() {
     document.querySelectorAll('.admin-only, .nav-admin-only').forEach(function(el) {
       el.style.display = 'none';
     });
+    // [v15] Colaborador: ocultar abas de Configurações restritas a admin
+    // e forçar a aba "Meu Perfil" como única acessível.
+    document.querySelectorAll('.config-tab.admin-only-tab').forEach(function(el) {
+      el.style.display = 'none';
+      el.classList.remove('active');
+    });
+    document.querySelectorAll('#page-configuracoes .config-panel').forEach(function(p) {
+      p.classList.remove('active');
+    });
+    var meuPerfilTab = document.querySelector('.config-tab[data-config-tab="meu-perfil"]');
+    var meuPerfilPanel = document.getElementById('config-meu-perfil');
+    if (meuPerfilTab) meuPerfilTab.classList.add('active');
+    if (meuPerfilPanel) meuPerfilPanel.classList.add('active');
   } else {
     var btnGerenciar = document.getElementById('btn-gerenciar-servicos');
     if (btnGerenciar) btnGerenciar.style.display = '';
@@ -2006,6 +2019,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     tab.addEventListener('click', function() {
       var tabName = this.dataset.configTab;
       if (tabName === 'usuarios' && !isAdmin()) return;
+      // [v15] Colaborador só pode acessar "Meu Perfil"
+      if (!isAdmin() && tabName !== 'meu-perfil') return;
       document.querySelectorAll('.config-tab').forEach(function(t) { t.classList.remove('active'); });
       document.querySelectorAll('.config-panel').forEach(function(p) { p.classList.remove('active'); });
       this.classList.add('active');
