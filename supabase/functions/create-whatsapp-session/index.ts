@@ -18,7 +18,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const DEFAULT_BASE_URL = "https://app.seudominio.com";
+const DEFAULT_BASE_URL = "https://slotify.pilotodigital.online";
 const SESSION_TTL_MINUTES = 30;
 const LOG_PREFIX = "[wa-session]";
 
