@@ -513,29 +513,26 @@ Deno.serve(async (req) => {
   const tenantNome = tenant.nome_fantasia || tenant.nome || "nosso espaço";
   const mensagem = buildMessage(nome, link, tenantNome);
 
-  // ----- 6) ENVIO WHATSAPP
-  let envio: any = { skipped: true };
-  if (evo?.ativo && evo.base_url && evo.instance && evo.api_key) {
-    const baseUrlClean = String(evo.base_url || "").replace(/\/+$/, "");
-    const isEvolutionGo = /evolution-go/i.test(baseUrlClean);
-    const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
-    const url = isEvolutionGo
-      ? `${baseUrlClean}/send/text`
-      : `${baseUrlClean}/message/sendText/${encodeURIComponent(evo.instance)}`;
-    const sendNumber = whatsappSendNumber(telefone);
-    const payload = { number: sendNumber, text: mensagem, textMessage: { text: mensagem } };
-    console.log(`${LOG_PREFIX} ${reqId} sending magic link`, {
-      provider,
-      url,
-      telefone_normalizado: phoneFromParser,
-    });
+   // ----- 6) ENVIO WHATSAPP
+   let envio: any = { skipped: true };
+    if (evo?.ativo && evo.base_url && evo.instance && evo.api_key) {
+      const baseUrlClean = String(evo.base_url || "").replace(/\/+$/, "");
+      const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
+      const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
+      const url = isEvolutionGo
+        ? `${baseUrlClean}/send/text`
+        : `${baseUrlClean}/message/sendText/${encodeURIComponent(evo.instance)}`;
+      const sendNumber = whatsappSendNumber(telefone);
+      const payload = { number: sendNumber, text: mensagem, textMessage: { text: mensagem } };
+      console.log(`${LOG_PREFIX} ${reqId} [GO-ROUTE] provider=${provider} url=${url}`, {
+        provider,
+        url,
+        telefone_normalizado: phoneFromParser,
+        base_url: evo.base_url,
+        instance_present: !!evo.instance,
+      });
 
-    console.log(`${LOG_PREFIX} ${reqId} sending WhatsApp message`, {
-      url, instance: evo.instance, number: sendNumber,
-      text_preview: mensagem.slice(0, 80),
-    });
-
-    try {
+      try {
       const sendStartedAt = Date.now();
       console.log(`${LOG_PREFIX} ${reqId} Evolution send START`, {
         started_at: new Date(sendStartedAt).toISOString(),

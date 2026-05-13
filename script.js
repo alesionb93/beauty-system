@@ -6486,6 +6486,13 @@ function populateProfSelect(selectId, excludeUserId) {
 function openModalCriarUsuario() {
   document.getElementById('novo-user-nome').value = '';
   document.getElementById('novo-user-email').value = '';
+  var loginEl = document.getElementById('novo-user-login');
+  if (loginEl) loginEl.value = '';
+  var loginStatus = document.getElementById('novo-user-login-status');
+  if (loginStatus) {
+    loginStatus.textContent = '3–30 caracteres. Apenas letras, números, ponto e underscore.';
+    loginStatus.style.color = 'var(--text-muted)';
+  }
   document.getElementById('novo-user-role').value = 'colaborador';
   // Reset cards
   document.querySelectorAll('#novo-user-prof-options .prof-vinculo-card').forEach(function(c, i) {
@@ -6568,6 +6575,53 @@ document.addEventListener('change', function(e) {
   if (e.target && e.target.id === 'edit-user-role') aplicarRegraVinculoPorRole('edit');
 });
 
+/* ============================================================
+   LOGIN (username) — validação em tempo real no modal "novo"
+   ============================================================ */
+var _novoUserLoginCheckTimer = null;
+function _setNovoUserLoginStatus(text, color) {
+  var el = document.getElementById('novo-user-login-status');
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = color;
+}
+async function _checkNovoUserLoginAvailability(value) {
+  var login = (value || '').trim().toLowerCase();
+  if (!login) {
+    _setNovoUserLoginStatus('3–30 caracteres. Apenas letras, números, ponto e underscore.', 'var(--text-muted)');
+    return;
+  }
+  if (login.length < 3 || login.length > 30 || !/^[a-zA-Z0-9._]+$/.test(login)) {
+    _setNovoUserLoginStatus('❌ Login inválido. Use 3–30 caracteres: letras, números, ponto ou underscore.', '#e74c3c');
+    return;
+  }
+  _setNovoUserLoginStatus('Verificando disponibilidade...', 'var(--text-muted)');
+  try {
+    var resp = await supabaseClient.from('usuarios').select('id').ilike('login', login).maybeSingle();
+    if (resp.error) {
+      _setNovoUserLoginStatus('Não foi possível validar agora.', 'var(--text-muted)');
+      return;
+    }
+    if (resp.data) {
+      _setNovoUserLoginStatus('❌ Este login já está em uso.', '#e74c3c');
+    } else {
+      _setNovoUserLoginStatus('✅ Login disponível.', '#16a34a');
+    }
+  } catch (_) {
+    _setNovoUserLoginStatus('Não foi possível validar agora.', 'var(--text-muted)');
+  }
+}
+document.addEventListener('input', function(e) {
+  if (!e.target || e.target.id !== 'novo-user-login') return;
+  // normalização visual: lowercase
+  var v = (e.target.value || '').toLowerCase();
+  if (v !== e.target.value) e.target.value = v;
+  if (_novoUserLoginCheckTimer) clearTimeout(_novoUserLoginCheckTimer);
+  _novoUserLoginCheckTimer = setTimeout(function() {
+    _checkNovoUserLoginAvailability(e.target.value);
+  }, 350);
+});
+
 var _criarUsuarioEmAndamento = false;
 var _signupCooldownAte = 0;
 var _signupCooldownTimer = null;
@@ -6579,9 +6633,11 @@ async function salvarNovoUsuario(e) {
   var btnSubmit = form ? form.querySelector('button[type="submit"]') : null;
   var feedback = document.getElementById('criar-user-feedback');
   var emailInput = document.getElementById('novo-user-email');
+  var loginInput = document.getElementById('novo-user-login');
 
   var nome = (document.getElementById('novo-user-nome').value || '').trim();
   var email = (((emailInput ? emailInput.value : '') || '').trim()).toLowerCase();
+  var login = (((loginInput ? loginInput.value : '') || '').trim()).toLowerCase();
   var roleEl = document.getElementById('novo-user-role');
   var role = roleEl ? (roleEl.value || '').trim() : '';
   // Guarda dura: só aceita roles válidos. Sem fallback silencioso para 'admin'.
@@ -6673,6 +6729,13 @@ async function salvarNovoUsuario(e) {
   if (emailInput && !emailInput.checkValidity()) { setFeedback('E-mail inválido. Verifique o formato.', '#e74c3c'); return; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { setFeedback('E-mail inválido. Verifique o formato.', '#e74c3c'); return; }
 
+  // Validação de LOGIN
+  if (!login) { setFeedback('Informe o login do usuário.', '#e74c3c'); return; }
+  if (login.length < 3 || login.length > 30 || !/^[a-zA-Z0-9._]+$/.test(login)) {
+    setFeedback('Login inválido. Use 3–30 caracteres: letras, números, ponto ou underscore.', '#e74c3c');
+    return;
+  }
+
   if (profTipo === 'existente' && !profIdSel) { setFeedback('Selecione um profissional existente.', '#e74c3c'); return; }
 
   _criarUsuarioEmAndamento = true;
@@ -6694,6 +6757,12 @@ async function salvarNovoUsuario(e) {
       if (usuarioResp.error) { throw new Error('Não foi possível validar o e-mail agora.'); }
       if (usuarioResp.data) { setFeedback('Já existe um usuário com esse e-mail.', '#e74c3c'); return; }
     }
+
+    // Pré-checagem de duplicidade de LOGIN (case-insensitive)
+    setFeedback('Verificando login...', 'var(--text-muted)');
+    var loginResp = await supabaseClient.from('usuarios').select('id').ilike('login', login).maybeSingle();
+    if (loginResp.error) { throw new Error('Não foi possível validar o login agora.'); }
+    if (loginResp.data) { setFeedback('Este login já está em uso.', '#e74c3c'); return; }
 
     // Upload de foto (se opção "criar" selecionada)
     var fotoUrl = null;
@@ -6722,6 +6791,7 @@ async function salvarNovoUsuario(e) {
       body: JSON.stringify({
         nome: nome,
         email: email,
+        login: login,
         role: role,
         tenant_id: tenantId,
         profissional: {

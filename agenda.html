@@ -2704,6 +2704,16 @@
             <label>E-mail (obrigatório)</label>
             <input type="email" id="novo-user-email" required placeholder="email@exemplo.com">
           </div>
+          <div class="form-group">
+            <label>Login do usuário (obrigatório)</label>
+            <input type="text" id="novo-user-login" required minlength="3" maxlength="30"
+                   pattern="[a-zA-Z0-9._]+"
+                   placeholder="ex: joao.silva"
+                   autocapitalize="none" autocorrect="off" spellcheck="false">
+            <small id="novo-user-login-status" style="display:block;margin-top:4px;font-size:0.8rem;color:var(--text-muted);">
+              3–30 caracteres. Apenas letras, números, ponto e underscore.
+            </small>
+          </div>
 
         </div>
 

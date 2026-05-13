@@ -163,26 +163,29 @@ Deno.serve(async (req) => {
     `⏰ Horário: ${fmtHora(ag.hora)}\n` +
     `\n_Origem: link de agendamento online_`;
 
-  // =========================
-  // DETECÇÃO DE PROVIDER
-  // -------------------------
-  // Evolution GO  -> base_url contém "evolution-go"
-  //                  endpoint: /send/text  (sem instance na URL)
-  // Evolution clássica (default) -> /message/sendText/{instance}
-  // =========================
-  const baseUrlClean = String(cfg.base_url || "").replace(/\/$/, "");
-  const isEvolutionGo = /evolution-go/i.test(baseUrlClean);
-  const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
+   // =========================
+   // DETECÇÃO DE PROVIDER
+   // -------------------------
+   // Evolution GO  -> base_url contém "evolution-go" ou "evogo"
+   //                  endpoint: /send/text  (sem instance na URL)
+   // Evolution clássica (default) -> /message/sendText/{instance}
+   // =========================
+   const baseUrlClean = String(cfg.base_url || "").replace(/\/$/, "");
+   const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
+   const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
 
-  const url = isEvolutionGo
-    ? `${baseUrlClean}/send/text`
-    : `${baseUrlClean}/message/sendText/${encodeURIComponent(cfg.instance)}`;
+   const url = isEvolutionGo
+     ? `${baseUrlClean}/send/text`
+     : `${baseUrlClean}/message/sendText/${encodeURIComponent(cfg.instance)}`;
 
-  const payload = { number: telefone, text };
+   const payload = { number: telefone, text };
 
-  console.log("PROVIDER:", provider);
-  console.log("URL:", url);
-  console.log("PAYLOAD:", payload);
+   console.log("[wa-notify] [GO-ROUTE] provider=%s url=%s", provider, url, {
+     base_url: cfg.base_url,
+     instance_present: !!cfg.instance,
+     phone: telefone,
+     payload_preview: payload,
+   });
 
   let httpStatus = 0;
   let respJson: any = null;

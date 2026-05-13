@@ -9,6 +9,16 @@ const corsHeaders = {
 
 const MAX_USERS_PER_TENANT = 3
 const ALLOWED_ROLES = ['admin', 'colaborador']
+const LOGIN_REGEX = /^[a-zA-Z0-9._]+$/
+const LOGIN_MIN = 3
+const LOGIN_MAX = 30
+
+function asLogin(value: unknown): string {
+  return (typeof value === 'string' ? value : '').trim().toLowerCase()
+}
+function isValidLogin(value: string): boolean {
+  return value.length >= LOGIN_MIN && value.length <= LOGIN_MAX && LOGIN_REGEX.test(value)
+}
 
 type RoleRow = { role: string; tenant_id: string | null }
 
@@ -133,6 +143,7 @@ serve(async (req: Request) => {
     const body = await req.json()
     const nome = asString(body?.nome)
     const email = asEmail(body?.email)
+    const login = asLogin(body?.login)
     let role = asString(body?.role) || 'colaborador'
     const tenantId = asString(body?.tenant_id)
     const profissional = body?.profissional && typeof body.profissional === 'object'
@@ -144,13 +155,21 @@ serve(async (req: Request) => {
       role = 'colaborador'
     }
 
-    console.log('📝 Criando usuário — Nome:', nome, 'Email:', email, 'Role solicitada:', role, 'Tenant:', tenantId)
+    console.log('📝 Criando usuário — Nome:', nome, 'Email:', email, 'Login:', login, 'Role solicitada:', role, 'Tenant:', tenantId)
 
     if (!nome || !email || !tenantId) {
       return jsonResponse({ message: 'Campos obrigatórios: nome, email, tenant_id.' }, 400)
     }
     if (!isEmail(email)) {
       return jsonResponse({ message: 'E-mail inválido.' }, 400)
+    }
+    if (!login) {
+      return jsonResponse({ message: 'Login é obrigatório.' }, 400)
+    }
+    if (!isValidLogin(login)) {
+      return jsonResponse({
+        message: `Login inválido. Use ${LOGIN_MIN}–${LOGIN_MAX} caracteres: letras, números, ponto ou underscore.`,
+      }, 400)
     }
 
     const { data: callerRoles, error: callerRolesError } = await supabaseAdmin
@@ -187,6 +206,18 @@ serve(async (req: Request) => {
     }
     if (existingUsuario) {
       return jsonResponse({ message: 'Já existe um usuário com esse e-mail.' }, 409)
+    }
+
+    // 🆕 Verificar duplicidade de LOGIN (case-insensitive)
+    const { data: existingLogin, error: existingLoginError } = await supabaseAdmin
+      .from('usuarios').select('id').ilike('login', login).maybeSingle()
+
+    if (existingLoginError) {
+      console.error('Erro ao verificar login existente:', existingLoginError)
+      return jsonResponse({ message: 'Erro ao verificar se o login já existe.' }, 500)
+    }
+    if (existingLogin) {
+      return jsonResponse({ message: 'Este login já está em uso.' }, 409)
     }
 
     // 🆕 Buscar nome do tenant (estabelecimento) para incluir no e-mail
@@ -242,7 +273,7 @@ serve(async (req: Request) => {
     let profissionalIdFinal: string | null = null
 
     const { error: usuarioInsertError } = await supabaseAdmin.from('usuarios').insert([
-      { id: newUserId, nome, email, tenant_id: tenantId, ativo: true },
+      { id: newUserId, nome, email, login, tenant_id: tenantId, ativo: true },
     ])
 
     if (usuarioInsertError) {

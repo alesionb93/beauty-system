@@ -14,6 +14,16 @@ const corsHeaders = {
 }
 
 const MAX_USERS_PER_TENANT = 3
+const LOGIN_REGEX = /^[a-zA-Z0-9._]+$/
+const LOGIN_MIN = 3
+const LOGIN_MAX = 30
+
+function normalizeLogin(value: unknown): string {
+  return (typeof value === 'string' ? value : '').trim().toLowerCase()
+}
+function isValidLogin(value: string): boolean {
+  return value.length >= LOGIN_MIN && value.length <= LOGIN_MAX && LOGIN_REGEX.test(value)
+}
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -125,6 +135,7 @@ serve(async (req: Request) => {
       logo_url,
       admin_nome,
       admin_email,
+      admin_login,
       // admin_senha foi REMOVIDO (agora vai por e-mail)
     } = body
 
@@ -139,6 +150,28 @@ serve(async (req: Request) => {
 
     if (!admin_email?.trim()) {
       return jsonResponse({ error: 'Email do admin é obrigatório' }, 400)
+    }
+
+    // 🆕 LOGIN do admin
+    const adminLoginNorm = normalizeLogin(admin_login)
+    if (!adminLoginNorm) {
+      return jsonResponse({ error: 'Login do admin é obrigatório.' }, 400)
+    }
+    if (!isValidLogin(adminLoginNorm)) {
+      return jsonResponse({
+        error: `Login inválido. Use ${LOGIN_MIN}–${LOGIN_MAX} caracteres: letras, números, ponto ou underscore.`,
+      }, 400)
+    }
+
+    // 🆕 Duplicidade de login (case-insensitive)
+    const { data: existingLogin, error: existingLoginError } = await supabaseAdmin
+      .from('usuarios').select('id').ilike('login', adminLoginNorm).maybeSingle()
+    if (existingLoginError) {
+      console.error('Erro ao verificar login existente:', existingLoginError)
+      return jsonResponse({ error: 'Erro ao verificar se o login já existe.' }, 500)
+    }
+    if (existingLogin) {
+      return jsonResponse({ error: 'Este login já está em uso.' }, 409)
     }
 
     // O nome do tenant será o nome_fantasia se fornecido, senão tenant_nome
@@ -231,6 +264,7 @@ serve(async (req: Request) => {
         id: newUserId,
         nome: admin_nome.trim(),
         email: adminEmailNorm,
+        login: adminLoginNorm,
         tenant_id: tenantId,
       }])
 
@@ -299,6 +333,7 @@ serve(async (req: Request) => {
         id: newUserId,
         nome: admin_nome.trim(),
         email: adminEmailNorm,
+        login: adminLoginNorm,
       },
       message: 'Convite enviado por e-mail. O administrador deverá definir a senha pelo link recebido.',
     })

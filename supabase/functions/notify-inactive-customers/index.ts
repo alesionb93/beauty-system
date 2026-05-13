@@ -186,9 +186,32 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const text = montarMensagem(cli.nome, empresa);
-      const url = `${String(cfg.base_url).replace(/\/$/, "")}/message/sendText/${encodeURIComponent(cfg.instance)}`;
-      const payload = { number: telefone, text, _tipo: "inactive_customer_campaign" };
+       const text = montarMensagem(cli.nome, empresa);
+       
+       // =========================
+       // DETECÇÃO DE PROVIDER
+       // -------------------------
+       // Evolution GO  -> base_url contém "evolution-go" ou "evogo"
+       //                  endpoint: /send/text  (sem instance na URL)
+       // Evolution clássica (default) -> /message/sendText/{instance}
+       // =========================
+       const baseUrlClean = String(cfg.base_url).replace(/\/+$/, "");
+       const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
+       const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
+       const url = isEvolutionGo
+         ? `${baseUrlClean}/send/text`
+         : `${baseUrlClean}/message/sendText/${encodeURIComponent(cfg.instance)}`;
+       
+       const payload = { number: telefone, text, _tipo: "inactive_customer_campaign" };
+       
+        console.log(`[inactive] ${tenantId} - ${cli.cliente_id} - [GO-ROUTE] provider=${provider} url=${url}`, {
+          provider,
+          url,
+          phone: telefone,
+          payload_preview: { number: telefone, text: text.slice(0, 50) + '...' },
+          base_url: cfg.base_url,
+          instance_present: !!cfg.instance,
+        });
 
       let httpStatus = 0;
       let respJson: any = null;

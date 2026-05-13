@@ -56,7 +56,7 @@
       <p class="subtitle">— Sistema de Agendamento —</p>
 
       <div class="form-group">
-        <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+        <input type="text" id="login-email" placeholder="Login ou e-mail" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
       </div>
 
       <div class="form-group">
@@ -184,21 +184,68 @@
       if (e.key === 'Enter') document.getElementById('login-pass').focus();
     });
 
+    // Regex idêntica à validação da Edge Function
+    var LOGIN_REGEX = /^[a-zA-Z0-9._]+$/;
+
+    /**
+     * Resolve um identificador (login OU email) para um email válido.
+     * - Se contiver '@', retorna direto (compat. legado).
+     * - Caso contrário, chama a Edge Function `resolve-login-to-email`
+     *   (Service Role) — a tabela `usuarios` NÃO é mais lida anonimamente.
+     */
+    async function resolveLoginToEmail(identifier) {
+      var raw = (identifier || '').trim();
+      if (!raw) return null;
+
+      // Compatibilidade: se já é email, pula a function
+      if (raw.indexOf('@') !== -1) return raw.toLowerCase();
+
+      var loginNorm = raw.toLowerCase();
+      if (!LOGIN_REGEX.test(loginNorm) || loginNorm.length < 3 || loginNorm.length > 30) {
+        return null;
+      }
+
+      try {
+        var resp = await supabaseClient.functions.invoke('resolve-login-to-email', {
+          body: { login: loginNorm }
+        });
+
+        // supabase-js v2: erros HTTP vêm em resp.error; payload em resp.data
+        if (resp.error) {
+          // 404/400 → credenciais inválidas. Não logar como erro grave.
+          return null;
+        }
+        var data = resp.data || {};
+        if (data.success && data.email) return String(data.email).toLowerCase();
+        return null;
+      } catch (e) {
+        console.error('[login] falha ao chamar resolve-login-to-email:', e);
+        return null;
+      }
+    }
+
     async function login() {
-      var email = document.getElementById('login-email').value.trim();
+      var identifier = document.getElementById('login-email').value.trim();
       var pass = document.getElementById('login-pass').value;
       var errEl = document.getElementById('login-error');
       errEl.style.display = 'none';
 
-      if (!email || !pass) {
-        errEl.textContent = 'Preencha email e senha.';
+      if (!identifier || !pass) {
+        errEl.textContent = 'Preencha login e senha.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      var email = await resolveLoginToEmail(identifier);
+      if (!email) {
+        errEl.textContent = 'Login ou senha incorretos.';
         errEl.style.display = 'block';
         return;
       }
 
       var { data, error } = await supabaseClient.auth.signInWithPassword({ email: email, password: pass });
       if (error) {
-        errEl.textContent = 'Email ou senha incorretos.';
+        errEl.textContent = 'Login ou senha incorretos.';
         errEl.style.display = 'block';
         return;
       }
