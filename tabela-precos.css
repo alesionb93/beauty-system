@@ -15,7 +15,7 @@
   border-radius:8px; font-size:.92rem; display:inline-flex; align-items:center; gap:8px;
 }
 #page-tabela-precos .tp-tab.is-active{
-  background:var(--gold); color:#fff;
+  background:var(--gold); color:var(--gold-contrast);
   box-shadow:0 2px 8px rgba(var(--gold-rgb,108,58,237),.25);
 }
 

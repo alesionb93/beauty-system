@@ -7,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const MAX_USERS_PER_TENANT = 3
+const MAX_USERS_PER_TENANT = 4;
 const ALLOWED_ROLES = ['admin', 'colaborador']
 const LOGIN_REGEX = /^[a-zA-Z0-9._]+$/
 const LOGIN_MIN = 3

@@ -20,5 +20,8 @@
   "homepage": "https://github.com/alesionb93/beauty-system#readme",
   "devDependencies": {
     "@playwright/test": "^1.59.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.4"
   }
 }

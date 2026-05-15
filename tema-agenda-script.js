@@ -86,6 +86,7 @@
     gold_dark: '#5B21B6',
     gold_bg: 'rgba(108,58,237,0.08)',
     gold_border: 'rgba(108,58,237,0.20)',
+    gold_contrast: '#FFFFFF',
     bg: '#F8F8F6',
     card: '#FFFFFF',
     card_hover: '#F0F0EE',
@@ -297,6 +298,7 @@
   var PICKR_CONFIG = [
     // Bloco 1 — Global
     { id: 'tema-gold',              themeKey: 'gold',              hasHexInput: 'tema-gold-hex',        block: 1 },
+    { id: 'tema-gold-contrast',     themeKey: 'gold_contrast',     label: 'tema-gold-contrast-label',   block: 1 },
     { id: 'tema-bg',                themeKey: 'bg',                label: 'tema-bg-label',              block: 1 },
     { id: 'tema-sidebar-bg',        themeKey: 'sidebar_bg',        label: 'tema-sidebar-bg-label',      block: 1 },
     { id: 'tema-text-color',        themeKey: 'text_color',        hasHexInput: 'tema-text-color-hex',  block: 1 },
@@ -594,7 +596,7 @@
     var root = document.documentElement;
     var sidebarText  = pickContrast(theme.sidebar_bg || DEFAULTS.sidebar_bg, '#FFFFFF', '#1A1A2E');
     var sidebarMuted = hexToRgba(sidebarText, 0.76);
-    var accentText   = pickContrast(theme.gold, '#FFFFFF', '#111111');
+    var accentText   = theme.gold_contrast || DEFAULTS.gold_contrast || pickContrast(theme.gold, '#FFFFFF', '#111111');
 
     // Determine if dark theme
     var bgIsDark = isDarkColor(theme.bg);
@@ -644,6 +646,7 @@
     root.style.setProperty('--gold-dark', vars.gold_dark);
     root.style.setProperty('--gold-bg', vars.gold_bg);
     root.style.setProperty('--gold-border', vars.gold_border);
+    root.style.setProperty('--gold-contrast', theme.gold_contrast || DEFAULTS.gold_contrast);
     root.style.setProperty('--sidebar-bg', theme.sidebar_bg);
     root.style.setProperty('--sidebar-active', hexToRgba(theme.gold, 0.18));
     root.style.setProperty('--sidebar-text', sidebarText === '#FFFFFF' ? '#C4B5FD' : sidebarText);
@@ -759,7 +762,7 @@
       '/* Filter bar */',
       '.filter-bar { background: ' + surfaceCard + ' !important; border-color: ' + (theme.cal_border || DEFAULTS.cal_border) + ' !important; }',
       '.filter-chip { color: ' + hexToRgba(textColor, 0.6) + ' !important; border-color: ' + (theme.cal_border || DEFAULTS.cal_border) + ' !important; }',
-      '.filter-chip.active { background: ' + theme.gold + ' !important; color: #fff !important; border-color: ' + theme.gold + ' !important; }',
+      '.filter-chip.active { background: ' + theme.gold + ' !important; color: ' + accentText + ' !important; border-color: ' + theme.gold + ' !important; }',
 
       '/* Toast */',
       '.toast { background: ' + surfaceCard + ' !important; color: ' + textColor + ' !important; border-color: ' + (theme.cal_border || DEFAULTS.cal_border) + ' !important; }',
@@ -1049,6 +1052,7 @@
       gold_dark: vars.gold_dark,
       gold_bg: vars.gold_bg,
       gold_border: vars.gold_border,
+      gold_contrast: currentTheme.gold_contrast || DEFAULTS.gold_contrast,
       bg: currentTheme.bg || DEFAULTS.bg,
       card: currentTheme.card || DEFAULTS.card,
       card_hover: currentTheme.card_hover || DEFAULTS.card_hover,

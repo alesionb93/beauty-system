@@ -6282,7 +6282,7 @@ function renderUsuarios() {
 /* Toggle inativar/ativar — persistência real no Supabase (usuarios.ativo) */
 var _pendingToggleUserId = null;
 var _pendingToggleAction = null; // 'ativar' | 'inativar'
-var MAX_USUARIOS_ATIVOS = 3;
+var MAX_USUARIOS_ATIVOS = 4;
 
 function toggleUsuarioAtivo(userId) {
   var user = (allUsuarios || []).find(function(u) { return u.id === userId; });
