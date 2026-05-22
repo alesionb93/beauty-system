@@ -1,0 +1,155 @@
+/* cancelamento-auth.css — Slotify v2
+ * Usa as variáveis de tema do tenant (--bg-card, --text, --gold, --border, etc.)
+ * Fallbacks só entram quando o tenant não definiu o token.
+ */
+
+.cxa-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(4px);
+  z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  font-family: var(--font, 'Inter', system-ui, sans-serif);
+  animation: cxa-fade .15s ease-out;
+}
+@keyframes cxa-fade { from { opacity: 0 } to { opacity: 1 } }
+
+.cxa-modal {
+  background: var(--bg-card, #fff);
+  color: var(--text, #1a1a1a);
+  width: 100%;
+  max-width: 460px;
+  border-radius: var(--radius, 14px);
+  border: 1px solid var(--gold-border, var(--border, rgba(0, 0, 0, .08)));
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .25);
+  padding: 22px;
+  animation: cxa-pop .18s ease-out;
+}
+@keyframes cxa-pop {
+  from { transform: translateY(8px) scale(.98); opacity: 0 }
+  to   { transform: none; opacity: 1 }
+}
+
+.cxa-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 6px;
+}
+.cxa-header h3 {
+  margin: 0;
+  font-family: var(--font-display, var(--font, inherit));
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--gold, #6c63ff);
+  letter-spacing: .2px;
+}
+.cxa-close {
+  background: transparent; border: 0;
+  color: var(--text-muted, #888);
+  font-size: 1.6rem; line-height: 1; cursor: pointer;
+  padding: 0 4px; transition: color .15s;
+}
+.cxa-close:hover { color: var(--text, #111); }
+
+.cxa-sub {
+  color: var(--text-muted, #888);
+  font-size: .85rem;
+  margin: 0 0 18px;
+  line-height: 1.4;
+}
+
+.cxa-form { display: flex; flex-direction: column; gap: 14px; }
+
+.cxa-label {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: .8rem;
+  color: var(--text-muted, #666);
+}
+.cxa-label > span { font-weight: 500; }
+
+.cxa-input {
+  background: var(--surface-input, color-mix(in srgb, var(--bg-card, #fff) 92%, var(--text, #000) 8%));
+  border: 1px solid var(--border, rgba(0, 0, 0, .12));
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text, #1a1a1a);
+  font: inherit;
+  font-size: .92rem;
+  transition: border-color .15s, box-shadow .15s;
+  outline: none;
+  width: 100%;
+}
+.cxa-input::placeholder { color: var(--text-muted, #888); }
+.cxa-input:focus {
+  border-color: var(--gold, #6c63ff);
+  box-shadow: 0 0 0 3px var(--gold-bg, color-mix(in srgb, var(--gold, #6c63ff) 18%, transparent));
+}
+textarea.cxa-input { resize: vertical; min-height: 70px; }
+
+.cxa-checkbox {
+  display: flex; align-items: center; gap: 8px;
+  font-size: .82rem;
+  color: var(--text, #333);
+  cursor: pointer;
+}
+.cxa-checkbox input { accent-color: var(--gold, #6c63ff); }
+
+.cxa-error {
+  margin: 0;
+  background: rgba(220, 53, 69, .10);
+  border: 1px solid rgba(220, 53, 69, .35);
+  color: #c0392b;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: .82rem;
+}
+
+.cxa-footer {
+  display: flex; gap: 10px; justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.cxa-btn {
+  border: 0; border-radius: 8px;
+  padding: 10px 16px;
+  font: inherit; font-weight: 600; font-size: .88rem;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  transition: transform .08s, opacity .15s, background .15s, filter .15s;
+}
+.cxa-btn:disabled { opacity: .6; cursor: progress; }
+.cxa-btn:active:not(:disabled) { transform: translateY(1px); }
+
+.cxa-btn-ghost {
+  background: transparent;
+  color: var(--text-muted, #555);
+  border: 1px solid var(--border, rgba(0, 0, 0, .15));
+}
+.cxa-btn-ghost:hover {
+  background: var(--gold-bg, rgba(0, 0, 0, .04));
+  color: var(--text, #111);
+}
+
+.cxa-btn-danger {
+  background: var(--gold, #6c63ff);
+  color: var(--gold-contrast, #fff);
+  border: 1px solid var(--gold, #6c63ff);
+}
+.cxa-btn-danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+.cxa-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: cxa-spin .7s linear infinite;
+}
+@keyframes cxa-spin { to { transform: rotate(360deg); } }
+
+.cxa-hidden { display: none !important; }
+
+@media (max-width: 480px) {
+  .cxa-modal { padding: 18px; border-radius: 12px; }
+  .cxa-footer { flex-direction: column-reverse; }
+  .cxa-btn { width: 100%; justify-content: center; }
+}

@@ -1,0 +1,148 @@
+/* =====================================================================
+ * conexao-monitor.css — Modal de "Sem conexão" (responsivo)
+ * Slotify — 2026-05-15
+ * Usa tokens existentes: --gold, --bg-card, --text, --text-muted, --border
+ * ===================================================================== */
+
+.cm-overlay{
+  position: fixed; inset: 0;
+  background: rgba(15, 10, 40, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 16px;
+  z-index: 100000;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+.cm-overlay.is-open{ display: flex; opacity: 1; }
+
+.cm-modal{
+  position: relative;
+  width: 100%;
+  max-width: 460px;
+  background: var(--surface-modal, var(--bg-card, #fff));
+  color: var(--text, #1a1a2e);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 18px;
+  padding: 28px 24px 22px;
+  text-align: center;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.25), 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(8px) scale(.98);
+  animation: cmIn .22s ease forwards;
+}
+@keyframes cmIn{ to{ transform: translateY(0) scale(1); } }
+
+.cm-close{
+  position: absolute; top: 12px; right: 12px;
+  width: 36px; height: 36px;
+  border: 0; background: transparent;
+  color: var(--text-muted, #6b7280);
+  border-radius: 8px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, color .15s;
+}
+.cm-close:hover{
+  background: var(--bg-card-hover, rgba(0,0,0,.05));
+  color: var(--text, #1a1a2e);
+}
+
+.cm-icon{
+  display: flex; justify-content: center;
+  margin: 8px 0 14px;
+}
+.cm-icon svg{ display:block; }
+
+.cm-title{
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+  color: var(--text, #1a1a2e);
+  font-family: var(--font, inherit);
+}
+
+.cm-desc{
+  font-size: .95rem;
+  line-height: 1.5;
+  color: var(--text-muted, #6b7280);
+  margin: 0 0 22px;
+  font-weight: 500;
+}
+
+.cm-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.cm-btn{
+  appearance: none;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-card, #fff);
+  color: var(--text, #1a1a2e);
+  font-family: inherit;
+  font-size: .95rem;
+  font-weight: 600;
+  padding: 12px 22px;
+  border-radius: 12px;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+  min-width: 130px;
+  transition: background .15s, border-color .15s, transform .05s, box-shadow .15s;
+}
+.cm-btn:hover{ background: var(--bg-card-hover, #f3f4f6); }
+.cm-btn:active{ transform: translateY(1px); }
+.cm-btn:focus-visible{
+  outline: 2px solid var(--gold, #6c3aed);
+  outline-offset: 2px;
+}
+
+.cm-btn-primary{
+  background: var(--gold, #6c3aed);
+  color: var(--gold-contrast, #fff);
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(108,58,237,.28);
+}
+.cm-btn-primary:hover{
+  background: var(--gold-dark, #5b21b6);
+}
+
+.cm-retry-icon{ flex: 0 0 auto; }
+
+/* ----------------------- responsivo ----------------------- */
+@media (max-width: 520px){
+  .cm-modal{
+    padding: 24px 18px 18px;
+    border-radius: 16px;
+    max-width: 100%;
+  }
+  .cm-title{ font-size: 1.12rem; }
+  .cm-desc{ font-size: .9rem; }
+  .cm-actions{ flex-direction: column-reverse; gap: 8px; }
+  .cm-btn{ width: 100%; min-width: 0; padding: 13px 18px; }
+}
+
+@media (min-width: 521px) and (max-width: 900px){
+  .cm-modal{ max-width: 480px; }
+}
+
+/* respeita reduced-motion */
+@media (prefers-reduced-motion: reduce){
+  .cm-overlay, .cm-modal{ transition: none !important; animation: none !important; }
+}
+
+/* ===== Feedback: clique em "Tentar novamente" ainda offline ===== */
+@keyframes cmShake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-6px); }
+  40%      { transform: translateX(6px); }
+  60%      { transform: translateX(-4px); }
+  80%      { transform: translateX(4px); }
+}
+.cm-btn.cm-shake {
+  animation: cmShake .42s ease;
+}

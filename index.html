@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Slotify - Login</title>
+  <meta name="description" content="Slotify - Sistema de agendamento para salões de beleza">
+
+  <!-- PWA CONFIG -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#652AF4">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+  <!-- iOS PWA -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Slotify">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="estilos.css">
+  <link rel="stylesheet" href="conexao-monitor.css">
+
+  <!-- FONT -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    .toast-success {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #27ae60;
+      color: #fff;
+      padding: 14px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 9999;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 500;
+      max-width: 90%;
+      text-align: center;
+      transition: opacity 0.4s ease;
+    }
+
+    /* ===== Toggle mostrar/ocultar senha ===== */
+    .pass-wrapper {
+      position: relative;
+      width: 100%;
+    }
+    .pass-wrapper input {
+      width: 100%;
+      padding-right: 64px; /* espaço para o botão */
+    }
+    .pass-toggle {
+      position: absolute;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 48px;
+      height: 34px;
+      padding: 0 10px;
+      border: 1.5px solid var(--gold, #6C3AED);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--gold, #6C3AED);
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 1px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+    }
+    .pass-toggle:hover {
+      background: var(--gold, #6C3AED);
+      color: var(--gold-contrast, #FFFFFF);
+    }
+    .pass-toggle:active {
+      transform: translateY(-50%) scale(0.96);
+    }
+    .pass-toggle:focus-visible {
+      outline: 2px solid var(--gold, #6C3AED);
+      outline-offset: 2px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="login-wrapper">
+    <div class="login-card">
+      <img src="beautySystemLogo.png" alt="Slotify" class="logo-img">
+      <h1 class="brand-title"><span class="brand-dark">Slot</span><span class="brand-accent">ify</span></h1>
+      <p class="subtitle">— Sistema de Agendamento —</p>
+
+      <div class="form-group">
+        <input type="text" id="login-email" placeholder="Login ou e-mail" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false">
+      </div>
+
+      <div class="form-group">
+        <div class="pass-wrapper">
+          <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password">
+          <button type="button" class="pass-toggle" id="toggle-pass" aria-label="Mostrar senha" aria-pressed="false">***</button>
+        </div>
+      </div>
+
+      <button class="btn-login" id="btn-login">Entrar</button>
+      <p class="login-error" id="login-error"></p>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <!-- ConexaoMonitor: precisa vir ANTES do supabase-js para envolver o fetch global -->
+  <script src="/conexao-monitor.js?v=1" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+
+  <!-- PWA SCRIPT -->
+  <script src="/pwa.js"></script>
+
+  <script>
+    var urlParams = new URLSearchParams(window.location.search);
+    var senhaCriada = urlParams.get('senha_criada') === '1';
+
+    if (senhaCriada) {
+      var toast = document.createElement('div');
+      toast.className = 'toast-success';
+      toast.textContent = '✓ Senha criada com sucesso! Faça login para continuar.';
+      document.body.appendChild(toast);
+
+      var cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('senha_criada');
+      window.history.replaceState({}, '', cleanUrl);
+
+      setTimeout(function() {
+        toast.style.opacity = '0';
+        setTimeout(function() { toast.remove(); }, 400);
+      }, 5000);
+    }
+
+    async function getUserRolesFromDb(userId) {
+      var resp = await supabaseClient.from('user_roles').select('role, tenant_id').eq('user_id', userId);
+      if (resp.error) {
+        console.error('Erro ao buscar roles:', resp.error);
+        return [];
+      }
+      return resp.data || [];
+    }
+
+    function resolveUserRole(roleRows, tenantId) {
+      if (!roleRows || roleRows.length === 0) return 'colaborador';
+
+      if (roleRows.some(function(row) { return row.role === 'master_admin'; })) {
+        return 'master_admin';
+      }
+
+      if (tenantId) {
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'admin'; })) {
+          return 'admin';
+        }
+        if (roleRows.some(function(row) { return row.tenant_id === tenantId && row.role === 'colaborador'; })) {
+          return 'colaborador';
+        }
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'admin'; })) {
+        return 'admin';
+      }
+
+      if (roleRows.some(function(row) { return row.role === 'colaborador'; })) {
+        return 'colaborador';
+      }
+
+      return roleRows[0].role || 'colaborador';
+    }
+
+    async function getUserFromDb(userId) {
+      var resp = await supabaseClient.from('usuarios').select('nome, tenant_id, ativo').eq('id', userId).single();
+      return resp.data || null;
+    }
+
+    async function handlePostLogin(userId) {
+      var userData = await getUserFromDb(userId);
+      var roleRows = await getUserRolesFromDb(userId);
+      var role = resolveUserRole(roleRows, userData && userData.tenant_id ? userData.tenant_id : null);
+
+      if (role !== 'master_admin' && userData && userData.ativo === false) {
+        await supabaseClient.auth.signOut();
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        var errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.textContent = 'Usuário inativo. Contate o administrador do sistema.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (role === 'master_admin') {
+        window.location.href = 'select-tenant.html';
+      } else {
+        if (userData && userData.tenant_id) {
+          localStorage.setItem('currentTenantId', userData.tenant_id);
+        }
+        window.location.href = 'agenda.html';
+      }
+    }
+
+    (async function() {
+      if (senhaCriada) {
+        try { await supabaseClient.auth.signOut({ scope: 'local' }); } catch (e) {}
+        try { localStorage.removeItem('currentTenantId'); } catch (e) {}
+        return;
+      }
+
+      var { data: { session } } = await supabaseClient.auth.getSession();
+      if (session) {
+        await handlePostLogin(session.user.id);
+      }
+    })();
+
+    // Toggle mostrar/ocultar senha (apenas UX, não altera autenticação)
+    (function() {
+      var passInput = document.getElementById('login-pass');
+      var toggleBtn = document.getElementById('toggle-pass');
+      if (passInput && toggleBtn) {
+        toggleBtn.addEventListener('click', function() {
+          var visible = passInput.type === 'text';
+          passInput.type = visible ? 'password' : 'text';
+          toggleBtn.textContent = visible ? '***' : 'AAAA';
+          toggleBtn.setAttribute('aria-pressed', visible ? 'false' : 'true');
+          toggleBtn.setAttribute('aria-label', visible ? 'Mostrar senha' : 'Ocultar senha');
+        });
+      }
+    })();
+
+    document.getElementById('btn-login').addEventListener('click', login);
+    document.getElementById('login-pass').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') login();
+    });
+    document.getElementById('login-email').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') document.getElementById('login-pass').focus();
+    });
+
+    // Regex idêntica à validação da Edge Function
+    var LOGIN_REGEX = /^[a-zA-Z0-9._]+$/;
+
+    // ---------------------------------------------------------------
+    // Detecção de erro de REDE (offline / fetch fail / timeout / 5xx)
+    // — usado para distinguir falha de conectividade de credencial inválida.
+    // ---------------------------------------------------------------
+    function isNetworkLikeError(err) {
+      if (!err) return false;
+      // Offline explícito
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+
+      // Delega ao ConexaoMonitor se carregado
+      if (window.ConexaoMonitor && typeof window.ConexaoMonitor._isNetworkError === 'function') {
+        if (window.ConexaoMonitor._isNetworkError(err)) return true;
+      }
+
+      var name = String(err.name || '');
+      var msg  = String(err.message || '').toLowerCase();
+
+      // Erros típicos do supabase-js v2 quando a rede falha
+      if (name === 'AbortError') return true;
+      if (name === 'TypeError' && (
+            msg.indexOf('failed to fetch') !== -1 ||
+            msg.indexOf('networkerror')   !== -1 ||
+            msg.indexOf('load failed')    !== -1
+          )) return true;
+      if (name === 'FunctionsFetchError') return true;          // Edge Function offline
+      if (name === 'AuthRetryableFetchError') return true;       // auth offline / 5xx
+      if (msg === 'timeout') return true;
+
+      // status HTTP retornado dentro do erro
+      var status = err.status || (err.context && err.context.status);
+      if (status === 0 || status === 408 || status === 502 || status === 503 || status === 504) return true;
+
+      return false;
+    }
+
+    function showConnectionModal(retryFn) {
+      if (window.ConexaoMonitor && typeof window.ConexaoMonitor.show === 'function') {
+        window.ConexaoMonitor.show({ onRetry: retryFn });
+      } else {
+        var errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.textContent = 'Sem conexão com a internet. Verifique sua conexão e tente novamente.';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+
+    /**
+     * Resolve um identificador (login OU email) para um email válido.
+     * - Se contiver '@', retorna direto (compat. legado).
+     * - Caso contrário, chama a Edge Function `resolve-login-to-email`.
+     *
+     * RETORNO:
+     *   { ok: true,  email: 'x@y.com' }                — sucesso
+     *   { ok: false, reason: 'invalid' }               — login não existe / formato inválido
+     *   { ok: false, reason: 'network', error: <Err> } — falha de rede / function indisponível
+     */
+    async function resolveLoginToEmail(identifier) {
+      var raw = (identifier || '').trim();
+      if (!raw) return { ok: false, reason: 'invalid' };
+
+      // Compatibilidade: se já é email, pula a function
+      if (raw.indexOf('@') !== -1) return { ok: true, email: raw.toLowerCase() };
+
+      var loginNorm = raw.toLowerCase();
+      if (!LOGIN_REGEX.test(loginNorm) || loginNorm.length < 3 || loginNorm.length > 30) {
+        return { ok: false, reason: 'invalid' };
+      }
+
+      // Pré-checagem: offline → não consome tentativa
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return { ok: false, reason: 'network', error: new Error('offline') };
+      }
+
+      try {
+        var resp = await supabaseClient.functions.invoke('resolve-login-to-email', {
+          body: { login: loginNorm }
+        });
+
+        if (resp.error) {
+          // Distingue erro de rede (FunctionsFetchError) de 4xx legítimo
+          if (isNetworkLikeError(resp.error)) {
+            return { ok: false, reason: 'network', error: resp.error };
+          }
+          // 404/400 → login realmente não existe
+          return { ok: false, reason: 'invalid' };
+        }
+        var data = resp.data || {};
+        if (data.success && data.email) return { ok: true, email: String(data.email).toLowerCase() };
+        return { ok: false, reason: 'invalid' };
+      } catch (e) {
+        // Exceções de rede (TypeError: Failed to fetch, AbortError, timeout do wrap)
+        if (isNetworkLikeError(e)) {
+          return { ok: false, reason: 'network', error: e };
+        }
+        console.error('[login] falha ao chamar resolve-login-to-email:', e);
+        // Erro inesperado (não-rede) — trata como rede para não acusar senha errada injustamente
+        return { ok: false, reason: 'network', error: e };
+      }
+    }
+
+    async function login() {
+      var identifier = document.getElementById('login-email').value.trim();
+      var pass = document.getElementById('login-pass').value;
+      var errEl = document.getElementById('login-error');
+      var btn = document.getElementById('btn-login');
+      errEl.style.display = 'none';
+
+      if (!identifier || !pass) {
+        errEl.textContent = 'Preencha login e senha.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      // Curto-circuito: offline antes mesmo de tentar
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        showConnectionModal(function () { login(); });
+        return;
+      }
+
+      // Evita duplo-clique travando o botão
+      if (btn) { btn.disabled = true; btn.dataset._label = btn.textContent; btn.textContent = 'Entrando...'; }
+      var restoreBtn = function () {
+        if (btn) { btn.disabled = false; btn.textContent = btn.dataset._label || 'Entrar'; }
+      };
+
+      try {
+        var resolved = await resolveLoginToEmail(identifier);
+
+        if (!resolved.ok && resolved.reason === 'network') {
+          restoreBtn();
+          showConnectionModal(function () { login(); });
+          return;
+        }
+        if (!resolved.ok) {
+          restoreBtn();
+          errEl.textContent = 'Login ou senha incorretos.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        var signInResp;
+        try {
+          signInResp = await supabaseClient.auth.signInWithPassword({
+            email: resolved.email,
+            password: pass
+          });
+        } catch (netErr) {
+          // Exceção lançada (raro no v2, mas pode ocorrer com fetch wrap)
+          restoreBtn();
+          if (isNetworkLikeError(netErr)) {
+            showConnectionModal(function () { login(); });
+          } else {
+            errEl.textContent = 'Não foi possível entrar. Tente novamente.';
+            errEl.style.display = 'block';
+          }
+          return;
+        }
+
+        if (signInResp.error) {
+          restoreBtn();
+          // Distingue rede vs credencial inválida
+          if (isNetworkLikeError(signInResp.error)) {
+            showConnectionModal(function () { login(); });
+            return;
+          }
+          errEl.textContent = 'Login ou senha incorretos.';
+          errEl.style.display = 'block';
+          return;
+        }
+
+        await handlePostLogin(signInResp.data.user.id);
+        // não restauramos o botão: navegação ocorre em handlePostLogin
+      } catch (e) {
+        restoreBtn();
+        if (isNetworkLikeError(e)) {
+          showConnectionModal(function () { login(); });
+        } else {
+          console.error('[login] erro inesperado:', e);
+          errEl.textContent = 'Ocorreu um erro. Tente novamente.';
+          errEl.style.display = 'block';
+        }
+      }
+    }
+  </script>
+</body>
+</html>

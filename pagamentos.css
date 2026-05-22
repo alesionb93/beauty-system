@@ -1,0 +1,233 @@
+/* =====================================================================
+   PAGAMENTOS — estilos do modal e badges
+   100% baseado em theme tokens (multi-tenant safe)
+   ===================================================================== */
+
+.pag-modal-body { padding: 6px 2px 2px; }
+
+.pag-resumo {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 6%, var(--bg-card, #fff));
+  margin-bottom: 14px;
+}
+.pag-resumo .pag-resumo-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; color: var(--text-muted, #6b7280);
+}
+.pag-resumo .pag-resumo-row strong { color: var(--text, #1a1a2e); }
+.pag-resumo .pag-total {
+  font-size: 22px; font-weight: 700; color: var(--gold, #6c3aed);
+}
+
+.pag-formas-list {
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px;
+}
+.pag-forma-item {
+  display: grid; grid-template-columns: 1fr 130px 36px;
+  gap: 8px; align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-card, var(--bg-card, #fff));
+}
+.pag-forma-item.parcelado { grid-template-columns: 1fr 110px 80px 36px; }
+.pag-forma-item select,
+.pag-forma-item input {
+  height: 38px; padding: 0 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px; background: var(--surface-input, var(--bg-card, #fff));
+  color: var(--text, #1a1a2e); font: inherit;
+}
+.pag-forma-item select:focus, .pag-forma-item input:focus {
+  outline: none; border-color: var(--gold, #6c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+}
+.pag-forma-item .pag-remove {
+  width: 36px; height: 36px; border: none; border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444; cursor: pointer; font-size: 14px;
+}
+.pag-forma-item .pag-remove:hover { background: color-mix(in srgb, #ef4444 22%, transparent); }
+
+.pag-add-btn {
+  width: 100%; padding: 10px; border-radius: 10px;
+  border: 1px dashed var(--border, #e5e7eb);
+  background: transparent; color: var(--gold, #6c3aed);
+  font-weight: 600; cursor: pointer; transition: .15s;
+}
+.pag-add-btn:hover {
+  background: color-mix(in srgb, var(--gold, #6c3aed) 8%, transparent);
+  border-color: var(--gold, #6c3aed);
+}
+
+.pag-restante {
+  margin: 12px 0 4px; padding: 10px 14px;
+  border-radius: 10px; font-size: 14px; font-weight: 600;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.pag-restante.ok       { background: color-mix(in srgb, #16a34a 12%, transparent); color: #16a34a; }
+.pag-restante.faltando { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309; }
+.pag-restante.excedido { background: color-mix(in srgb, #ef4444 14%, transparent); color: #b91c1c; }
+
+/* Badge "Pagamento pendente" no card do dia */
+.pag-badge-pendente {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+  margin-left: 6px;
+}
+.pag-badge-pago {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  background: color-mix(in srgb, #16a34a 18%, transparent);
+  color: #15803d; margin-left: 6px;
+}
+.pag-badge-parcial {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+  color: var(--gold, #6c3aed); margin-left: 6px;
+}
+
+/* Botão "Registrar pagamento" */
+.btn-registrar-pagamento {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 8px; border: none;
+  background: var(--gold, #6c3aed); color: #fff;
+  font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.btn-registrar-pagamento:hover { filter: brightness(1.08); }
+
+/* =====================================================================
+   v2 — RESPONSIVIDADE TOTAL do modal de pagamento + botões iguais
+   ===================================================================== */
+
+/* Garantir centralização perfeita do overlay */
+#modal-pagamento-ag.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 9999;
+  background: rgba(0,0,0,.55);
+  overflow-y: auto;
+}
+#modal-pagamento-ag.modal-overlay.active,
+#modal-pagamento-ag.modal-overlay[style*="display: flex"] {
+  display: flex !important;
+}
+
+/* Modal interno: largura fluida, scroll interno em telas baixas */
+#modal-pagamento-ag .modal {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+}
+#modal-pagamento-ag .modal-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Ações: botões com proporção igual */
+#modal-pagamento-ag .modal-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#modal-pagamento-ag .modal-actions > button {
+  flex: 1 1 0;
+  min-width: 140px;
+  justify-content: center;
+}
+
+/* Botões iguais no modal de agendamento (concluído sem pagamento) */
+#modal-agendamento .modal-actions,
+#modal-agendamento .modal-footer {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#modal-agendamento .modal-actions > button,
+#modal-agendamento .modal-footer  > button {
+  flex: 1 1 0;
+  min-width: 140px;
+  justify-content: center;
+}
+#btn-registrar-pagamento {
+  flex: 1 1 0;
+  min-width: 140px;
+  justify-content: center;
+}
+
+/* ---------- TABLET (≤ 768px) ---------- */
+@media (max-width: 768px) {
+  #modal-pagamento-ag .modal { max-width: 92vw; }
+  .pag-resumo .pag-total { font-size: 20px; }
+  .pag-forma-item { grid-template-columns: 1fr 110px 36px; gap: 6px; padding: 10px; }
+  .pag-forma-item.parcelado { grid-template-columns: 1fr 1fr 70px 36px; }
+}
+
+/* ---------- MOBILE (≤ 520px) ---------- */
+@media (max-width: 520px) {
+  #modal-pagamento-ag.modal-overlay { padding: 8px; align-items: flex-end; }
+  #modal-pagamento-ag .modal {
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+  }
+  #modal-pagamento-ag .modal-header h3 { font-size: 16px; }
+  #modal-pagamento-ag .modal-body { padding: 10px 14px 4px !important; }
+  #modal-pagamento-ag .modal-actions { padding: 12px 14px 18px !important; }
+  #modal-pagamento-ag .modal-actions > button {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+  }
+
+  .pag-resumo { padding: 12px; }
+  .pag-resumo .pag-total { font-size: 18px; }
+  .pag-resumo .pag-resumo-row { font-size: 12px; }
+
+  /* Empilhar linhas de forma de pagamento */
+  .pag-forma-item,
+  .pag-forma-item.parcelado {
+    grid-template-columns: 1fr 36px;
+    grid-template-areas:
+      "forma  remove"
+      "valor  remove"
+      "parc   remove";
+    gap: 8px;
+    padding: 12px;
+  }
+  .pag-forma-item > select:first-child { grid-area: forma; }
+  .pag-forma-item > .pag-valor         { grid-area: valor; }
+  .pag-forma-item > .pag-parcelas      { grid-area: parc; }
+  .pag-forma-item > .pag-remove        { grid-area: remove; align-self: start; }
+
+  .pag-restante { font-size: 13px; padding: 10px 12px; }
+
+  /* Botões do modal de agendamento empilhados no mobile */
+  #modal-agendamento .modal-actions > button,
+  #modal-agendamento .modal-footer  > button,
+  #btn-registrar-pagamento {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+}
