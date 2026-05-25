@@ -26,7 +26,7 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
-  console.log('%c💳 pagamentos.js v7 carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c💳 pagamentos.js v8 (caixinha) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
 
 
@@ -175,6 +175,9 @@
       +       '<button type="button" class="pag-add-btn" id="pag-add-btn">'
       +         '<i class="fa-solid fa-plus"></i> Adicionar forma de pagamento'
       +       '</button>'
+      +       '<button type="button" class="pag-tip-btn" id="pag-tip-btn">'
+      +         '<span class="pag-tip-emoji">🎁</span> <span id="pag-tip-btn-label">Adicionar caixinha</span>'
+      +       '</button>'
       +       '<div class="pag-restante" id="pag-restante"></div>'
       +     '</div>'
       +     '<div class="modal-actions" style="padding:14px 24px 22px;">'
@@ -195,6 +198,9 @@
     document.getElementById('pag-add-btn').addEventListener('click', function(){
       addLinhaPagamento();
       recomputar();
+    });
+    document.getElementById('pag-tip-btn').addEventListener('click', function(){
+      abrirModalCaixinha();
     });
     document.getElementById('pag-confirmar').addEventListener('click', onConfirmar);
   }
@@ -287,12 +293,18 @@
     if (!__ctx) return;
     var pags = lerPagamentos();
     var somado = pags.reduce(function(s,p){ return s + p.valor; }, 0);
-    var restante = round2(__ctx.total - somado);
+    var totalAlvo = round2((__ctx.total || 0) + (__ctx.tipAmount || 0));
+    var restante = round2(totalAlvo - somado);
+    // Atualiza display do total no resumo do modal
+    var totalDisp = document.getElementById('pag-total');
+    if (totalDisp) totalDisp.textContent = fmtBRL(totalAlvo);
+    renderTipRow();
     var box = document.getElementById('pag-restante');
     var btn = document.getElementById('pag-confirmar');
     if (Math.abs(restante) < 0.01) {
       box.className = 'pag-restante ok';
-      box.innerHTML = '<span><i class="fa-solid fa-check"></i> Total confere</span><strong>'+fmtBRL(somado)+'</strong>';
+      var okLabel = (__ctx.tipAmount > 0) ? 'Total confere (serviços + caixinha)' : 'Total confere';
+      box.innerHTML = '<span><i class="fa-solid fa-check"></i> '+okLabel+'</span><strong>'+fmtBRL(somado)+'</strong>';
       btn.disabled = pags.length === 0;
     } else if (restante > 0) {
       box.className = 'pag-restante faltando';
@@ -306,19 +318,210 @@
   }
 
   // ------------------------------------------------------------------
+  // CAIXINHA / GORJETA — render da linha no resumo + modal
+  // ------------------------------------------------------------------
+  function renderTipRow() {
+    var resumoEl = document.querySelector('#modal-pagamento-ag .pag-resumo');
+    if (!resumoEl) return;
+    var existing = resumoEl.querySelector('.pag-tip-row');
+    var tip = Number(__ctx && __ctx.tipAmount) || 0;
+    if (tip <= 0) { if (existing) existing.remove(); return; }
+    if (!existing) {
+      existing = document.createElement('div');
+      existing.className = 'pag-resumo-row pag-tip-row';
+      // Inserir antes da linha de total (última)
+      var totalRow = resumoEl.querySelector('.pag-resumo-row:last-child');
+      resumoEl.insertBefore(existing, totalRow);
+    }
+    existing.innerHTML = '<span>🎁 Caixinha (gorjeta)</span><strong>'+fmtBRL(tip)+' <button type="button" class="pag-tip-edit" title="Editar caixinha" style="border:0;background:transparent;color:var(--gold,#6c3aed);cursor:pointer;font-size:12px;margin-left:6px;">editar</button> <button type="button" class="pag-tip-remove" title="Remover caixinha" style="border:0;background:transparent;color:#ef4444;cursor:pointer;font-size:12px;">remover</button></strong>';
+    var ed = existing.querySelector('.pag-tip-edit');
+    var rm = existing.querySelector('.pag-tip-remove');
+    if (ed) ed.onclick = function(){ abrirModalCaixinha(); };
+    if (rm) rm.onclick = function(){
+      __ctx.tipAmount = 0;
+      // Reajustar 1ª linha de pagamento para novo total
+      var first = document.querySelector('#pag-formas-list .pag-forma-item .pag-valor');
+      if (first) first.value = round2(__ctx.total).toFixed(2);
+      recomputar();
+    };
+  }
+
+  // -------- Modal de caixinha --------
+  var TIP_PRESETS = [2, 5, 10, 15];
+
+  function ensureCaixinhaModal() {
+    if (document.getElementById('modal-caixinha')) return;
+    var presetsHtml = TIP_PRESETS.map(function(v){
+      return '<button type="button" class="tip-preset" data-tip="'+v+'">'+fmtBRL(v).replace(/\u00a0/g,' ')+'</button>';
+    }).join('');
+    var html = ''
+      + '<div class="modal-overlay" id="modal-caixinha">'
+      +   '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tip-title">'
+      +     '<div class="modal-header">'
+      +       '<h3 id="tip-title">🎁 Adicionar caixinha</h3>'
+      +       '<button type="button" class="modal-close" data-tip-close="1" aria-label="Fechar">&times;</button>'
+      +     '</div>'
+      +     '<div class="modal-body">'
+      +       '<p class="tip-desc">Valorize o atendimento do profissional com uma caixinha.</p>'
+      +       '<span class="tip-label">Sugestões de valores</span>'
+      +       '<div class="tip-presets" id="tip-presets">'+presetsHtml+'</div>'
+      +       '<span class="tip-label">Outro valor</span>'
+      +       '<div class="tip-input-wrap">'
+      +         '<span class="tip-input-prefix">R$</span>'
+      +         '<input type="text" inputmode="decimal" class="tip-input" id="tip-input" placeholder="0,00" autocomplete="off">'
+      +       '</div>'
+      +       '<p class="tip-helper">Digite o valor que deseja adicionar como caixinha.</p>'
+      +       '<div class="tip-summary" id="tip-summary">'
+      +         '<div class="tip-summary-row"><span>Total do atendimento</span><strong id="tip-sum-atend">R$ 0,00</strong></div>'
+      +         '<div class="tip-summary-row"><span>Caixinha</span><strong id="tip-sum-tip">R$ 0,00</strong></div>'
+      +         '<div class="tip-summary-row is-total"><span>Total final</span><strong id="tip-sum-total">R$ 0,00</strong></div>'
+      +       '</div>'
+      +       '<div class="tip-emotional">'
+      +         '<span class="tip-heart">♥</span>'
+      +         '<span><strong>Obrigado por valorizar o profissional!</strong><br>Essa caixinha faz toda a diferença.</span>'
+      +       '</div>'
+      +     '</div>'
+      +     '<div class="modal-actions">'
+      +       '<button type="button" class="tip-btn-cancel" data-tip-close="1">Cancelar</button>'
+      +       '<button type="button" class="tip-btn-confirm" id="tip-confirm"><i class="fa-solid fa-circle-check"></i> Adicionar caixinha</button>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap.firstChild);
+
+    var modal = document.getElementById('modal-caixinha');
+    modal.querySelectorAll('[data-tip-close]').forEach(function(b){
+      b.addEventListener('click', closeCaixinhaModal);
+    });
+    modal.addEventListener('click', function(e){
+      if (e.target === modal) closeCaixinhaModal();
+    });
+
+    var input = document.getElementById('tip-input');
+    input.addEventListener('input', function(){
+      var raw = input.value.replace(/[^\d,\.]/g, '').replace(/\./g, '').replace(',', '.');
+      var v = parseFloat(raw);
+      // Marca/desmarca preset
+      modal.querySelectorAll('.tip-preset').forEach(function(b){
+        b.classList.toggle('active', !isNaN(v) && Number(b.dataset.tip) === round2(v));
+      });
+      updateTipSummary();
+    });
+    input.addEventListener('blur', function(){
+      var raw = input.value.replace(/[^\d,\.]/g, '').replace(/\./g, '').replace(',', '.');
+      var v = parseFloat(raw);
+      if (!isNaN(v) && v > 0) input.value = v.toFixed(2).replace('.', ',');
+    });
+
+    modal.querySelectorAll('.tip-preset').forEach(function(b){
+      b.addEventListener('click', function(){
+        var v = Number(b.dataset.tip) || 0;
+        modal.querySelectorAll('.tip-preset').forEach(function(x){ x.classList.toggle('active', x === b); });
+        input.value = v.toFixed(2).replace('.', ',');
+        updateTipSummary();
+      });
+    });
+
+    document.getElementById('tip-confirm').addEventListener('click', confirmarCaixinha);
+  }
+
+  function readTipInput() {
+    var input = document.getElementById('tip-input');
+    if (!input) return 0;
+    var raw = String(input.value || '').replace(/[^\d,\.]/g, '').replace(/\./g, '').replace(',', '.');
+    var v = parseFloat(raw);
+    return isNaN(v) ? 0 : round2(v);
+  }
+
+  function updateTipSummary() {
+    if (!__ctx) return;
+    var atend = round2(__ctx.total || 0);
+    var tip = readTipInput();
+    var total = round2(atend + (tip > 0 ? tip : 0));
+    var elA = document.getElementById('tip-sum-atend');
+    var elT = document.getElementById('tip-sum-tip');
+    var elF = document.getElementById('tip-sum-total');
+    if (elA) elA.textContent = fmtBRL(atend);
+    if (elT) elT.textContent = fmtBRL(tip > 0 ? tip : 0);
+    if (elF) elF.textContent = fmtBRL(total);
+    var btn = document.getElementById('tip-confirm');
+    if (btn) btn.disabled = !(tip > 0);
+  }
+
+  function abrirModalCaixinha() {
+    if (!__ctx) return;
+    ensureCaixinhaModal();
+    var modal = document.getElementById('modal-caixinha');
+    var input = document.getElementById('tip-input');
+    var existing = Number(__ctx.tipAmount) || 0;
+    input.value = existing > 0 ? existing.toFixed(2).replace('.', ',') : '';
+    modal.querySelectorAll('.tip-preset').forEach(function(b){
+      b.classList.toggle('active', existing > 0 && Number(b.dataset.tip) === existing);
+    });
+    updateTipSummary();
+    modal.classList.add('active');
+    modal.style.display = 'flex';
+    setTimeout(function(){ try { input.focus(); } catch(_){} }, 50);
+  }
+
+  function closeCaixinhaModal() {
+    var modal = document.getElementById('modal-caixinha');
+    if (!modal) return;
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+
+  function confirmarCaixinha() {
+    if (!__ctx) return;
+    var tip = readTipInput();
+    if (!(tip > 0)) return;
+    var prevTip = Number(__ctx.tipAmount) || 0;
+    __ctx.tipAmount = tip;
+    // Auto-ajusta 1ª linha de pagamento para casar com o novo total
+    var firstVal = document.querySelector('#pag-formas-list .pag-forma-item .pag-valor');
+    if (firstVal) {
+      var atual = parseFloat(String(firstVal.value).replace(',', '.')) || 0;
+      var totalAlvo = round2((__ctx.total || 0) + tip);
+      // Soma de todas as outras linhas
+      var rows = document.querySelectorAll('#pag-formas-list .pag-forma-item');
+      var outras = 0;
+      rows.forEach(function(r, idx){
+        if (idx === 0) return;
+        var v = parseFloat(String(r.querySelector('.pag-valor').value).replace(',', '.')) || 0;
+        outras += v;
+      });
+      var novo = round2(totalAlvo - outras);
+      if (novo > 0) firstVal.value = novo.toFixed(2);
+    }
+    closeCaixinhaModal();
+    recomputar();
+    if (typeof window.showToast === 'function') {
+      window.showToast(prevTip > 0 ? 'Caixinha atualizada' : 'Caixinha adicionada');
+    }
+  }
+
+  // ------------------------------------------------------------------
   // Persistência
   // ------------------------------------------------------------------
   async function salvarPagamentos(agId, pagamentos) {
     var sb = getSb(); var tenantId = getTenantId();
     if (!sb || !tenantId) throw new Error('Supabase/tenant indisponível');
-    var rows = pagamentos.map(function(p){
-      return {
+    var tip = Number(__ctx && __ctx.tipAmount) || 0;
+    var rows = pagamentos.map(function(p, idx){
+      var row = {
         tenant_id: tenantId,
         agendamento_id: agId,
         forma_pagamento: p.forma_pagamento,
         valor: p.valor,
         parcelas: p.parcelas || 1
       };
+      // Marca metadado de caixinha na 1ª linha (sem alterar schema)
+      if (idx === 0 && tip > 0) {
+        row.observacao = 'CAIXINHA:' + tip.toFixed(2);
+      }
+      return row;
     });
     var resp = await sb.from('agendamento_pagamentos').insert(rows);
     if (resp.error) throw resp.error;
@@ -368,7 +571,8 @@
     if (!__ctx) return;
     var pags = lerPagamentos();
     var somado = pags.reduce(function(s,p){ return s + p.valor; }, 0);
-    if (Math.abs(somado - __ctx.total) >= 0.01) return;
+    var totalAlvo = round2((__ctx.total || 0) + (Number(__ctx.tipAmount)||0));
+    if (Math.abs(somado - totalAlvo) >= 0.01) return;
 
     var btn = document.getElementById('pag-confirmar');
     btn.disabled = true;
@@ -387,10 +591,11 @@
         if (agLocal) {
           agLocal.valor_total_pago = round2(somado);
           agLocal.possui_pagamento = pags.length > 0;
-          agLocal.status_pagamento = Math.abs(somado - __ctx.total) < 0.01 ? 'pago' : 'parcial';
+          agLocal.status_pagamento = Math.abs(somado - totalAlvo) < 0.01 ? 'pago' : 'parcial';
+          agLocal.tip_amount = Number(__ctx.tipAmount) || 0;
         }
       } catch(_){}
-      try { await atualizarResumoFinanceiroAgendamento(__ctx.agendamentoId, somado, __ctx.total); } catch(_){}
+      try { await atualizarResumoFinanceiroAgendamento(__ctx.agendamentoId, somado, totalAlvo); } catch(_){}
 
       // 🔧 v7: hook síncrono para add-ons (pré-pago) — roda ANTES do close,
       // garantindo que a criação do próximo agendamento não dependa do
@@ -398,7 +603,10 @@
       try {
         var ctxSnap = {
           agendamentoId: __ctx.agendamentoId,
-          total: __ctx.total,
+          total: totalAlvo,
+          serviceAmount: round2(__ctx.total || 0),
+          tipAmount: round2(__ctx.tipAmount || 0),
+          totalAmount: round2(totalAlvo),
           baseTotal: __ctx.baseTotal,
           extraTotal: __ctx.extraTotal,
           mode: __ctx.mode,
@@ -450,6 +658,7 @@
       total: total,
       baseTotal: total,   // total original do atendimento (sem pré-pago)
       extraTotal: 0,      // extra do pré-pago (próximo agendamento)
+      tipAmount: 0,       // 🎁 caixinha (gorjeta)
       mode: opts.mode || 'concluir',
       onSuccess: opts.onSuccess || null
     };
@@ -458,6 +667,9 @@
     document.getElementById('pag-data').textContent =
       (ag.data ? ag.data.split('-').reverse().join('/') : '') + ' · ' + (ag.hora || '').slice(0,5);
     document.getElementById('pag-total').textContent = fmtBRL(total);
+    // Label da linha base: "Total a pagar (serviços)"
+    var lbl = document.querySelector('#modal-pagamento-ag .pag-resumo .pag-resumo-row:last-child span');
+    if (lbl) lbl.textContent = 'Total a pagar (serviços)';
     document.getElementById('pag-confirmar-label').textContent =
       __ctx.mode === 'concluir' ? 'Confirmar e concluir' : 'Salvar pagamento';
 
@@ -466,15 +678,32 @@
 
     if (__ctx.mode === 'registrar') {
       var existentes = await carregarPagamentos(opts.agendamentoId);
+      // Detectar caixinha já registrada (CAIXINHA:X.XX em observacao)
+      try {
+        var sb2 = getSb();
+        if (sb2 && existentes.length) {
+          var idsObs = existentes.map(function(p){ return p.id; });
+          var rObs = await sb2.from('agendamento_pagamentos').select('id, observacao').in('id', idsObs);
+          var byId = {};
+          (rObs.data || []).forEach(function(r){ byId[r.id] = r.observacao || ''; });
+          var tipDetect = 0;
+          existentes.forEach(function(p){
+            var obs = byId[p.id] || '';
+            var m = /CAIXINHA:([\d\.]+)/i.exec(obs);
+            if (m) tipDetect += parseFloat(m[1]) || 0;
+          });
+          if (tipDetect > 0) __ctx.tipAmount = round2(tipDetect);
+        }
+      } catch(_){}
       if (existentes.length > 0) {
         existentes.forEach(function(p){
           addLinhaPagamento({ forma: p.forma_pagamento, valor: p.valor, parcelas: p.parcelas });
         });
       } else {
-        addLinhaPagamento({ forma: 'pix', valor: total });
+        addLinhaPagamento({ forma: 'pix', valor: round2(total + (__ctx.tipAmount||0)) });
       }
     } else {
-      addLinhaPagamento({ forma: 'pix', valor: total });
+      addLinhaPagamento({ forma: 'pix', valor: round2(total + (__ctx.tipAmount||0)) });
     }
 
     openPagModal();
@@ -722,7 +951,231 @@
     instalarInterceptorConclusao();
     injetarBotaoRegistrarPagamento();
     instalarObserverDayDetail();
+    instalarHookDashboardCaixinha();
   }
+
+  // ------------------------------------------------------------------
+  // DASHBOARD — soma das caixinhas no Faturamento Total
+  // Lê agendamento_pagamentos.observacao = "CAIXINHA:X.XX" dos agendamentos
+  // CONCLUÍDOS no range filtrado e acrescenta ao card "Faturamento Total".
+  // Também recalcula o Ticket Médio para refletir o novo total.
+  // ------------------------------------------------------------------
+  function instalarHookDashboardCaixinha() {
+    var tries = 0;
+    var iv = setInterval(function(){
+      if (typeof window.loadDashboard === 'function' && !window.loadDashboard.__pagTipWrapped) {
+        clearInterval(iv);
+        var original = window.loadDashboard;
+        var wrapped = async function(){
+          var ret = await original.apply(this, arguments);
+          try { await aplicarCaixinhaNoDashboard(); } catch(e){ console.warn('[pag][dash-tip]', e); }
+          return ret;
+        };
+        wrapped.__pagTipWrapped = true;
+        window.loadDashboard = wrapped;
+        console.log('[pag] hook de caixinha no dashboard instalado');
+      } else if (++tries > 50) {
+        clearInterval(iv);
+      }
+    }, 200);
+  }
+
+  function parseMoneyText(txt){
+    var s = String(txt || '').replace(/[^\d,.-]/g, '').replace(/\./g,'').replace(',', '.');
+    var v = parseFloat(s);
+    return isNaN(v) ? 0 : v;
+  }
+
+  async function aplicarCaixinhaNoDashboard(){
+    var sb = getSb(); var tenantId = getTenantId();
+    if (!sb || !tenantId) return;
+    if (!Array.isArray(window.appointments)) return;
+
+    // Range filtrado pelo dashboard (mesma lógica do hook de produtos)
+    var range = (typeof window.getCalendarVisibleDateRange === 'function')
+      ? window.getCalendarVisibleDateRange() : null;
+    var fIni = (typeof window.filtrosAplicados !== 'undefined' && window.filtrosAplicados && window.filtrosAplicados.dataInicio)
+      ? window.filtrosAplicados.dataInicio : (range ? range.start : null);
+    var fFim = (typeof window.filtrosAplicados !== 'undefined' && window.filtrosAplicados && window.filtrosAplicados.dataFim)
+      ? window.filtrosAplicados.dataFim : (range ? range.end : null);
+
+    // Filtra agendamentos: dentro do range, NÃO cancelados, concluídos
+    var idsValidos = [];
+    window.appointments.forEach(function(a){
+      if (!a || !a.id) return;
+      if (typeof window.isAppointmentCancelled === 'function' && window.isAppointmentCancelled(a)) return;
+      if (typeof window.isAppointmentAutoCompleted === 'function' && !window.isAppointmentAutoCompleted(a)) return;
+      if (fIni && fFim && a.data) {
+        if (a.data < fIni || a.data > fFim) return;
+      }
+      idsValidos.push(a.id);
+    });
+    if (!idsValidos.length) {
+      limparMarcadorTip();
+      injetarColunasCaixinhaNaTabela({});
+      return;
+    }
+
+    // Busca observacoes em lote
+    var totalCaixinha = 0;
+    var tipPorAgendamento = {};
+    try {
+      // Supabase aceita .in() com até ~1000 ids; quebrar em chunks por segurança
+      var chunk = 500;
+      for (var i = 0; i < idsValidos.length; i += chunk) {
+        var slice = idsValidos.slice(i, i + chunk);
+        var resp = await sb.from('agendamento_pagamentos')
+          .select('agendamento_id, observacao')
+          .in('agendamento_id', slice)
+          .eq('tenant_id', tenantId);
+        if (resp.error) throw resp.error;
+        (resp.data || []).forEach(function(r){
+          var m = /CAIXINHA:([\d\.]+)/i.exec(r.observacao || '');
+          if (m) {
+            var v = parseFloat(m[1]) || 0;
+            totalCaixinha += v;
+            tipPorAgendamento[r.agendamento_id] = (tipPorAgendamento[r.agendamento_id] || 0) + v;
+          }
+        });
+      }
+    } catch(e){
+      console.warn('[pag][dash-tip] erro ao buscar caixinhas', e);
+      return;
+    }
+
+    // Caixinha por profissional (usa o profissional principal do agendamento)
+    var tipPorProf = {};
+    window.appointments.forEach(function(a){
+      if (!a || !a.id) return;
+      var tip = tipPorAgendamento[a.id];
+      if (!tip) return;
+      var profs = (typeof window.getAppointmentProfessionals === 'function')
+        ? window.getAppointmentProfessionals(a) : [];
+      var profNome = (profs && profs[0]) || a.profissional || a.profissional_nome || '';
+      if (!profNome) return;
+      tipPorProf[profNome] = (tipPorProf[profNome] || 0) + tip;
+    });
+
+    totalCaixinha = round2(totalCaixinha);
+    var fatEl = document.getElementById('dash-faturamento');
+    if (fatEl) {
+      var atual = parseMoneyText(fatEl.textContent);
+      var novo = round2(atual + totalCaixinha);
+      fatEl.textContent = fmtBRL(novo);
+      fatEl.dataset.tipSum = String(totalCaixinha);
+      var prodTitle = fatEl.dataset.prodSum && parseFloat(fatEl.dataset.prodSum) > 0
+        ? ('Inclui ' + fmtBRL(parseFloat(fatEl.dataset.prodSum)) + ' em produtos vendidos')
+        : '';
+      var tipTitle = totalCaixinha > 0
+        ? ('Inclui ' + fmtBRL(totalCaixinha) + ' em caixinhas (gorjetas)')
+        : '';
+      fatEl.title = [prodTitle, tipTitle].filter(Boolean).join(' · ');
+      var tickEl = document.getElementById('dash-ticket');
+      var totAgEl = document.getElementById('dash-total-ag');
+      if (tickEl && totAgEl) {
+        var qtd = parseInt(String(totAgEl.textContent).replace(/\D/g,''), 10) || 0;
+        if (qtd > 0) tickEl.textContent = fmtBRL(round2(novo / qtd));
+      }
+    }
+
+    // Injeta colunas "Caixinha" e "Total a receber" na tabela "Por Profissional"
+    injetarColunasCaixinhaNaTabela(tipPorProf);
+
+    console.log('[pag][dash-tip] caixinha somada ao faturamento:', totalCaixinha);
+  }
+
+  function limparMarcadorTip(){
+    var fatEl = document.getElementById('dash-faturamento');
+    if (fatEl) { fatEl.dataset.tipSum = '0'; }
+  }
+
+  // ------------------------------------------------------------------
+  // Tabela "Por Profissional" — injeta colunas Caixinha + Total a receber
+  // (rodando após loadDashboard; idempotente)
+  // ------------------------------------------------------------------
+  function injetarColunasCaixinhaNaTabela(tipPorProf) {
+    tipPorProf = tipPorProf || {};
+    var tbody = document.getElementById('dash-prof-tbody');
+    if (!tbody) return;
+    var table = tbody.closest('table');
+    var theadRow = table ? table.querySelector('thead tr') : null;
+
+    // Garante os <th> no cabeçalho (sem duplicar)
+    if (theadRow && !theadRow.querySelector('.dash-prof-col-caixinha')) {
+      var thTip = document.createElement('th');
+      thTip.className = 'dash-prof-col-caixinha';
+      thTip.textContent = 'Caixinha';
+      var thTot = document.createElement('th');
+      thTot.className = 'dash-prof-col-total-receber';
+      thTot.textContent = 'Total a receber';
+      theadRow.appendChild(thTip);
+      theadRow.appendChild(thTot);
+    }
+
+    // Para cada linha, adiciona os 2 <td> (removendo eventuais anteriores p/ idempotência)
+    tbody.querySelectorAll('tr').forEach(function(tr){
+      tr.querySelectorAll('td.dash-prof-cell-caixinha, td.dash-prof-cell-total-receber').forEach(function(c){ c.remove(); });
+      var nomeCell = tr.querySelector('td');
+      var nome = nomeCell ? (nomeCell.textContent || '').trim() : '';
+      var tip = round2(Number(tipPorProf[nome]) || 0);
+
+      // Comissão: feature pode estar desligada (coluna escondida).
+      var thComissao = document.querySelector('th.dash-prof-col-comissao');
+      var comissaoAtiva = thComissao && (thComissao.offsetParent !== null);
+      var comissaoVal = 0;
+      var tds = tr.querySelectorAll('td');
+      if (comissaoAtiva && tds.length >= 5) {
+        comissaoVal = parseMoneyText(tds[tds.length - 1].textContent);
+      }
+      var totalReceber = round2(tip + comissaoVal);
+
+      var tdTip = document.createElement('td');
+      tdTip.className = 'dash-prof-cell-caixinha';
+      tdTip.textContent = fmtBRL(tip);
+
+      var tdTot = document.createElement('td');
+      tdTot.className = 'dash-prof-cell-total-receber';
+      tdTot.style.fontWeight = '600';
+      tdTot.style.color = 'var(--gold, #6c3aed)';
+      tdTot.textContent = fmtBRL(totalReceber);
+
+      tr.appendChild(tdTip);
+      tr.appendChild(tdTot);
+    });
+
+    // ===== Cards mobile =====
+    var mobile = document.getElementById('dash-prof-cards-mobile');
+    if (mobile) {
+      mobile.querySelectorAll('.dash-prof-card').forEach(function(card){
+        card.querySelectorAll('.dash-prof-metric.caixinha-extra, .dash-prof-metric.total-receber').forEach(function(b){ b.remove(); });
+        var nameEl = card.querySelector('.dash-prof-card-name');
+        var nome = nameEl ? (nameEl.textContent || '').trim() : '';
+        var tip = round2(Number(tipPorProf[nome]) || 0);
+
+        var comBlock = card.querySelector('.dash-prof-metric.comissao .dash-prof-metric-value');
+        var comissaoVal = comBlock ? parseMoneyText(comBlock.textContent) : 0;
+        var totalReceber = round2(tip + comissaoVal);
+
+        var html = ''
+          + '<div class="dash-prof-metric caixinha-extra">'
+          +   '<div class="dash-prof-metric-row">'
+          +     '<span class="dash-prof-metric-label">🎁 Caixinha</span>'
+          +     '<span class="dash-prof-metric-value">' + fmtBRL(tip) + '</span>'
+          +   '</div>'
+          + '</div>'
+          + '<div class="dash-prof-metric total-receber" style="border-top:1px dashed var(--border,#e5e7eb);padding-top:8px;margin-top:6px;">'
+          +   '<div class="dash-prof-metric-row">'
+          +     '<span class="dash-prof-metric-label" style="font-weight:600;">Total a receber</span>'
+          +     '<span class="dash-prof-metric-value" style="color:var(--gold,#6c3aed);font-weight:700;">' + fmtBRL(totalReceber) + '</span>'
+          +   '</div>'
+          + '</div>';
+        var wrap = document.createElement('div');
+        wrap.innerHTML = html;
+        while (wrap.firstChild) card.appendChild(wrap.firstChild);
+      });
+    }
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {

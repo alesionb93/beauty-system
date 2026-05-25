@@ -72,6 +72,247 @@
 .pag-restante.faltando { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #b45309; }
 .pag-restante.excedido { background: color-mix(in srgb, #ef4444 14%, transparent); color: #b91c1c; }
 
+/* =====================================================================
+   CAIXINHA / GORJETA — botão, modal e linha no resumo
+   100% baseado em tokens de tema (multi-tenant safe)
+   ===================================================================== */
+
+/* Botão "Adicionar caixinha" abaixo do "+ Adicionar forma de pagamento" */
+.pag-tip-btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: transparent;
+  color: var(--text, #1a1a2e);
+  font-weight: 600;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.pag-tip-btn:hover {
+  background: color-mix(in srgb, var(--gold, #6c3aed) 8%, transparent);
+  border-color: var(--gold, #6c3aed);
+  color: var(--gold, #6c3aed);
+}
+.pag-tip-btn .pag-tip-emoji { font-size: 15px; line-height: 1; }
+
+/* Linha "Caixinha (gorjeta)" no resumo do modal de pagamento */
+.pag-resumo .pag-resumo-row.pag-tip-row strong {
+  color: var(--gold, #6c3aed);
+}
+
+/* ===================== Modal de caixinha ===================== */
+#modal-caixinha.modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  align-items: center; justify-content: center;
+  padding: 16px;
+  z-index: 10000;
+  background: rgba(0,0,0,.55);
+  overflow-y: auto;
+}
+#modal-caixinha.modal-overlay.active,
+#modal-caixinha.modal-overlay[style*="display: flex"] {
+  display: flex !important;
+}
+#modal-caixinha .modal {
+  width: 100%;
+  max-width: 460px;
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-modal, var(--bg-card, #fff));
+  color: var(--modal-text, var(--text, #1a1a2e));
+  border: 1px solid var(--modal-border, var(--border, #e5e7eb));
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+#modal-caixinha .modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+#modal-caixinha .modal-header h3 {
+  margin: 0; font-size: 16px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+#modal-caixinha .modal-close {
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-muted, #6b7280); font-size: 22px; line-height: 1;
+}
+#modal-caixinha .modal-body {
+  padding: 14px 20px 6px;
+  overflow-y: auto; flex: 1 1 auto;
+  -webkit-overflow-scrolling: touch;
+}
+#modal-caixinha .tip-desc {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+  line-height: 1.45;
+}
+#modal-caixinha .tip-label {
+  display: block;
+  font-size: 12px; font-weight: 600;
+  color: var(--text, #1a1a2e);
+  margin: 4px 0 8px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+#modal-caixinha .tip-presets {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+#modal-caixinha .tip-preset {
+  appearance: none;
+  padding: 10px 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface-card, var(--bg-card, #fff));
+  color: var(--text, #1a1a2e);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s, transform .05s;
+}
+#modal-caixinha .tip-preset:hover {
+  border-color: var(--gold, #6c3aed);
+  background: color-mix(in srgb, var(--gold, #6c3aed) 8%, transparent);
+}
+#modal-caixinha .tip-preset.active {
+  background: var(--gold, #6c3aed);
+  border-color: var(--gold, #6c3aed);
+  color: var(--gold-contrast, #fff);
+}
+#modal-caixinha .tip-input-wrap {
+  position: relative;
+  margin-bottom: 6px;
+}
+#modal-caixinha .tip-input-prefix {
+  position: absolute;
+  left: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 13px; font-weight: 600;
+  color: var(--text-muted, #6b7280);
+  pointer-events: none;
+}
+#modal-caixinha .tip-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px 0 36px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-input, var(--bg-card, #fff));
+  color: var(--text, #1a1a2e);
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+#modal-caixinha .tip-input:focus {
+  border-color: var(--gold, #6c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+}
+#modal-caixinha .tip-helper {
+  margin: 0 0 14px;
+  font-size: 11px;
+  color: var(--text-muted, #6b7280);
+}
+#modal-caixinha .tip-summary {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 6%, var(--bg-card, #fff));
+  margin-bottom: 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+#modal-caixinha .tip-summary-row {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+#modal-caixinha .tip-summary-row strong { color: var(--text, #1a1a2e); font-weight: 600; }
+#modal-caixinha .tip-summary-row.is-total {
+  border-top: 1px dashed var(--border, #e5e7eb);
+  padding-top: 8px; margin-top: 2px;
+  font-size: 14px;
+}
+#modal-caixinha .tip-summary-row.is-total strong {
+  color: var(--gold, #6c3aed);
+  font-size: 18px; font-weight: 700;
+}
+#modal-caixinha .tip-emotional {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 4%, transparent);
+  color: var(--text-muted, #6b7280);
+  font-size: 12px;
+  line-height: 1.45;
+}
+#modal-caixinha .tip-emotional .tip-heart {
+  color: var(--gold, #6c3aed);
+  font-size: 14px; line-height: 1; padding-top: 1px;
+}
+#modal-caixinha .modal-actions {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+#modal-caixinha .modal-actions > button {
+  flex: 1 1 0;
+  min-width: 120px;
+  height: 42px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background .15s, border-color .15s, color .15s, filter .15s;
+}
+#modal-caixinha .tip-btn-cancel {
+  background: transparent;
+  border: 1px solid var(--border, #e5e7eb);
+  color: var(--text, #1a1a2e);
+}
+#modal-caixinha .tip-btn-cancel:hover {
+  background: color-mix(in srgb, var(--text, #1a1a2e) 6%, transparent);
+}
+#modal-caixinha .tip-btn-confirm {
+  background: var(--gold, #6c3aed);
+  border: 1px solid var(--gold, #6c3aed);
+  color: var(--gold-contrast, #fff);
+}
+#modal-caixinha .tip-btn-confirm:hover { filter: brightness(1.08); }
+#modal-caixinha .tip-btn-confirm:disabled {
+  opacity: .55; cursor: not-allowed; filter: none;
+}
+
+@media (max-width: 520px) {
+  #modal-caixinha.modal-overlay { padding: 8px; align-items: flex-end; }
+  #modal-caixinha .modal {
+    max-width: 100%;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+  }
+  #modal-caixinha .tip-presets { grid-template-columns: repeat(2, 1fr); }
+  #modal-caixinha .modal-actions { flex-wrap: wrap; }
+  #modal-caixinha .modal-actions > button { flex: 1 1 100%; min-width: 0; width: 100%; }
+}
+
+
 /* Badge "Pagamento pendente" no card do dia */
 .pag-badge-pendente {
   display: inline-flex; align-items: center; gap: 4px;
