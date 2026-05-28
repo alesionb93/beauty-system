@@ -22,7 +22,7 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes.js v4 (no-hash navigation, módulo interno) carregado',
+  console.log('%c💰 comissoes.js v5 (no-hash + anti-revert guard) carregado',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ------------------------------------------------------------------
@@ -30,6 +30,7 @@
   // (compartilhado entre o handler do item e o hijack do switchPage)
   // ------------------------------------------------------------------
   window.__COM_LAST_TOUCH_AT__ = window.__COM_LAST_TOUCH_AT__ || 0;
+  window.__COM_CFG_TOUCH_AT__  = window.__COM_CFG_TOUCH_AT__  || 0;
   var GHOST_WINDOW_MS = 800; // janela ampla para cobrir iOS Safari lento
 
   // ------------------------------------------------------------------
@@ -51,10 +52,27 @@
       var _orig = window.switchPage;
       var wrapped = function(page){
         try {
-          var dt = Date.now() - (window.__COM_LAST_TOUCH_AT__ || 0);
-          if (dt < GHOST_WINDOW_MS && page !== 'comissoes') {
-            console.log('[comissoes] hijack: switchPage("' + page + '") dt=' + dt + 'ms → redirecionado p/ comissoes');
+          var now = Date.now();
+          var dtTouch = now - (window.__COM_LAST_TOUCH_AT__ || 0);
+
+          // (A) Janela pós-toque em Comissões: ghost click vira comissoes
+          if (dtTouch < GHOST_WINDOW_MS && page !== 'comissoes') {
+            console.log('[comissoes] hijack(A): switchPage("' + page + '") dt=' + dtTouch + 'ms → redirecionado p/ comissoes');
             page = 'comissoes';
+          }
+
+          // (B) ANTI-REVERT: se estamos NA página de Comissões e algo tenta
+          // ir para 'configuracoes' SEM que o usuário tenha tocado no item
+          // Configurações nos últimos 1500ms, é uma chamada espúria
+          // (listener delegado, cleanup interno, observer, etc.). Bloqueia.
+          if (page === 'configuracoes') {
+            var pgC = document.getElementById('page-comissoes');
+            var onCom = !!(pgC && pgC.classList.contains('active'));
+            var dtCfg = now - (window.__COM_CFG_TOUCH_AT__ || 0);
+            if (onCom && dtCfg > 1500) {
+              console.log('[comissoes] hijack(B): switchPage("configuracoes") BLOQUEADO (estamos em Comissões, sem toque real em Configurações; dtCfg=' + dtCfg + 'ms)');
+              return; // descarta a navegação espúria
+            }
           }
         } catch(_){}
         return _orig.apply(this, [page].concat([].slice.call(arguments, 1)));
@@ -79,6 +97,26 @@
     }, 1500);
   }
   installSwitchPageHijack();
+
+  // ------------------------------------------------------------------
+  // TRACKER: marca timestamp de toque/click REAL em "Configurações"
+  // Permite que o guard (B) do hijack distinga navegação legítima de
+  // chamadas espúrias enquanto estamos em Comissões.
+  // ------------------------------------------------------------------
+  if (!window.__COM_CFG_TRACKER__) {
+    window.__COM_CFG_TRACKER__ = true;
+    function isCfg(t){
+      return !!(t && t.closest && t.closest('[data-page="configuracoes"], [data-nav="configuracoes"]'));
+    }
+    ['pointerdown','touchstart','mousedown','click'].forEach(function(evt){
+      document.addEventListener(evt, function(ev){
+        if (isCfg(ev.target)) {
+          window.__COM_CFG_TOUCH_AT__ = Date.now();
+        }
+      }, true); // capture, antes de qualquer outro listener
+    });
+  }
+
 
 
   // ---------- Helpers ----------
