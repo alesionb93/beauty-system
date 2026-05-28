@@ -22,8 +22,64 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes.js v2 (mobile-touch-fix) carregado',
+  console.log('%c💰 comissoes.js v3 (mobile-hardfix + switchPage hijack) carregado',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+
+  // ------------------------------------------------------------------
+  // GLOBAL: timestamp do último toque/click em "Comissões"
+  // (compartilhado entre o handler do item e o hijack do switchPage)
+  // ------------------------------------------------------------------
+  window.__COM_LAST_TOUCH_AT__ = window.__COM_LAST_TOUCH_AT__ || 0;
+  var GHOST_WINDOW_MS = 800; // janela ampla para cobrir iOS Safari lento
+
+  // ------------------------------------------------------------------
+  // HIJACK DEFINITIVO de window.switchPage
+  // ------------------------------------------------------------------
+  // Causa raiz do bug em mobile real: o "ghost click" (~300-500ms após
+  // touchend) chega num switchPage('configuracoes') porque o navegador
+  // resolveu o hit-test depois que a sidebar começou a fechar/reflowar.
+  // Solução à prova de bala: se switchPage('configuracoes') for chamado
+  // dentro da janela pós-toque de Comissões, REDIRECIONAMOS para
+  // 'comissoes'. Funciona independente de hitbox, z-index, listener
+  // delegado, ordem de carregamento de scripts, etc.
+  // ------------------------------------------------------------------
+  function installSwitchPageHijack(){
+    if (window.__COM_SWITCHPAGE_HIJACK__) return;
+    function tryInstall(){
+      if (typeof window.switchPage !== 'function') return false;
+      if (window.switchPage.__comHijacked) return true;
+      var _orig = window.switchPage;
+      var wrapped = function(page){
+        try {
+          var dt = Date.now() - (window.__COM_LAST_TOUCH_AT__ || 0);
+          if (dt < GHOST_WINDOW_MS && page !== 'comissoes') {
+            console.log('[comissoes] hijack: switchPage("' + page + '") dt=' + dt + 'ms → redirecionado p/ comissoes');
+            page = 'comissoes';
+          }
+        } catch(_){}
+        return _orig.apply(this, [page].concat([].slice.call(arguments, 1)));
+      };
+      wrapped.__comHijacked = true;
+      window.switchPage = wrapped;
+      window.__COM_SWITCHPAGE_HIJACK__ = true;
+      return true;
+    }
+    if (tryInstall()) return;
+    // switchPage pode não existir ainda no momento do init — re-tenta
+    var tries = 0;
+    var iv = setInterval(function(){
+      tries++;
+      if (tryInstall() || tries > 40) clearInterval(iv);
+    }, 100);
+    // Também reinstala se algum addon (pacotes, prepago) sobrescrever depois
+    setInterval(function(){
+      if (typeof window.switchPage === 'function' && !window.switchPage.__comHijacked) {
+        tryInstall();
+      }
+    }, 1500);
+  }
+  installSwitchPageHijack();
+
 
   // ---------- Helpers ----------
   function getSb(){ return window.supabaseClient || window.supabase || null; }
@@ -167,36 +223,31 @@
     //     impedir que escape para qualquer outro listener delegado.
     // ------------------------------------------------------------------
     var handlingTouch = false;
-    var lastTouchAt = 0;
+    function markTouch(){
+      handlingTouch = true;
+      window.__COM_LAST_TOUCH_AT__ = Date.now(); // GLOBAL — lido pelo hijack do switchPage
+    }
 
     function doNavigate(ev){
       try { if (ev) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } } catch(_){}
-      // pré-cria container ANTES de qualquer switchPage para evitar
-      // null reference no roteador nativo (que abortaria closeSidebar).
       ensurePageContainer();
-      // Fecha a sidebar mobile imediatamente (não dependemos do roteador nativo)
       try { if (typeof window.closeSidebar === 'function') window.closeSidebar(); } catch(_){}
-      // Tenta usar o switchPage nativo para manter consistência com o resto do app
       if (typeof window.switchPage === 'function') {
         try { window.switchPage('comissoes'); } catch(_){}
       }
-      // Garante que nosso dashboard seja renderizado (showComissoesPage é idempotente)
       showComissoesPage();
-      // Atualiza hash sem disparar navegação dupla
       try { if (location.hash !== '#comissoes') history.replaceState(null, '', '#comissoes'); } catch(_){}
     }
 
     // 1) Pointer/touch — caminho primário em mobile
     node.addEventListener('pointerdown', function(ev){
       if (ev.pointerType === 'mouse') return; // desktop usa o click
-      handlingTouch = true;
-      lastTouchAt = Date.now();
+      markTouch();
       doNavigate(ev);
     }, { passive: false });
 
     node.addEventListener('touchstart', function(ev){
-      handlingTouch = true;
-      lastTouchAt = Date.now();
+      markTouch();
       doNavigate(ev);
     }, { passive: false });
 
@@ -205,33 +256,44 @@
       try { ev.preventDefault(); ev.stopPropagation(); } catch(_){}
     }, { passive: false });
 
-    // 3) click — desktop (mouse). Em mobile, se chegar mesmo assim, ignora se
-    //    veio na esteira de um toque recente (ghost click).
+    // 3) click — desktop. Em mobile, se chegar mesmo assim, ignora.
     node.addEventListener('click', function(ev){
-      if (handlingTouch || (Date.now() - lastTouchAt) < 600) {
+      var dt = Date.now() - (window.__COM_LAST_TOUCH_AT__ || 0);
+      if (handlingTouch || dt < GHOST_WINDOW_MS) {
         try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } catch(_){}
         handlingTouch = false;
         return;
       }
+      markTouch(); // click "real" do desktop também marca, para defesa em profundidade
       doNavigate(ev);
     });
 
-    // 4) Blindagem global: por 500ms após um toque em Comissões, descarta
-    //    qualquer click capturado no documento — neutraliza o ghost click
-    //    mesmo se ele "vazar" para outro elemento (ex.: Configurações).
+    // 4) Escudo global em CAPTURE para mousedown/mouseup/click:
+    //    se um desses eventos chegar fora do item Comissões dentro da janela
+    //    pós-toque, é o ghost click — descartamos antes de chegar nos
+    //    listeners nativos (incluindo o de Configurações).
     if (!window.__COM_GHOSTCLICK_SHIELD__) {
       window.__COM_GHOSTCLICK_SHIELD__ = true;
-      document.addEventListener('click', function(ev){
-        if (Date.now() - lastTouchAt < 500) {
-          // Se o click NÃO está no item de Comissões, é ghost click — barra.
+      var KILL = ['mousedown', 'mouseup', 'click'];
+      KILL.forEach(function(evtName){
+        document.addEventListener(evtName, function(ev){
+          var dt = Date.now() - (window.__COM_LAST_TOUCH_AT__ || 0);
+          if (dt >= GHOST_WINDOW_MS) return;
           var t = ev.target;
-          if (!t || !t.closest || !t.closest('[data-nav="comissoes"], [data-page="comissoes"]')) {
-            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } catch(_){}
-          }
-        }
-      }, true); // capture: roda ANTES de qualquer listener delegado da sidebar
+          if (t && t.closest && t.closest('[data-nav="comissoes"], [data-page="comissoes"]')) return;
+          // Só barramos cliques que cairiam em itens da SIDEBAR (preserva o resto)
+          if (!t || !t.closest || !t.closest('.sidebar, .sidebar-nav, .sidebar .menu, .sidebar nav, .sidebar ul')) return;
+          try {
+            ev.preventDefault();
+            ev.stopPropagation();
+            ev.stopImmediatePropagation && ev.stopImmediatePropagation();
+          } catch(_){}
+          console.log('[comissoes] shield: ' + evtName + ' fora de Comissões barrado (dt=' + dt + 'ms target=' + (t.tagName||'') + ')');
+        }, true); // capture
+      });
     }
   }
+
 
   // Esconde o item "Dashboard" do menu (e bloqueia acesso por hash) para
   // colaboradores vinculados a um profissional. Reaplicado via MutationObserver
