@@ -22,7 +22,7 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes.js v3 (mobile-hardfix + switchPage hijack) carregado',
+  console.log('%c💰 comissoes.js v4 (no-hash navigation, módulo interno) carregado',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ------------------------------------------------------------------
@@ -181,12 +181,12 @@
       node.innerHTML = '<i class="fa-solid fa-percent"></i> Comissões';
     } else if (refItem && refItem.tagName.toLowerCase() === 'li') {
       node = document.createElement('li');
-      node.innerHTML = '<a href="#comissoes" data-page="comissoes" data-nav="comissoes">'
+      node.innerHTML = '<a href="javascript:void(0)" role="button" data-page="comissoes" data-nav="comissoes">'
                      + '<i class="fa-solid fa-percent"></i> <span>Comissões</span></a>';
     } else {
       var tag = refItem ? refItem.tagName.toLowerCase() : 'a';
       node = document.createElement(tag);
-      if (tag === 'a') node.setAttribute('href', '#comissoes');
+      if (tag === 'a') node.setAttribute('href', 'javascript:void(0)');
       node.setAttribute('data-page', 'comissoes');
       node.setAttribute('data-nav', 'comissoes');
       if (refItem && refItem.className) node.className = refItem.className.replace(/active/g,'').trim();
@@ -236,7 +236,6 @@
         try { window.switchPage('comissoes'); } catch(_){}
       }
       showComissoesPage();
-      try { if (location.hash !== '#comissoes') history.replaceState(null, '', '#comissoes'); } catch(_){}
     }
 
     // 1) Pointer/touch — caminho primário em mobile
@@ -295,7 +294,7 @@
   }
 
 
-  // Esconde o item "Dashboard" do menu (e bloqueia acesso por hash) para
+  // Esconde o item "Dashboard" do menu para
   // colaboradores vinculados a um profissional. Reaplicado via MutationObserver
   // porque o sidebar pode ser re-renderizado por outros scripts.
   function hideDashboardForColaborador(){
@@ -665,8 +664,6 @@
       // garante remoção (caso já tenha sido injetado)
       var n = document.querySelector('[data-nav="comissoes"]');
       if (n && n.parentNode) n.parentNode.removeChild(n);
-      // bloqueia hash direto
-      if (location.hash === '#comissoes') location.hash = '';
       return;
     }
     ensureMenuItem();
@@ -675,11 +672,6 @@
     ensurePageContainer();
     hideDashboardForColaborador();
     watchPageActivation();
-    // hash router simples
-    window.addEventListener('hashchange', function(){
-      if (location.hash === '#comissoes') showComissoesPage();
-    });
-    if (location.hash === '#comissoes') showComissoesPage();
     // se a página já estiver ativa no boot (ex.: usuário recarregou em /Comissões)
     var pg0 = document.getElementById('page-comissoes');
     if (pg0 && pg0.classList.contains('active')) showComissoesPage();
