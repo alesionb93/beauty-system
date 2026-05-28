@@ -294,3 +294,37 @@
 @media (max-width: 420px) {
   .com-stats { grid-template-columns: 1fr; }
 }
+
+/* =====================================================================
+   FIX MOBILE REAL — Hitbox isolado do item "Comissões" no menu lateral
+   ---------------------------------------------------------------------
+   Em iOS/Android reais o click sintético pós-touch caía em "Configurações"
+   (item imediatamente abaixo). Isolamos a área clicável com:
+     - touch-action: manipulation  → suprime delay de 300ms / double-tap zoom
+     - position relative + z-index  → o hit-test do click sintético resolve
+       SEMPRE neste nó, mesmo se houver reflow da viewport
+     - bloqueia margens negativas que pudessem aproximar visualmente o
+       próximo item
+   ===================================================================== */
+.sidebar .nav-btn.com-nav-item,
+.sidebar [data-nav="comissoes"],
+.sidebar [data-page="comissoes"] {
+  touch-action: manipulation;
+  position: relative;
+  z-index: 2;
+  margin-bottom: 2px; /* respiro mínimo entre Comissões e Configurações */
+  -webkit-tap-highlight-color: transparent;
+}
+.sidebar .nav-btn.com-nav-item * ,
+.sidebar [data-nav="comissoes"] * ,
+.sidebar [data-page="comissoes"] * {
+  pointer-events: none; /* o click sempre atinge o botão, nunca um filho */
+}
+@media (max-width: 1024px) {
+  .sidebar .nav-btn.com-nav-item,
+  .sidebar [data-nav="comissoes"],
+  .sidebar [data-page="comissoes"] {
+    min-height: 48px;   /* WCAG touch target */
+    margin-bottom: 4px;
+  }
+}

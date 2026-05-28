@@ -22,7 +22,7 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes.js v1 carregado',
+  console.log('%c💰 comissoes.js v2 (mobile-touch-fix) carregado',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ---------- Helpers ----------
@@ -137,6 +137,12 @@
       node.innerHTML = '<i class="fa-solid fa-percent"></i> <span>Comissões</span>';
     }
 
+    // Isolar hitbox em mobile real (evita ghost click capturado pelo item de baixo)
+    node.style.touchAction = 'manipulation';
+    node.style.position = 'relative';
+    node.style.zIndex = '2';
+    node.classList.add('com-nav-item');
+
     // Inserir SEMPRE acima do item "Configurações" (se existir);
     // fallback: append ao final do nav.
     var cfgItem = sidebarNav.querySelector('.nav-btn[data-page="configuracoes"], [data-page="configuracoes"], [data-nav="configuracoes"]');
@@ -146,12 +152,85 @@
       sidebarNav.appendChild(node);
     }
 
-    // Não usamos preventDefault: deixamos o roteador nativo trocar a página.
-    // Apenas renderizamos nosso dashboard logo depois.
-    node.addEventListener('click', function(){
-      // garante que a página fique ativa mesmo se o roteador nativo não souber "comissoes"
-      setTimeout(function(){ showComissoesPage(); }, 0);
+    // ------------------------------------------------------------------
+    // FIX MOBILE REAL (ghost click / synthetic click → item de baixo)
+    // ------------------------------------------------------------------
+    // Em iOS/Android reais, após o touchend o navegador dispara um click
+    // sintético ~300ms depois. Nesse intervalo a barra de URL pode recolher,
+    // a sidebar pode reflowar, e o click acaba caindo no item "Configurações"
+    // logo abaixo. Para blindar:
+    //  1) Marcamos o toque como tratado em pointerdown/touchstart.
+    //  2) preventDefault suprime o click sintético do touch.
+    //  3) Disparamos a navegação imediatamente (sem esperar o click).
+    //  4) Fechamos a sidebar nós mesmos, deterministicamente.
+    //  5) Bloqueamos qualquer click subsequente nos próximos 500ms para
+    //     impedir que escape para qualquer outro listener delegado.
+    // ------------------------------------------------------------------
+    var handlingTouch = false;
+    var lastTouchAt = 0;
+
+    function doNavigate(ev){
+      try { if (ev) { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } } catch(_){}
+      // pré-cria container ANTES de qualquer switchPage para evitar
+      // null reference no roteador nativo (que abortaria closeSidebar).
+      ensurePageContainer();
+      // Fecha a sidebar mobile imediatamente (não dependemos do roteador nativo)
+      try { if (typeof window.closeSidebar === 'function') window.closeSidebar(); } catch(_){}
+      // Tenta usar o switchPage nativo para manter consistência com o resto do app
+      if (typeof window.switchPage === 'function') {
+        try { window.switchPage('comissoes'); } catch(_){}
+      }
+      // Garante que nosso dashboard seja renderizado (showComissoesPage é idempotente)
+      showComissoesPage();
+      // Atualiza hash sem disparar navegação dupla
+      try { if (location.hash !== '#comissoes') history.replaceState(null, '', '#comissoes'); } catch(_){}
+    }
+
+    // 1) Pointer/touch — caminho primário em mobile
+    node.addEventListener('pointerdown', function(ev){
+      if (ev.pointerType === 'mouse') return; // desktop usa o click
+      handlingTouch = true;
+      lastTouchAt = Date.now();
+      doNavigate(ev);
+    }, { passive: false });
+
+    node.addEventListener('touchstart', function(ev){
+      handlingTouch = true;
+      lastTouchAt = Date.now();
+      doNavigate(ev);
+    }, { passive: false });
+
+    // 2) touchend — preventDefault suprime o click sintético (ghost click)
+    node.addEventListener('touchend', function(ev){
+      try { ev.preventDefault(); ev.stopPropagation(); } catch(_){}
+    }, { passive: false });
+
+    // 3) click — desktop (mouse). Em mobile, se chegar mesmo assim, ignora se
+    //    veio na esteira de um toque recente (ghost click).
+    node.addEventListener('click', function(ev){
+      if (handlingTouch || (Date.now() - lastTouchAt) < 600) {
+        try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } catch(_){}
+        handlingTouch = false;
+        return;
+      }
+      doNavigate(ev);
     });
+
+    // 4) Blindagem global: por 500ms após um toque em Comissões, descarta
+    //    qualquer click capturado no documento — neutraliza o ghost click
+    //    mesmo se ele "vazar" para outro elemento (ex.: Configurações).
+    if (!window.__COM_GHOSTCLICK_SHIELD__) {
+      window.__COM_GHOSTCLICK_SHIELD__ = true;
+      document.addEventListener('click', function(ev){
+        if (Date.now() - lastTouchAt < 500) {
+          // Se o click NÃO está no item de Comissões, é ghost click — barra.
+          var t = ev.target;
+          if (!t || !t.closest || !t.closest('[data-nav="comissoes"], [data-page="comissoes"]')) {
+            try { ev.preventDefault(); ev.stopPropagation(); ev.stopImmediatePropagation && ev.stopImmediatePropagation(); } catch(_){}
+          }
+        }
+      }, true); // capture: roda ANTES de qualquer listener delegado da sidebar
+    }
   }
 
   // Esconde o item "Dashboard" do menu (e bloqueia acesso por hash) para
@@ -529,6 +608,9 @@
       return;
     }
     ensureMenuItem();
+    // Pré-cria o container ANTES de qualquer navegação para evitar null
+    // reference no switchPage nativo (que abortaria closeSidebar em mobile).
+    ensurePageContainer();
     hideDashboardForColaborador();
     watchPageActivation();
     // hash router simples
