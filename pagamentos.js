@@ -26,7 +26,7 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
-  console.log('%c💳 pagamentos.js v8 (caixinha) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c💳 pagamentos.js v9 (pacote venda robusto) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
 
 
@@ -46,6 +46,79 @@
     return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
   function round2(n){ return Math.round((Number(n)||0) * 100) / 100; }
+
+  function normKey(v) {
+    return String(v || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  }
+
+  function parseValor(v) {
+    if (typeof v === 'number') return v;
+    if (typeof v === 'string') {
+      var s = v.replace(/[^\d,.-]/g, '');
+      if (s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+      var n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    }
+    return 0;
+  }
+
+  function itemKind(item) {
+    if (!item) return '';
+    return normKey([
+      item.origem, item.tipo, item.tipo_item, item.item_tipo, item.categoria,
+      item.tipoServico, item.tipo_servico, item.source, item.kind, item.modalidade
+    ].filter(Boolean).join('_'));
+  }
+
+  function isPacoteUso(item) {
+    var k = itemKind(item);
+    return k === 'pacote_uso' || k === 'uso_pacote' || (k.indexOf('pacote') >= 0 && (k.indexOf('uso') >= 0 || k.indexOf('consumo') >= 0));
+  }
+
+  function isPacoteVenda(item) {
+    var k = itemKind(item);
+    return k === 'pacote_venda' || k === 'venda_pacote' || k === 'pacote' || (k.indexOf('pacote') >= 0 && k.indexOf('venda') >= 0);
+  }
+
+  function valorItem(item) {
+    if (!item) return 0;
+    var campos = ['preco', 'valor', 'valor_total', 'valorTotal', 'total', 'preco_total', 'precoTotal', 'preco_pacote', 'precoPacote', 'valor_pacote', 'valorPacote', 'pacote_valor', 'pacoteValor', 'price', 'amount'];
+    for (var i = 0; i < campos.length; i++) {
+      var v = parseValor(item[campos[i]]);
+      if (v > 0) return v;
+    }
+    if (item.pacote && typeof item.pacote === 'object') {
+      for (var j = 0; j < campos.length; j++) {
+        var pv = parseValor(item.pacote[campos[j]]);
+        if (pv > 0) return pv;
+      }
+    }
+    var qtd = parseValor(item.quantidade || item.qtd || item.quantity);
+    var unit = parseValor(item.preco_unitario || item.valor_unitario || item.unit_price);
+    return qtd > 0 && unit > 0 ? qtd * unit : 0;
+  }
+
+  function valorPacoteVendaItem(item) {
+    if (!item) return 0;
+    // Para pacote vendido, o valor correto é o total do pacote. Se a linha
+    // também tiver preço unitário do serviço, ele NÃO deve ganhar prioridade.
+    var campos = ['valor_total','valorTotal','total','preco_total','precoTotal',
+                  'preco_pacote','precoPacote','valor_pacote','valorPacote',
+                  'pacote_valor','pacoteValor','valor','preco','price','amount'];
+    for (var i = 0; i < campos.length; i++) {
+      var v = parseValor(item[campos[i]]);
+      if (v > 0) return v;
+    }
+    if (item.pacote && typeof item.pacote === 'object') {
+      for (var j = 0; j < campos.length; j++) {
+        var pv = parseValor(item.pacote[campos[j]]);
+        if (pv > 0) return pv;
+      }
+    }
+    var qtd = parseValor(item.quantidade || item.qtd || item.quantity);
+    var unit = parseValor(item.preco_unitario || item.valor_unitario || item.unit_price);
+    return qtd > 0 && unit > 0 ? qtd * unit : 0;
+  }
 
   function getSb(){ return window.supabaseClient || window.supabase || null; }
   function getTenantId(){
@@ -130,26 +203,149 @@
     }
   }
 
+  // ------------------------------------------------------------------
+  // Detecção de VENDA financeira no agendamento
+  // ------------------------------------------------------------------
+  // Regra de negócio (fluxogramas 1 e 2):
+  //   A abertura do modal de pagamento deve ser decidida EXCLUSIVAMENTE
+  //   pela existência de uma VENDA neste agendamento. NUNCA pela
+  //   existência/uso/saldo de pacote.
+  //
+  //   Existe venda quando há ao menos um dos itens abaixo:
+  //     • venda de pacote      → ag._pacoteVendaItems (script.js) OU
+  //                              ag.pacotes_venda / pacotesVenda / ...
+  //     • serviço pago         → serviço cujo preço > 0 e que NÃO é
+  //                              pacote_uso (consumo de saldo)
+  //     • produto vendido      → linhas em agendamento_produtos
+  //
+  //   Uso/consumo de pacote NÃO é venda e não deve abrir modal.
+  function getVendaPacoteItems(ag) {
+    if (!ag) return [];
+    var out = [];
+    var seen = {};
+    function pushItem(it){
+      if (!it) return;
+      var key = it.id || it.agendamento_servico_id || it.item_id || it.pacote_venda_id || null;
+      if (key) {
+        key = String(key);
+        if (seen[key]) return;
+        seen[key] = true;
+      }
+      out.push(it);
+    }
+
+    // Fonte primária populada por loadAppointments em script.js + fallbacks
+    // legados. Não retorna no primeiro campo para não perder venda quando
+    // mais de uma origem vier preenchida.
+    var campos = [
+      '_pacoteVendaItems','pacoteVendaItems','pacote_venda_items',
+      'pacotesVendidos','pacotes_vendidos','pacotes_venda','pacotesVenda',
+      'pacotes_para_venda','pacotesParaVenda','venda_pacotes','vendasPacotes','packagesSold'
+    ];
+    campos.forEach(function(c){
+      var lista = ag[c];
+      if (Array.isArray(lista) && lista.length) lista.forEach(pushItem);
+    });
+
+    if (ag._hasVendaPacote) {
+      ['pacoteVenda','pacote_venda','pacoteVendido','pacote_vendido','pacote'].forEach(function(c){
+        var item = ag[c];
+        if (Array.isArray(item)) item.forEach(pushItem);
+        else if (item && typeof item === 'object') pushItem(item);
+      });
+    }
+
+    // Em alguns estados do app a venda do pacote ainda vem misturada em
+    // ag.servicos como tipo='pacote_venda'. Ela também é VENDA e precisa
+    // abrir o modal / compor o total.
+    getServicos(ag).forEach(function(s){
+      if (isPacoteVenda(s)) pushItem(s);
+    });
+
+    // Fallback final: há flag de venda e o valor do pacote está direto no
+    // agendamento. Só adiciona se houver valor para não criar cobrança vazia.
+    if (!out.length && ag._hasVendaPacote && valorPacoteVendaItem(ag) > 0) pushItem(ag);
+
+    return out;
+  }
+
+  function possuiVendaPacote(ag) {
+    return getVendaPacoteItems(ag).length > 0 || !!(ag && ag._hasVendaPacote);
+  }
+
+  function possuiServicoPago(ag) {
+    if (!ag) return false;
+    var sp = window.servicePrices || {};
+    var servicos = getServicos(ag);
+    for (var i = 0; i < servicos.length; i++) {
+      var s = servicos[i];
+      if (!s) continue;
+      if (isPacoteUso(s)) continue;       // consumo de saldo → não é venda
+      if (isPacoteVenda(s)) continue;     // já contabilizado em getVendaPacoteItems
+      var preco = valorItem(s);
+      if (!preco && s.servico && sp[s.servico]) preco = Number(sp[s.servico].preco) || 0;
+      if (preco > 0) return true;
+    }
+    return false;
+  }
+
+  function possuiProdutosVendidos(ag) {
+    if (!ag) return false;
+    var prods = getProdutosDoAgendamento(ag.id);
+    if (!prods || !prods.length) return false;
+    for (var i = 0; i < prods.length; i++) {
+      var p = prods[i];
+      var qtd = Number(p && p.quantidade) || 0;
+      var unit = Number(p && p.preco_unitario) || 0;
+      if (qtd > 0 && unit > 0) return true;
+    }
+    return false;
+  }
+
+  function possuiVendaFinanceira(ag) {
+    return possuiVendaPacote(ag) || possuiServicoPago(ag) || possuiProdutosVendidos(ag);
+  }
+
   function calcularValorTotalAgendamento(ag) {
     if (!ag) return 0;
     var total = 0;
     var sp = window.servicePrices || {};
+
+    // 1) Serviços pagos (avulsos). Ignora pacote_uso (consumo de saldo)
+    //    e pacote_venda (somado abaixo via _pacoteVendaItems para evitar
+    //    contagem dupla — em loadAppointments as linhas pacote_venda já
+    //    são filtradas de agendamento_servicos, mas mantemos a guarda).
     getServicos(ag).forEach(function(s){
       if (!s) return;
-      // Ignora pacote_venda (já faturado) e pacote_uso (sem cobrança extra)
-      if (s.origem === 'pacote_venda') return;
-      if (s.origem === 'pacote_uso')   return;
-      // 1º) preço explícito; 2º) servicePrices[nome]; 3º) 0
-      var preco = Number(s.preco);
+      if (isPacoteUso(s)) return;
+      if (isPacoteVenda(s)) return;
+      var preco = valorItem(s);
       if (!preco && s.servico && sp[s.servico]) preco = Number(sp[s.servico].preco) || 0;
       total += preco || 0;
     });
+
+    // 2) Vendas de pacote — usa a fonte real populada por script.js
+    //    (ag._pacoteVendaItems). O preço de cada linha pacote_venda já é
+    //    o preco_total do pacote, então cobramos o VALOR DO PACOTE
+    //    (nunca o valor unitário do serviço).
+    getVendaPacoteItems(ag).forEach(function(v){
+      total += valorPacoteVendaItem(v);
+    });
+
+    // 3) Produtos vendidos no atendimento
     var prods = getProdutosDoAgendamento(ag.id);
     prods.forEach(function(p){
       total += (Number(p.quantidade)||0) * (Number(p.preco_unitario)||0);
     });
+
     return round2(total);
   }
+
+  // Exposto para debug/inspeção em console
+  try {
+    window.__pagPossuiVendaFinanceira = possuiVendaFinanceira;
+    window.__pagCalcularTotal         = calcularValorTotalAgendamento;
+  } catch(_){}
 
   // ------------------------------------------------------------------
   // Modal: injeção de markup (1 só vez) — usa convenção .modal-overlay
@@ -629,6 +825,7 @@
       }
       try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
       try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+      try { if (typeof window.__rodarDashboardPagamentos === 'function') await window.__rodarDashboardPagamentos(); } catch(_){}
     } catch(e) {
       console.error('[pag][confirmar]', e);
       if (typeof window.showToast === 'function') window.showToast('Erro ao salvar pagamento.');
@@ -733,10 +930,19 @@
             }
 
             var total = calcularValorTotalAgendamento(ag);
-            console.log('[pag] conclusão manual — total calculado:', total, ag);
+            var temVenda = possuiVendaFinanceira(ag);
+            console.log('[pag] conclusão manual — temVenda:', temVenda,
+                        '| total:', total,
+                        '| venda_pacote:', possuiVendaPacote(ag),
+                        '| servico_pago:', possuiServicoPago(ag),
+                        '| produtos:', possuiProdutosVendidos(ag));
 
-            // Sem valor a cobrar (ex.: só pacote_uso) → segue direto
-            if (!total || total <= 0) return original.apply(this, arguments);
+            // REGRA PRINCIPAL (fluxogramas 1 e 2):
+            // Só abre modal se EXISTIR venda financeira. Uso/consumo de
+            // pacote nunca abre modal e nunca gera recebimento.
+            if (!temVenda || !total || total <= 0) {
+              return original.apply(this, arguments);
+            }
 
 
             // Já tem pagamentos integrais? Segue direto

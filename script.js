@@ -4166,7 +4166,7 @@ async function excluirAgendamento() {
     });
   } catch (err) {
     console.error('[excluirAgendamento]', err);
-    showToast('Erro ao cancelar!', 'error');
+    showToast('Não foi possivel cancelar esta venda: o pacote já foi usado em outro(s) agendamento(s). Cancele eles primeiro', 'error');
   }
 }
 
@@ -5784,67 +5784,59 @@ async function loadDashboard() {
   }
 
   // 🟢 AUTO-CONCLUSÃO + 📦 VENDA DE PACOTE
-  // Regras:
-  //  - SERVIÇOS EXECUTADOS (servicos[]) só entram no faturamento se o agendamento
-  //    estiver auto-concluído (passou de início + duração + 30min) e não cancelado.
-  //  - VENDAS DE PACOTE (_pacoteVendaItems) contam SEMPRE no momento da venda,
-  //    independentemente da data/hora do agendamento, pois representam receita
-  //    imediata (não dependem de execução). Cancelados continuam excluídos.
-  // Por isso NÃO filtramos a lista inteira aqui — processamos por agendamento
-  // e decidimos o que conta dentro do loop.
+  // Regras (alinhadas com atendimentos comuns):
+  //  - SERVIÇOS EXECUTADOS só entram no faturamento se o agendamento estiver
+  //    auto-concluído (passou de início + duração + 30min) e não cancelado.
+  //  - VENDAS DE PACOTE seguem A MESMA REGRA: só entram em Faturamento Total /
+  //    Total Faturado / Recebido quando o agendamento estiver concluído.
+  //    Enquanto Agendado/Aberto, o valor aparece apenas como PENDENTE
+  //    (calculado pelo dashboard-pagamentos.js a partir do valor previsto vs
+  //    pagamentos registrados) — exatamente como um atendimento comum.
+  //  - Cancelados continuam excluídos.
 
   appointmentsInRange.forEach(function(a) {
     var cancelado = isAppointmentCancelled(a);
     if (cancelado) return; // cancelados nunca entram no dashboard
 
     var concluido = isAppointmentAutoCompleted(a);
-    var vendaItems = a._pacoteVendaItems || [];
-    var temVenda = vendaItems.length > 0;
 
-    // Se não está concluído e não tem venda de pacote, ignora completamente
-    // (é um agendamento futuro/em andamento sem receita realizada).
-    if (!concluido && !temVenda) return;
+    // Sem conclusão, não entra no faturamento — nem serviço comum nem venda
+    // de pacote. (O valor previsto vira "Pendente" no widget de pagamentos.)
+    if (!concluido) return;
+
+    var vendaItems = a._pacoteVendaItems || [];
 
     var hora = (a.hora || '').substring(0, 2);
     var clienteNomeDash = a.cliente || a.cliente_nome || '';
     var profsDoAgendamento = getAppointmentProfessionals(a);
     var profPrincipal = profsDoAgendamento[0] || a.profissional || '';
 
-    // Métricas de atendimento (totalAg, clienteCount, profData.atendimentos)
-    // só contam quando o serviço foi efetivamente executado (concluído).
-    if (concluido) {
-      totalAg++;
-      if (!clienteCount[clienteNomeDash]) clienteCount[clienteNomeDash] = { qtd: 0, usosPacote: 0 };
-      clienteCount[clienteNomeDash].qtd++;
-      if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
-      profData[profPrincipal].atendimentos++;
-    }
+    // Métricas de atendimento (sempre que concluído, mesmo se for só venda
+    // de pacote — o atendimento existiu).
+    totalAg++;
+    if (!clienteCount[clienteNomeDash]) clienteCount[clienteNomeDash] = { qtd: 0, usosPacote: 0 };
+    clienteCount[clienteNomeDash].qtd++;
+    if (!profData[profPrincipal]) profData[profPrincipal] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+    profData[profPrincipal].atendimentos++;
 
-    var servicos = concluido ? getAppointmentServicos(a) : [];
+    var servicos = getAppointmentServicos(a);
 
     // ============================================================
     // 💰 PACOTE-FIX — RECEITA da VENDA de pacote
-    // Linhas com origem='pacote_venda' (separadas em loadAppointments
-    // como _pacoteVendaItems) representam APENAS receita: o cliente
-    // pagou o valor TOTAL do pacote agora. Não contam como serviço
-    // executado e não entram em ticket médio de execução.
+    // Só entra no faturamento quando o agendamento está CONCLUÍDO,
+    // mesma regra dos atendimentos comuns. Antes da conclusão, aparece
+    // apenas como Pendente (cálculo em dashboard-pagamentos.js).
     // ============================================================
     if (vendaItems.length > 0) {
-      console.log('[dash] pacote_venda detectado em ag', a.id, '— itens:', vendaItems.length, 'total:', vendaItems.reduce(function(s,v){return s+(parseFloat(v.preco)||0);},0));
+      console.log('[dash] pacote_venda (concluído) em ag', a.id, '— itens:', vendaItems.length, 'total:', vendaItems.reduce(function(s,v){return s+(parseFloat(v.preco)||0);},0));
     }
     vendaItems.forEach(function(v) {
       var profNome = v.profissional || profPrincipal || '';
       var svcProfId = profNomeToId[profNome] || null;
-      // 💰 PACOTE-FIX (BUG 2): se o filtro do dash é por profissional específico e
-      // o profissional da venda não bate, ainda assim consideramos a receita
-      // quando o agendamento principal pertence ao profissional filtrado.
       if (selectedProfId && selectedProfId !== '__all__'
           && svcProfId !== selectedProfId
           && profNomeToId[profPrincipal] !== selectedProfId) return;
       var precoVenda = parseFloat(v.preco) || 0;
-      // 📦 OPÇÃO A — A venda do pacote ENTRA no Faturamento Total (é receita real),
-      // mas NÃO é atribuída como atendimento/faturamento do profissional, pois
-      // venda ≠ atendimento. Vai para o card "Pacotes Vendidos".
       totalFaturamento += precoVenda;
       var nomePac = v.servico || 'Pacote';
       if (!pacotesVendidos[nomePac]) pacotesVendidos[nomePac] = { qtd: 0, valor: 0 };
@@ -7272,11 +7264,51 @@ async function renderPacoteSugestao(block) {
       '</label></div>';
   }
 
+  // 🔁 Sync visual: se este bloco veio de um agendamento salvo com
+  // "Usar pacote" / "Venda de pacote", marca o checkbox correspondente
+  // para refletir o estado já persistido (sem alterar regra de negócio).
+  var blockAcao = block.dataset && block.dataset.pacoteAcao;
+  var blockCpId = block.dataset && block.dataset.clientePacoteId;
+  if (blockAcao === 'usar' && blockCpId) {
+    var jaTem = false;
+    if (html) {
+      // Verifica se o pacote vinculado já aparece na lista de disponíveis
+      var tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      var existente = tmp.querySelector('input[data-pacote-acao="usar"][data-cliente-pacote-id="' + blockCpId + '"]');
+      if (existente) jaTem = true;
+    }
+    if (!jaTem) {
+      // Pacote já consumido / expirado / sem saldo — injeta opção sintética
+      // só para refletir o estado salvo. Não altera saldo nem regravação.
+      html = '<div class="pacote-grupo"><div class="pacote-grupo-titulo">Pacote vinculado</div>' +
+        '<label class="pacote-opcao pacote-existente">' +
+        '<input type="checkbox" class="pacote-checkbox" data-pacote-acao="usar" data-cliente-pacote-id="' + pacoteEscapeHtml(blockCpId) + '"' +
+        (block.dataset.creditoConsumido === '1' ? ' data-credito-consumido="1"' : '') +
+        ' onchange="pacoteDesmarcarOutrasOpcoes(this)">' +
+        '<span><strong>Usar pacote</strong> <small>(vinculado a este agendamento)</small></span>' +
+        '</label></div>' + html;
+    }
+  }
+
   if (!html) {
     container.innerHTML = '';
     container.style.display = 'none';
   } else {
     container.innerHTML = html;
+    // Após renderizar, marca o checkbox que corresponde ao pacote já salvo
+    if (blockAcao === 'usar' && blockCpId) {
+      var inp = container.querySelector('input[data-pacote-acao="usar"][data-cliente-pacote-id="' + blockCpId + '"]');
+      if (inp) {
+        inp.checked = true;
+        if (block.dataset.creditoConsumido === '1') inp.dataset.creditoConsumido = '1';
+        pacoteDesmarcarOutrasOpcoes(inp);
+      }
+    } else if (blockAcao === 'venda_existente' && blockCpId) {
+      // Venda já existente: não há checkbox de venda para "existente" na UI
+      // (a UI só oferece "Vender pacote" novo). Mantemos somente o dataset
+      // no bloco para preservar o vínculo ao salvar, como já era feito.
+    }
   }
 }
 
@@ -7463,7 +7495,7 @@ async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
   // Só devolve créditos que foram realmente consumidos na conclusão.
   // Linhas pendentes (credito_consumido=false) não alteraram saldo e não devem devolver nada.
   var query = supabaseClient.from('agendamento_servicos')
-    .select('cliente_pacote_id, origem, credito_consumido')
+    .select('id, cliente_pacote_id, origem, credito_consumido')
     .eq('agendamento_id', agendamentoId)
     .eq('origem', 'pacote_uso')
     .eq('credito_consumido', true)
@@ -7477,12 +7509,34 @@ async function devolverCreditosPacoteDoAgendamento(agendamentoId) {
   for (var i = 0; i < (resp.data || []).length; i++) {
     var linha = resp.data[i];
     var cpId = linha.cliente_pacote_id;
+    // 🔒 Proteção contra duplicidade (estorno único):
+    // 1) Tenta marcar a linha como NÃO consumida ANTES de devolver o crédito.
+    //    Só prossegue se conseguir flipar de true→false (operação atômica via filtro).
+    // 2) Se outro evento já tiver virado para false, esta query não atualiza
+    //    nenhuma linha e pulamos a devolução — evita estorno em dobro por
+    //    reprocessamento (delete + cancel, cancel duplo, etc.).
+    var flipQuery = supabaseClient.from('agendamento_servicos')
+      .update({ credito_consumido: false })
+      .eq('id', linha.id)
+      .eq('credito_consumido', true)
+      .select('id');
+    if (tenantId) flipQuery = flipQuery.eq('tenant_id', tenantId);
+    var flipResp = await flipQuery;
+    if (flipResp.error) {
+      console.warn('[pacote][devolver] não consegui marcar linha como devolvida:', flipResp.error);
+      continue;
+    }
+    if (!flipResp.data || flipResp.data.length === 0) {
+      // Já devolvido por outro caminho — não devolver de novo.
+      continue;
+    }
     var cpQuery = supabaseClient.from('cliente_pacotes').select('*').eq('id', cpId).maybeSingle();
     if (tenantId) cpQuery = cpQuery.eq('tenant_id', tenantId);
     var cpResp = await cpQuery;
     if (!cpResp.data) continue;
     var novoSaldo = Math.min(Number(cpResp.data.quantidade_restante || 0) + 1, Number(cpResp.data.quantidade_total || 0));
-    var novoStatus = novoSaldo > 0 ? 'ativo' : cpResp.data.status;
+    var statusAtual = cpResp.data.status;
+    var novoStatus = novoSaldo > 0 && statusAtual !== 'cancelado' ? 'ativo' : statusAtual;
     var upd = supabaseClient.from('cliente_pacotes').update({ quantidade_restante: novoSaldo, status: novoStatus }).eq('id', cpId);
     if (tenantId) upd = upd.eq('tenant_id', tenantId);
     await upd;
@@ -7863,11 +7917,32 @@ async function checarBloqueioExclusaoPacoteVenda(agendamentoId) {
     });
     if (cpIds.length === 0) return { ok: true };
 
+    // Descobre TODOS os agendamentos que ORIGINARAM (venderam) esses pacotes.
+    // A utilização feita dentro do próprio agendamento que vendeu o pacote
+    // NÃO conta como utilização externa e, portanto, não deve bloquear.
+    var origemIds = {};
+    origemIds[String(agendamentoId)] = true; // o próprio agendamento A é sempre origem
+    var qOrigens = supabaseClient.from('agendamento_servicos')
+      .select('agendamento_id, cliente_pacote_id')
+      .in('cliente_pacote_id', cpIds)
+      .eq('origem', 'pacote_venda')
+      .not('agendamento_id', 'is', null);
+    if (tenantId) qOrigens = qOrigens.eq('tenant_id', tenantId);
+    var rOrigens = await qOrigens;
+    if (rOrigens.error) {
+      console.warn('[pacote][bloqueio-exclusao] busca origens falhou:', rOrigens.error);
+      return { ok: true };
+    }
+    (rOrigens.data || []).forEach(function(r){
+      if (r.agendamento_id) origemIds[String(r.agendamento_id)] = true;
+    });
+
     var qUsos = supabaseClient.from('agendamento_servicos')
-      .select('agendamento_id, cliente_pacote_id, origem', { count: 'exact' })
+      .select('agendamento_id, cliente_pacote_id, origem, credito_consumido')
       .in('cliente_pacote_id', cpIds)
       .eq('origem', 'pacote_uso')
-      .neq('agendamento_id', agendamentoId);
+      .eq('credito_consumido', true)
+      .not('agendamento_id', 'is', null);
     if (tenantId) qUsos = qUsos.eq('tenant_id', tenantId);
     var rUsos = await qUsos;
     if (rUsos.error) {
@@ -7875,10 +7950,38 @@ async function checarBloqueioExclusaoPacoteVenda(agendamentoId) {
       return { ok: true };
     }
     var rows = rUsos.data || [];
-    // Conta agendamentos distintos consumindo o pacote
-    var ags = {};
-    rows.forEach(function(r){ if (r.agendamento_id) ags[r.agendamento_id] = true; });
-    var totalAg = Object.keys(ags).length;
+    // Pré-seleciona apenas agendamentos distintos que NÃO são a origem da venda.
+    // A query já filtra credito_consumido=true, então usos estornados não bloqueiam.
+    // (comparação em string para evitar divergência de tipo numérico/uuid)
+    var agsCandidatos = {};
+    rows.forEach(function(r){
+      if (r.agendamento_id && !origemIds[String(r.agendamento_id)]) {
+        agsCandidatos[String(r.agendamento_id)] = true;
+      }
+    });
+    var agIdsCandidatos = Object.keys(agsCandidatos);
+    if (agIdsCandidatos.length === 0) return { ok: true };
+
+    // Confirma quais candidatos ainda estão ativos. Agendamentos cancelados,
+    // desmarcados, excluídos ou cancelado_com_venda não devem impedir o
+    // cancelamento da venda original do pacote.
+    var qAgs = supabaseClient.from('agendamentos')
+      .select('id, status, conclusion_type')
+      .in('id', agIdsCandidatos);
+    if (tenantId) qAgs = qAgs.eq('tenant_id', tenantId);
+    var rAgs = await qAgs;
+    if (rAgs.error) {
+      console.warn('[pacote][bloqueio-exclusao] busca agendamentos de uso falhou:', rAgs.error);
+      return { ok: true };
+    }
+
+    var agsAtivos = {};
+    (rAgs.data || []).forEach(function(a){
+      if (a && a.id && !(typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(a))) {
+        agsAtivos[String(a.id)] = true;
+      }
+    });
+    var totalAg = Object.keys(agsAtivos).length;
     if (totalAg > 0) {
       return {
         ok: false,
@@ -12896,3 +12999,107 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
 
   console.log('✅ Módulo Dados Cadastrais (Tenant) carregado');
 })();
+
+/* ============================================================
+   🎟️ PACOTE-FIX (ESTORNO NO CANCELAMENTO)
+   ----------------------------------------------------------
+   Quando um agendamento é CANCELADO (status='cancelado' /
+   'excluido' / 'desmarcado') via CancelamentoAuth.solicitar,
+   o fluxo NÃO passa por deleteAppointment — por isso os
+   créditos de pacote consumidos não eram devolvidos.
+
+   Este wrapper intercepta TODOS os cancelamentos e chama
+   devolverCreditosPacoteDoAgendamento ANTES do onSuccess
+   original. A função de devolução já é idempotente (flipa
+   credito_consumido true→false de forma atômica), então
+   reprocessamentos não geram estorno duplicado.
+
+   Também cobre: deleteAppointment já tem seu próprio call,
+   mas se o cancelamento foi feito antes do delete (ex.:
+   cancelado → excluído), o estorno só roda uma vez graças
+   à guarda de idempotência.
+   ============================================================ */
+(function installPacoteEstornoNoCancelamento() {
+  'use strict';
+  if (window.__SLOTIFY_PACOTE_ESTORNO_CANCEL__) return;
+  window.__SLOTIFY_PACOTE_ESTORNO_CANCEL__ = true;
+
+  function tentarInstalar() {
+    if (!window.CancelamentoAuth || typeof window.CancelamentoAuth.solicitar !== 'function') {
+      return false;
+    }
+    if (window.CancelamentoAuth.__pacoteEstornoWrapped__) return true;
+
+    var original = window.CancelamentoAuth.solicitar.bind(window.CancelamentoAuth);
+
+    window.CancelamentoAuth.solicitar = async function(opts) {
+      opts = opts || {};
+      var userOnSuccess = typeof opts.onSuccess === 'function' ? opts.onSuccess : null;
+      var agId = opts.agendamentoId;
+
+      // 🛡️ Bloqueio de integridade: só permite cancelar a VENDA de um pacote
+      // quando TODAS as utilizações pertencem ao próprio agendamento que originou
+      // a venda. Se existir qualquer utilização vinculada a OUTRO agendamento,
+      // o cancelamento é bloqueado.
+      if (agId && typeof checarBloqueioExclusaoPacoteVenda === 'function') {
+        var guardCancel = await checarBloqueioExclusaoPacoteVenda(agId);
+        if (guardCancel && guardCancel.ok === false) {
+          var msgBloqueio = 'Não é possível cancelar esta venda de pacote. ' +
+            'O pacote já foi utilizado por outro(s) agendamento(s). ' +
+            'Cancele primeiro os agendamentos que consumiram este pacote.';
+          if (typeof showToast === 'function') showToast(msgBloqueio, 'error');
+          var errBloqueio = new Error(msgBloqueio);
+          errBloqueio.code = 'PACOTE_VENDA_BLOQUEADA';
+          errBloqueio.totalUsosExternos = guardCancel.totalUsosExternos;
+          throw errBloqueio;
+        }
+      }
+
+      opts.onSuccess = async function(res) {
+        // 🎟️ Devolve créditos de pacote ANTES do callback original,
+        // garantindo que o reload de appointments mostre o saldo atualizado.
+        try {
+          if (agId && typeof devolverCreditosPacoteDoAgendamento === 'function') {
+            await devolverCreditosPacoteDoAgendamento(agId);
+            console.log('%c🎟️ [pacote] estorno aplicado no cancelamento do agendamento', 'color:#10b981;font-weight:600', agId);
+          }
+        } catch (errEstorno) {
+          console.warn('[pacote][estorno-cancel] falhou:', errEstorno);
+        }
+        // 🔧 REGRESSÃO CORRIGIDA: invalida (cancela) o pacote criado pela VENDA
+        // deste agendamento. Sem isto, ao cancelar um agendamento que vendeu um
+        // pacote, o pacote permanecia ativo no histórico do cliente.
+        // Espelha o comportamento de deleteAppointment (linha ~8020).
+        // A função é idempotente — segura para reprocessamentos.
+        // O bloqueio acima (checarBloqueioExclusaoPacoteVenda) já garante que
+        // este passo só roda quando NÃO há utilizações externas pendentes.
+        try {
+          if (agId && typeof invalidarPacotesVendidosNoAgendamento === 'function') {
+            await invalidarPacotesVendidosNoAgendamento(agId);
+            console.log('%c🎟️ [pacote] venda invalidada no cancelamento do agendamento', 'color:#10b981;font-weight:600', agId);
+          }
+        } catch (errInval) {
+          console.warn('[pacote][invalidar-venda-cancel] falhou:', errInval);
+        }
+        if (userOnSuccess) return userOnSuccess(res);
+      };
+
+      return original(opts);
+    };
+
+    window.CancelamentoAuth.__pacoteEstornoWrapped__ = true;
+    console.log('%c🎟️ pacote-estorno-cancel instalado em CancelamentoAuth.solicitar',
+      'background:#10b981;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+    return true;
+  }
+
+  // Tenta imediatamente; se o módulo ainda não carregou, espera com polling curto.
+  if (!tentarInstalar()) {
+    var tentativas = 0;
+    var iv = setInterval(function() {
+      tentativas++;
+      if (tentarInstalar() || tentativas > 50) clearInterval(iv);
+    }, 200);
+  }
+})();
+

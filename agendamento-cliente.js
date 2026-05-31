@@ -598,32 +598,59 @@
     async buscarPorTelefone(tenantId, telefone) {
       var sb = initSupabase();
       if (!sb || !tenantId) return { found: false };
-      var telDigits = onlyDigits(telefone);
-      if (telDigits.length < 10) return { found: false };
+      var rawDigits = onlyDigits(telefone);
+      if (rawDigits.length < 10) return { found: false };
 
-      // 1) RPC pública (preferida — anon-friendly)
-      try {
-        var rpc = await withTimeout(
-          sb.rpc('get_public_cliente_by_telefone', {
-            _tenant_id: tenantId, _telefone_digits: telDigits
-          }),
-          REQ_TIMEOUT, 'rpc:get_public_cliente_by_telefone'
-        );
-        if (!rpc.error && rpc.data) {
-          var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
-          if (row && row.id) return { found: true, cliente: { id: row.id, nome: row.nome, telefone: row.telefone } };
-          return { found: false };
-        }
-      } catch(e) { /* fallback abaixo */ }
+      // PADRÃO OFICIAL: normaliza sempre para 55 + DDD + número antes de comparar.
+      // Sem isso, input "48996311331" (11 díg.) nunca casa com o registro persistido
+      // "5548996311331" (13 díg.) — causando falso "cliente não encontrado".
+      var telNorm = normalizeTelefoneBR(telefone);     // ex: "5548996311331"
+      var telDigits = onlyDigits(telNorm);             // mesmos dígitos, garantia
+      // Sufixo nacional (DDD+número) sem o country code — usado p/ comparar
+      // contra cadastros antigos que possam ter sido salvos sem o "55".
+      var telSuffix = telDigits.replace(/^55/, '');    // ex: "48996311331"
 
-      // 2) Fallback: SELECT direto. Compara por dígitos no client.
+      function matchTel(stored) {
+        var s = onlyDigits(stored || '');
+        if (!s) return false;
+        if (s === telDigits) return true;
+        // Tolerância: registro salvo sem "55" (cadastros antigos / internos)
+        if (s.replace(/^55/, '') === telSuffix) return true;
+        return false;
+      }
+
+      // 1) RPC pública (preferida — anon-friendly).
+      //    Tentamos com os dígitos normalizados (com 55) e, se nada vier,
+      //    repetimos com o sufixo nacional para cobrir RPCs que esperam
+      //    apenas DDD+número.
+      async function tryRpc(digits) {
+        try {
+          var rpc = await withTimeout(
+            sb.rpc('get_public_cliente_by_telefone', {
+              _tenant_id: tenantId, _telefone_digits: digits
+            }),
+            REQ_TIMEOUT, 'rpc:get_public_cliente_by_telefone'
+          );
+          if (!rpc.error && rpc.data) {
+            var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+            if (row && row.id) return { id: row.id, nome: row.nome, telefone: row.telefone };
+          }
+        } catch(e) { /* ignore */ }
+        return null;
+      }
+      var hitRpc = await tryRpc(telDigits);
+      if (!hitRpc && telSuffix !== telDigits) hitRpc = await tryRpc(telSuffix);
+      if (hitRpc) return { found: true, cliente: hitRpc };
+
+      // 2) Fallback: SELECT direto. Compara por dígitos no client, com tolerância
+      //    para registros salvos com ou sem o prefixo "55".
       try {
         var resp = await withTimeout(
           sb.from('clientes').select('id, nome, telefone').eq('tenant_id', tenantId),
           REQ_TIMEOUT, 'clientes-by-tenant'
         );
         if (resp.error || !resp.data) return { found: false };
-        var hit = resp.data.find(function(c){ return onlyDigits(c.telefone) === telDigits; });
+        var hit = resp.data.find(function(c){ return matchTel(c.telefone); });
         return hit ? { found: true, cliente: hit } : { found: false };
       } catch(e) { return { found: false }; }
     },
@@ -716,8 +743,11 @@
       var sb = initSupabase();
       if (!sb || !tenantId || !servicoId) return null;
       // Helper: confirma se o pacote retornado pela RPC está visível no fluxo externo.
-      // Garante compatibilidade caso a função RPC ainda não tenha sido atualizada para
-      // filtrar por disponivel_agendamento_externo.
+      // A RPC `get_public_pacote_oferta` é SECURITY DEFINER e é a fonte oficial para
+      // o fluxo externo — confiamos nela por padrão. Este helper só EXCLUI o pacote
+      // quando consegue ler a flag e ela é EXPLICITAMENTE `false`. Qualquer erro
+      // (RLS no role anon, coluna inexistente, timeout) é tratado como "visível",
+      // evitando que o banner de venda suma indevidamente.
       async function _isVisivelExterno(pacoteId) {
         try {
           var chk = await withTimeout(
@@ -727,10 +757,14 @@
               .maybeSingle(),
             REQ_TIMEOUT, 'pacotes:flag-externo'
           );
-          if (chk.error || !chk.data) return false;
-          // Compatibilidade: se a coluna não existir/for null, assume visível (true).
+          // Falha de leitura (RLS/erro/timeout/sem dado) → assume visível (true).
+          if (chk.error || !chk.data) return true;
+          // Só esconde se a flag existir e for explicitamente false.
           return chk.data.disponivel_agendamento_externo === false ? false : true;
-        } catch(e) { return false; }
+        } catch(e) {
+          // Erro inesperado → assume visível para não bloquear a oferta da RPC.
+          return true;
+        }
       }
       try {
         var rpc = await withTimeout(
@@ -747,19 +781,31 @@
           }
         }
       } catch(e) {}
+      // Fallback direto na tabela. Tenta primeiro com a flag (filtro mais correto);
+      // se a coluna não existir / o select falhar, repete sem a flag para manter
+      // compatibilidade com schemas antigos.
+      async function _qPacotesDireto(comFlag) {
+        var sel = 'id, nome, servico_id, quantidade_total, preco_unitario_final, preco_total, validade_dias, ativo' +
+                  (comFlag ? ', disponivel_agendamento_externo' : '');
+        var q = sb.from('pacotes')
+          .select(sel)
+          .eq('tenant_id', tenantId)
+          .eq('servico_id', servicoId)
+          .eq('ativo', true)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (comFlag) q = q.neq('disponivel_agendamento_externo', false);
+        return withTimeout(q, REQ_TIMEOUT, comFlag ? 'pacotes' : 'pacotes:semflag');
+      }
       try {
-        var resp = await withTimeout(
-          sb.from('pacotes')
-            .select('id, nome, servico_id, quantidade_total, preco_unitario_final, preco_total, validade_dias, ativo, disponivel_agendamento_externo')
-            .eq('tenant_id', tenantId)
-            .eq('servico_id', servicoId)
-            .eq('ativo', true)
-            .neq('disponivel_agendamento_externo', false) // exclui apenas os explicitamente false; null/true passam
-            .order('created_at', { ascending: false })
-            .limit(1),
-          REQ_TIMEOUT, 'pacotes'
-        );
-        if (resp.error || !resp.data || !resp.data.length) return null;
+        var resp = await _qPacotesDireto(true);
+        if (resp.error) {
+          // Coluna inexistente ou outro erro de schema → tenta sem a flag.
+          var resp2 = await _qPacotesDireto(false);
+          if (resp2.error || !resp2.data || !resp2.data.length) return null;
+          return resp2.data[0];
+        }
+        if (!resp.data || !resp.data.length) return null;
         return resp.data[0];
       } catch(e) { return null; }
     },

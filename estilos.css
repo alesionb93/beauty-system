@@ -872,6 +872,7 @@ body {
 .hist-pacote-badge.status-alerta    { background:#eab308; color:#1a1a1a; border:1px solid #ca8a04; }
 .hist-pacote-badge.status-expirado  { background:#dc2626; color:#fff; border:1px solid #b91c1c; }
 .hist-pacote-badge.status-concluido { background:#2563eb; color:#fff; border:1px solid #1d4ed8; }
+.hist-pacote-badge.status-cancelado { background:#6b7280; color:#fff; border:1px solid #4b5563; }
 
 /* ===== TOAST (top-center, acima de qualquer modal) ===== */
 .toast {
@@ -2473,6 +2474,7 @@ body {
 .pacote-cliente-card.status-alerta     { border-left-color: #facc15; }
 .pacote-cliente-card.status-expirado   { border-left-color: #ef4444; }
 .pacote-cliente-card.status-concluido  { border-left-color: #3b82f6; }
+.pacote-cliente-card.status-cancelado  { border-left-color: #6b7280; }
 
 .pacote-cliente-header {
   display: flex;
@@ -2498,6 +2500,7 @@ body {
 .pacote-status-badge.status-alerta    { background: #ca8a04; color: #1a1a1a; }
 .pacote-status-badge.status-expirado  { background: #dc2626; }
 .pacote-status-badge.status-concluido { background: #2563eb; }
+.pacote-status-badge.status-cancelado { background: #6b7280; }
 
 .pacote-cliente-servico {
   font-size: 0.82rem;

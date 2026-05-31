@@ -152,12 +152,6 @@
             <textarea class="cxa-input" name="descricao" data-field="descricao" rows="3" maxlength="500"></textarea>
           </label>
 
-          ${possuiPagamento ? `
-          <label class="cxa-checkbox">
-            <input type="checkbox" name="comVenda" data-field="comVenda" checked />
-            <span>Preservar pagamentos (cancelar com venda)</span>
-          </label>` : ''}
-
           <p class="cxa-error" data-role="error" hidden></p>
 
           <footer class="cxa-footer">
@@ -220,7 +214,8 @@
       const senha = inputSenha ? readInputValue(inputSenha) : '';
       const motivoId = readInputValue(selectMotivo).trim();
       const descricao = readInputValue(inputDescricao).trim();
-      const comVenda = !!(inputComVenda && inputComVenda.checked);
+      // Flag removida: todo cancelamento remove o agendamento E os valores pagos.
+      const comVenda = false;
 
       console.log('[CancelamentoAuth] submit', {
         exigirSenha,
