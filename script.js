@@ -7184,23 +7184,27 @@ async function buscarPacotesDisponiveis(clienteId, servicoId) {
   return resp.data || [];
 }
 
-async function buscarPacoteAtivoParaVenda(servicoId) {
+async function buscarPacotesAtivosParaVenda(servicoId) {
   var tenantId = getCurrentTenantId();
-  if (!servicoId) return null;
+  if (!servicoId) return [];
   var query = supabaseClient
     .from('pacotes')
     .select('*, servicos(id, nome, preco)')
     .eq('servico_id', servicoId)
     .eq('ativo', true)
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .order('preco_total', { ascending: true });
   if (tenantId) query = query.eq('tenant_id', tenantId);
   var resp = await query;
   if (resp.error) {
-    console.warn('Erro ao buscar pacote para venda:', resp.error);
-    return null;
+    console.warn('Erro ao buscar pacotes para venda:', resp.error);
+    return [];
   }
-  return (resp.data || [])[0] || null;
+  return resp.data || [];
+}
+// Compat: mantém nome antigo caso algum trecho externo ainda chame.
+async function buscarPacoteAtivoParaVenda(servicoId) {
+  var lista = await buscarPacotesAtivosParaVenda(servicoId);
+  return lista[0] || null;
 }
 
 function pacoteDesmarcarOutrasOpcoes(input) {
@@ -7237,10 +7241,10 @@ async function renderPacoteSugestao(block) {
 
   var results = await Promise.all([
     buscarPacotesDisponiveis(clienteId, svcObj.id),
-    buscarPacoteAtivoParaVenda(svcObj.id)
+    buscarPacotesAtivosParaVenda(svcObj.id)
   ]);
   var disponiveis = results[0] || [];
-  var venda = results[1] || null;
+  var vendas = results[1] || [];
 
   var html = '';
   if (disponiveis.length > 0) {
@@ -7255,13 +7259,16 @@ async function renderPacoteSugestao(block) {
     html += '</div>';
   }
 
-  if (venda) {
-    html += '<div class="pacote-grupo"><div class="pacote-grupo-titulo">Sugestão de venda</div>' +
-      '<label class="pacote-opcao pacote-oferta">' +
-      '<input type="checkbox" class="pacote-checkbox" data-pacote-acao="vender" data-pacote-def-id="' + pacoteEscapeHtml(venda.id) + '" onchange="pacoteDesmarcarOutrasOpcoes(this)">' +
-      '<span><strong>Vender pacote</strong> ' + pacoteEscapeHtml(venda.nome) +
-      ' <small>(' + venda.quantidade_total + ' usos | ' + pacoteMoney(venda.preco_total) + ' total | ' + pacoteMoney(venda.preco_unitario_final) + ' por uso)</small></span>' +
-      '</label></div>';
+  if (vendas.length > 0) {
+    html += '<div class="pacote-grupo"><div class="pacote-grupo-titulo">Sugestão de venda</div>';
+    vendas.forEach(function(venda) {
+      html += '<label class="pacote-opcao pacote-oferta">' +
+        '<input type="checkbox" class="pacote-checkbox" data-pacote-acao="vender" data-pacote-def-id="' + pacoteEscapeHtml(venda.id) + '" onchange="pacoteDesmarcarOutrasOpcoes(this)">' +
+        '<span><strong>Vender pacote</strong> ' + pacoteEscapeHtml(venda.nome) +
+        ' <small>(' + venda.quantidade_total + ' usos | ' + pacoteMoney(venda.preco_total) + ' total | ' + pacoteMoney(venda.preco_unitario_final) + ' por uso)</small></span>' +
+        '</label>';
+    });
+    html += '</div>';
   }
 
   // 🔁 Sync visual: se este bloco veio de um agendamento salvo com
