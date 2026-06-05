@@ -602,14 +602,23 @@
       var hora = it.hora || '';
       var serv = it.servico_nome || 'Atendimento';
       var cli  = it.cliente_nome ? ('Cliente: ' + it.cliente_nome) : '';
-      var val  = fmtBRL(Number(it.comissao_valor||0) + Number(it.caixinha||0));
+      var com  = Number(it.comissao_valor||0);
+      var cx   = Number(it.caixinha||0);
+      var val  = fmtBRL(com + cx);
+      var hasCx = cx > 0;
+      var breakHtml = hasCx
+        ? '<div class="com-val-break" title="Comissão + Caixinha" style="font-size:11px;font-weight:500;color:#6b7280;white-space:normal;line-height:1.2;margin-top:2px;">Comissão '+fmtBRL(com)+'<br>+ Caixinha '+fmtBRL(cx)+'</div>'
+        : '<div class="com-val-break" style="font-size:11px;font-weight:500;color:#6b7280;white-space:nowrap;line-height:1.2;margin-top:2px;">Comissão</div>';
       return ''
         + '<div class="com-timeline-row">'
         +   '<div class="com-time">'+hora+'</div>'
         +   '<div class="com-dot-col"><span class="com-dot"></span></div>'
-        +   '<div><div class="com-serv-name">'+escapeHtml(serv)+'</div>'
+        +   '<div class="com-info-col" style="min-width:0;"><div class="com-serv-name">'+escapeHtml(serv)+'</div>'
         +        '<div class="com-cli-name">'+escapeHtml(cli)+'</div></div>'
-        +   '<div class="com-val">'+val+'</div>'
+        +   '<div class="com-val" style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;max-width:110px;">'
+        +     '<span style="white-space:nowrap;">'+val+'</span>'
+        +     breakHtml
+        +   '</div>'
         +   '<div class="com-chev"><i class="fa-solid fa-chevron-right"></i></div>'
         + '</div>';
     }).join('');

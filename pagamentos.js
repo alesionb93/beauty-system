@@ -33,6 +33,36 @@
   // ------------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------------
+  // SVG inline icons (silhuetas elegantes, herdando currentColor)
+  var FORMA_ICONS = {
+    pix:
+      '<img class="pag-forma-ic pag-forma-ic-pix" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAMAAACdt4HsAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAHpUExURQAAAFC0q022rE21rE+zqUW5olPCsEu4sUi2o0y2rEy2qwDtvFidpgBzjDu5k2LNsVzpx1O8s0qmvlPBqE+1slKzr069sE27rku1rU21q0+yqVu9rk61r1C4sFTDuUu3rVG4sFO6r0y1rFO5sE22q1a4uEy2rlG4r1DAtUq4rk66rky3sE+zr0y8rlTAqVG4tE6wsFG+tkihu1/JsFbr4AB6eDizlivOyFeoply5tlC5tEy4rky1q022rE22rE22rEy0q022rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rEy2rE22rE22rE22rE22rEy2rEy1q022rE22rE22rEu2q022rE22rE22rE22rE22rE22rE22rE22rEy2rE22rE22rE22rE22rE22rE22rE22rE22rE21rEuzq022rE22rE22rEuzqEy1q022rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22rE22q022rE22rE22rE22rEy0rE22rE22rE20q0y0qk22rE22rE22rE22rE22rEu1q022rE21qku0q022rE22rEuzqk21q022rE22rEy1rE22rEy1rEy2q022rP///4r/XzMAAAChdFJOUwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEcP1YBNZfa9f38B3HncgiF+oYI+4cKiAoCaeD0AgIbJTt1yf7KAhV+8X9NW1AqBAFj7u8BA/jmH2HBJ2AmwMNfxCjtXsVd7AdcKcYQAcg6AQHonm1VbAE5AQGWTwEDFjwCNAEBeqL5fwAAAAFiS0dEorDd34wAAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQfqBgQVKhOKERzeAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDI2LTA2LTA0VDIxOjQxOjIzKzAwOjAwJ65jkgAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyNi0wNi0wNFQyMTo0MToyMyswMDowMFbz2y4AAAAodEVYdGRhdGU6dGltZXN0YW1wADIwMjYtMDYtMDRUMjE6NDI6MTkrMDA6MDDALhlfAAAC/0lEQVRYw7WX91cTQRCAcUIUsHexd8XeK0lIIQ0SY1BASggiVQFpBgVSKAFBDbGBiuX+UzdHcuRuS3bjc367d/t97253dma3oOD/xTpIhw4K8+F1Oig3GE0mo6ECSYRxPcB6s8Vqq7TbrBbzBoAiYd7hdEnpcLkdggbEV1V7JCU83gdChhTv9UlZ4XsoYsB5MQOJFzGQeX4Djec10Hk+A4vnMbB5DgOAv4bBI0PNIyhmCR7X1tWzBPV1tU9KWIKGxqbmQEuQTAdbA81NjU9pX6DPbH9oe9ZO4ts72pQhRUTe39nV1dXd8xxe9PbhfH/vSxjo6UZDOv0Egzz/g8Fg0DdkGYaNI5ihf2QTDFuGfGjIIGFvqtbvVQg2j2oMfSNb4PUb6mpq1n8sBFvHVYa+0W0QGqPmA5Y/E2HYPh5Ze46M78jmtQZC/iHDzqhiiER3qXmNgZS/sTDsnpzK8HsgPEHK6gw/XY3nLzLsnZENkcl9OI8M3mkoTfH74YDbI+ERi8PBlGFq5hCEY4QBHvfh0iPyB5hdEilm43DU1NJiOgbxGHGAyyz/BJRbJIlmgLk5gPgsZYDlrS4lMFgp76X5hXcA7xfmae+tBvkLjDbaAOlDYnEx4aK+thllgalSyjPsyVWB/R8FjF9wJT5y/AJrEj+hSfycaxK/5L+MX4/zJNKJHIlUePKUk5LKp1dT+QwllZ1ndWXMzXQus5nOkzeTA3Rr21n7DaggXJhMF4RI9CJpO1cpRy89bkD8peyCchkvKIi/UkAzTITgqrqkXdOWtGweM6Ciel1bVG+oi6qax8v6Tbys38oq614tr20st0mN5Q4ML6UbC86vtbbl+ABUkFvbN/geX063NoxXNdcOSnP9oQwh8Ep7Xwm00tv7SlNjA+vgzXPA+MkU5D7i+JlHfz0pqxn5I2rIzbMNPDzLwMfTDbw8zcDPkw0iPPnKI8JTLl0CPHbtczoEedlw99eS1WaXL573hHkUxSXw22BMJo2GP/lcfVHcV3Y/lOXDc8ZfxjXItiy/8JAAAAAASUVORK5CYII=" alt="PIX" width="18" height="18" />',
+    dinheiro:
+      '<svg class="pag-forma-ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      + '<rect x="2.5" y="6" width="19" height="12" rx="2"/>'
+      + '<circle cx="12" cy="12" r="2.5"/>'
+      + '<path d="M6 9.5h.01M18 14.5h.01"/>'
+      + '</svg>',
+    debito:
+      '<svg class="pag-forma-ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      + '<rect x="2.5" y="5" width="19" height="14" rx="2"/>'
+      + '<path d="M2.5 10h19"/>'
+      + '<path d="M6 15h4"/>'
+      + '</svg>',
+    credito:
+      '<svg class="pag-forma-ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      + '<rect x="2.5" y="5" width="19" height="14" rx="2"/>'
+      + '<path d="M2.5 9h19"/>'
+      + '<path d="M6 15h3M12 15h3"/>'
+      + '</svg>',
+    credito_parcelado:
+      '<svg class="pag-forma-ic" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'
+      + '<rect x="2.5" y="5" width="19" height="14" rx="2"/>'
+      + '<path d="M2.5 9h19"/>'
+      + '<path d="M6 15h3M11 15h3M16 15h2"/>'
+      + '</svg>'
+  };
+
   var FORMAS = [
     { id: 'pix',                label: 'PIX' },
     { id: 'dinheiro',           label: 'Dinheiro' },
@@ -40,6 +70,11 @@
     { id: 'credito',            label: 'Crédito' },
     { id: 'credito_parcelado',  label: 'Crédito Parcelado' }
   ];
+  function formaIcon(id){ return FORMA_ICONS[id] || FORMA_ICONS.pix; }
+  function formaLabel(id){
+    for (var i = 0; i < FORMAS.length; i++) if (FORMAS[i].id === id) return FORMAS[i].label;
+    return id;
+  }
 
   function fmtBRL(n) {
     n = Number(n) || 0;
@@ -354,32 +389,62 @@
     if (document.getElementById('modal-pagamento-ag')) return;
     var html = ''
       + '<div class="modal-overlay" id="modal-pagamento-ag">'
-      +   '<div class="modal modal-small" style="max-width:560px">'
-      +     '<div class="modal-header">'
-      +       '<h3><i class="fa-solid fa-money-bill-wave" style="color:var(--gold,#6c3aed);margin-right:8px;"></i>Registrar pagamento</h3>'
-      +       '<button type="button" class="modal-close" data-pag-close="1">&times;</button>'
+      +   '<div class="modal pag-modal-v2">'
+      +     '<div class="modal-header pag-v2-header">'
+      +       '<h3><span class="pag-v2-h-icon"><i class="fa-solid fa-money-bill-wave"></i></span>Registrar pagamento</h3>'
+      +       '<button type="button" class="modal-close" data-pag-close="1" aria-label="Fechar">&times;</button>'
       +     '</div>'
-      +     '<div class="modal-body pag-modal-body" style="padding:12px 24px 4px;">'
-      +       '<div class="pag-resumo">'
-      +         '<div class="pag-resumo-row"><span>Cliente</span><strong id="pag-cliente">—</strong></div>'
-      +         '<div class="pag-resumo-row"><span>Atendimento</span><strong id="pag-data">—</strong></div>'
-      +         '<div class="pag-resumo-row" style="margin-top:6px">'
-      +           '<span>Total a pagar</span><span class="pag-total" id="pag-total">R$ 0,00</span>'
+      +     '<div class="modal-body pag-modal-body pag-v2-body">'
+
+      +       '<div class="pag-v2-headcard">'
+      +         '<div class="pag-v2-hc-item">'
+      +           '<span class="pag-v2-hc-ic"><i class="fa-regular fa-user"></i></span>'
+      +           '<span class="pag-v2-hc-text"><span class="pag-v2-hc-label">Cliente</span><strong id="pag-cliente">—</strong></span>'
+      +         '</div>'
+      +         '<div class="pag-v2-hc-sep"></div>'
+      +         '<div class="pag-v2-hc-item">'
+      +           '<span class="pag-v2-hc-ic"><i class="fa-regular fa-calendar"></i></span>'
+      +           '<span class="pag-v2-hc-text"><span class="pag-v2-hc-label">Atendimento</span><strong id="pag-data">—</strong></span>'
       +         '</div>'
       +       '</div>'
-      +       '<div class="pag-formas-list" id="pag-formas-list"></div>'
-      +       '<button type="button" class="pag-add-btn" id="pag-add-btn">'
-      +         '<i class="fa-solid fa-plus"></i> Adicionar forma de pagamento'
-      +       '</button>'
-      +       '<button type="button" class="pag-tip-btn" id="pag-tip-btn">'
-      +         '<span class="pag-tip-emoji">🎁</span> <span id="pag-tip-btn-label">Adicionar caixinha</span>'
-      +       '</button>'
-      +       '<div class="pag-restante" id="pag-restante"></div>'
+
+      +       '<div class="pag-v2-cols">'
+
+      +         '<div class="pag-v2-col-left">'
+      +           '<div class="pag-v2-pending">'
+      +             '<span class="pag-v2-pending-label">VALOR PENDENTE</span>'
+      +             '<div class="pag-v2-pending-value" id="pag-pending-value">R$ 0,00</div>'
+      +             '<span class="pag-v2-pending-desc">Atualizado em tempo real conforme os pagamentos</span>'
+      +           '</div>'
+
+      +           '<div class="pag-action-row" id="pag-tip-row-wrap">'
+      +             '<button type="button" class="pag-tip-btn" id="pag-tip-btn">'
+      +               '<i class="fa-solid fa-gift pag-tip-ic" aria-hidden="true"></i> <span id="pag-tip-btn-label">Adicionar caixinha</span>'
+      +             '</button>'
+      +           '</div>'
+      +           '<div class="pag-v2-section-label">FORMA DE PAGAMENTO</div>'
+      +           '<div class="pag-formas-list" id="pag-formas-list"></div>'
+      +           '<button type="button" class="pag-add-btn" id="pag-add-btn">'
+      +             '<i class="fa-solid fa-plus"></i> Adicionar mais formas de pagamento'
+      +           '</button>'
+      +         '</div>'
+
+      +         '<div class="pag-v2-col-right">'
+      +           '<div class="pag-resumo">'
+      +             '<div class="pag-resumo-row"><span>Subtotal (serviços)</span><strong id="pag-subtotal">R$ 0,00</strong></div>'
+      +             '<div class="pag-resumo-row pag-resumo-desc-row" id="pag-desc-row" hidden><span>Desconto</span><strong id="pag-desc-val" class="pag-v2-neg">R$ 0,00</strong></div>'
+      // tip row will be injected here by renderTipRow() (before :last-child)
+      +             '<div class="pag-resumo-row pag-resumo-total"><span>TOTAL</span><span class="pag-total" id="pag-total">R$ 0,00</span></div>'
+      +           '</div>'
+      +           '<div class="pag-restante" id="pag-restante"></div>'
+      +         '</div>'
+
+      +       '</div>'
       +     '</div>'
-      +     '<div class="modal-actions" style="padding:14px 24px 22px;">'
+      +     '<div class="modal-actions pag-v2-actions">'
       +       '<button type="button" class="btn-cancel" data-pag-close="1">Cancelar</button>'
-      +       '<button type="button" class="btn-submit" id="pag-confirmar" disabled style="background:linear-gradient(135deg,#10b981,#059669);">'
-      +         '<i class="fa-solid fa-circle-check"></i> <span id="pag-confirmar-label">Confirmar pagamento</span>'
+      +       '<button type="button" class="btn-submit" id="pag-confirmar" disabled>'
+      +         '<i class="fa-solid fa-circle-check"></i> <span id="pag-confirmar-label">Confirmar e concluir</span>'
       +       '</button>'
       +     '</div>'
       +   '</div>'
@@ -428,17 +493,81 @@
     var list = document.getElementById('pag-formas-list');
     var row = document.createElement('div');
     row.className = 'pag-forma-item';
-    var formaSel = '<select class="pag-forma">'
-      + FORMAS.map(function(f){ return '<option value="'+f.id+'">'+f.label+'</option>'; }).join('')
-      + '</select>';
+    // Dropdown customizado com ícone + select nativo oculto (mantém compatibilidade com lerPagamentos)
+    var ddBtn = '<button type="button" class="pag-forma-toggle" aria-haspopup="listbox" aria-expanded="false">'
+      + '<span class="pag-forma-ic-wrap">'+formaIcon('pix')+'</span>'
+      + '<span class="pag-forma-label">'+formaLabel('pix')+'</span>'
+      + '<i class="fa-solid fa-chevron-down pag-forma-caret" aria-hidden="true"></i>'
+      + '</button>';
+    var ddMenu = '<ul class="pag-forma-menu" role="listbox" hidden>'
+      + FORMAS.map(function(f){
+          return '<li role="option" data-value="'+f.id+'">'
+            + '<span class="pag-forma-ic-wrap">'+formaIcon(f.id)+'</span>'
+            + '<span>'+f.label+'</span>'
+            + '</li>';
+        }).join('')
+      + '</ul>';
+    var formaSel = '<div class="pag-forma-dd">'
+      + ddBtn + ddMenu
+      + '<select class="pag-forma" aria-hidden="true" tabindex="-1">'
+      +   FORMAS.map(function(f){ return '<option value="'+f.id+'">'+f.label+'</option>'; }).join('')
+      + '</select>'
+      + '</div>';
     row.innerHTML = formaSel
       + '<input type="number" step="0.01" min="0.01" class="pag-valor" placeholder="0,00">'
       + '<button type="button" class="pag-remove" title="Remover"><i class="fa-solid fa-trash"></i></button>';
     list.appendChild(row);
 
+    var dd     = row.querySelector('.pag-forma-dd');
     var sel    = row.querySelector('.pag-forma');
+    var btn    = row.querySelector('.pag-forma-toggle');
+    var menu   = row.querySelector('.pag-forma-menu');
+    var labEl  = row.querySelector('.pag-forma-label');
+    var icEl   = row.querySelector('.pag-forma-toggle .pag-forma-ic-wrap');
     var valEl  = row.querySelector('.pag-valor');
     var rmBtn  = row.querySelector('.pag-remove');
+
+    function applyForma(v){
+      sel.value = v;
+      labEl.textContent = formaLabel(v);
+      icEl.innerHTML = formaIcon(v);
+      menu.querySelectorAll('li').forEach(function(li){
+        li.classList.toggle('is-active', li.getAttribute('data-value') === v);
+      });
+    }
+    function closeMenu(){
+      menu.hidden = true;
+      btn.setAttribute('aria-expanded','false');
+      dd.classList.remove('open');
+    }
+    function openMenu(){
+      // fecha outros abertos
+      document.querySelectorAll('.pag-forma-dd.open').forEach(function(o){
+        if (o !== dd) {
+          o.classList.remove('open');
+          var m = o.querySelector('.pag-forma-menu'); if (m) m.hidden = true;
+          var b = o.querySelector('.pag-forma-toggle'); if (b) b.setAttribute('aria-expanded','false');
+        }
+      });
+      menu.hidden = false;
+      btn.setAttribute('aria-expanded','true');
+      dd.classList.add('open');
+    }
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      if (menu.hidden) openMenu(); else closeMenu();
+    });
+    menu.addEventListener('click', function(e){
+      var li = e.target.closest('li[data-value]');
+      if (!li) return;
+      applyForma(li.getAttribute('data-value'));
+      closeMenu();
+      syncParcelas();
+      recomputar();
+    });
+    document.addEventListener('click', function(e){
+      if (!dd.contains(e.target)) closeMenu();
+    });
 
     function syncParcelas() {
       var existing = row.querySelector('.pag-parcelas');
@@ -461,8 +590,10 @@
     valEl.addEventListener('input', recomputar);
     rmBtn.addEventListener('click', function(){ row.remove(); recomputar(); });
 
+    // estado inicial
+    applyForma((prefill && prefill.forma) || 'pix');
+
     if (prefill) {
-      sel.value = prefill.forma || 'pix';
       valEl.value = prefill.valor || '';
       syncParcelas();
       var p = row.querySelector('.pag-parcelas');
@@ -491,24 +622,66 @@
     var somado = pags.reduce(function(s,p){ return s + p.valor; }, 0);
     var totalAlvo = round2((__ctx.total || 0) + (__ctx.tipAmount || 0));
     var restante = round2(totalAlvo - somado);
-    // Atualiza display do total no resumo do modal
+    var pending = restante > 0 ? restante : 0;
+
+    // ----- Resumo financeiro (coluna direita) -----
+    var base = (__ctx.baseTotal != null ? __ctx.baseTotal : __ctx.total) || 0;
+    var extra = Number(__ctx.extraTotal) || 0;
+    var sub = document.getElementById('pag-subtotal');
+    if (sub) sub.textContent = fmtBRL(base);
+
+    // Linha de desconto (extra negativo = desconto). Linhas POSITIVAS de extra
+    // (pré-pago) NÃO viram "desconto" — mantemos o comportamento atual de
+    // somar direto em "Subtotal" para não criar nova regra de negócio.
+    var descRow = document.getElementById('pag-desc-row');
+    var descVal = document.getElementById('pag-desc-val');
+    if (descRow && descVal) {
+      if (extra < 0) {
+        descRow.hidden = false;
+        descVal.textContent = '- ' + fmtBRL(Math.abs(extra));
+      } else {
+        descRow.hidden = true;
+      }
+    }
+
     var totalDisp = document.getElementById('pag-total');
     if (totalDisp) totalDisp.textContent = fmtBRL(totalAlvo);
+
+    // Hero "VALOR PENDENTE"
+    var pendingEl = document.getElementById('pag-pending-value');
+    if (pendingEl) pendingEl.textContent = fmtBRL(pending);
+
     renderTipRow();
+
+    // ----- Card de conferência -----
     var box = document.getElementById('pag-restante');
     var btn = document.getElementById('pag-confirmar');
     if (Math.abs(restante) < 0.01) {
-      box.className = 'pag-restante ok';
-      var okLabel = (__ctx.tipAmount > 0) ? 'Total confere (serviços + caixinha)' : 'Total confere';
-      box.innerHTML = '<span><i class="fa-solid fa-check"></i> '+okLabel+'</span><strong>'+fmtBRL(somado)+'</strong>';
+      box.className = 'pag-restante ok pag-confer-card';
+      box.innerHTML =
+        '<div class="pag-confer-ic"><i class="fa-solid fa-circle-check"></i></div>'
+      + '<div class="pag-confer-text">'
+      +   '<strong>Pagamento conferido</strong>'
+      +   '<span>Total informado: '+fmtBRL(somado)+'<br>Tudo certo! Você pode concluir.</span>'
+      + '</div>';
       btn.disabled = pags.length === 0;
     } else if (restante > 0) {
-      box.className = 'pag-restante faltando';
-      box.innerHTML = '<span>Faltam</span><strong>'+fmtBRL(restante)+'</strong>';
+      box.className = 'pag-restante faltando pag-confer-card';
+      box.innerHTML =
+        '<div class="pag-confer-ic warn"><i class="fa-solid fa-triangle-exclamation"></i></div>'
+      + '<div class="pag-confer-text">'
+      +   '<strong>Valor pendente</strong>'
+      +   '<span>Ainda faltam '+fmtBRL(restante)+' para concluir.</span>'
+      + '</div>';
       btn.disabled = true;
     } else {
-      box.className = 'pag-restante excedido';
-      box.innerHTML = '<span>Excedeu em</span><strong>'+fmtBRL(Math.abs(restante))+'</strong>';
+      box.className = 'pag-restante excedido pag-confer-card';
+      box.innerHTML =
+        '<div class="pag-confer-ic warn"><i class="fa-solid fa-triangle-exclamation"></i></div>'
+      + '<div class="pag-confer-text">'
+      +   '<strong>Valor excedido</strong>'
+      +   '<span>Excedeu em '+fmtBRL(Math.abs(restante))+'.</span>'
+      + '</div>';
       btn.disabled = true;
     }
   }
@@ -517,29 +690,58 @@
   // CAIXINHA / GORJETA — render da linha no resumo + modal
   // ------------------------------------------------------------------
   function renderTipRow() {
-    var resumoEl = document.querySelector('#modal-pagamento-ag .pag-resumo');
-    if (!resumoEl) return;
-    var existing = resumoEl.querySelector('.pag-tip-row');
     var tip = Number(__ctx && __ctx.tipAmount) || 0;
-    if (tip <= 0) { if (existing) existing.remove(); return; }
-    if (!existing) {
-      existing = document.createElement('div');
-      existing.className = 'pag-resumo-row pag-tip-row';
-      // Inserir antes da linha de total (última)
-      var totalRow = resumoEl.querySelector('.pag-resumo-row:last-child');
-      resumoEl.insertBefore(existing, totalRow);
+
+    // ----- Linha "Caixinha" no resumo financeiro (apenas quando > 0) -----
+    var resumoEl = document.querySelector('#modal-pagamento-ag .pag-resumo');
+    if (resumoEl) {
+      var existing = resumoEl.querySelector('.pag-tip-row');
+      if (tip <= 0) {
+        if (existing) existing.remove();
+      } else {
+        if (!existing) {
+          existing = document.createElement('div');
+          existing.className = 'pag-resumo-row pag-tip-row';
+          var totalRow = resumoEl.querySelector('.pag-resumo-row:last-child');
+          resumoEl.insertBefore(existing, totalRow);
+        }
+        existing.innerHTML = '<span>Caixinha</span><strong class="pag-v2-pos">+ '+fmtBRL(tip)+'</strong>';
+      }
     }
-    existing.innerHTML = '<span>🎁 Caixinha (gorjeta)</span><strong>'+fmtBRL(tip)+' <button type="button" class="pag-tip-edit" title="Editar caixinha" style="border:0;background:transparent;color:var(--gold,#6c3aed);cursor:pointer;font-size:12px;margin-left:6px;">editar</button> <button type="button" class="pag-tip-remove" title="Remover caixinha" style="border:0;background:transparent;color:#ef4444;cursor:pointer;font-size:12px;">remover</button></strong>';
-    var ed = existing.querySelector('.pag-tip-edit');
-    var rm = existing.querySelector('.pag-tip-remove');
-    if (ed) ed.onclick = function(){ abrirModalCaixinha(); };
-    if (rm) rm.onclick = function(){
-      __ctx.tipAmount = 0;
-      // Reajustar 1ª linha de pagamento para novo total
-      var first = document.querySelector('#pag-formas-list .pag-forma-item .pag-valor');
-      if (first) first.value = round2(__ctx.total).toFixed(2);
-      recomputar();
-    };
+
+    // ----- Estado do botão original (Adicionar caixinha / Caixinha adicionada + lixeira) -----
+    var tipBtn = document.getElementById('pag-tip-btn');
+    var label  = document.getElementById('pag-tip-btn-label');
+    var wrap   = document.getElementById('pag-tip-row-wrap');
+    if (!tipBtn || !wrap) return;
+    var trash = wrap.querySelector('#pag-tip-remove-btn');
+
+    if (tip > 0) {
+      if (label) label.textContent = 'Caixinha adicionada';
+      tipBtn.classList.add('is-active');
+      if (!trash) {
+        trash = document.createElement('button');
+        trash.type = 'button';
+        trash.id = 'pag-tip-remove-btn';
+        trash.className = 'pag-action-remove';
+        trash.title = 'Remover caixinha';
+        trash.setAttribute('aria-label', 'Remover caixinha');
+        trash.innerHTML = '<i class="fa-solid fa-trash"></i>';
+        trash.addEventListener('click', function(e){
+          e.preventDefault();
+          e.stopPropagation();
+          __ctx.tipAmount = 0;
+          var first = document.querySelector('#pag-formas-list .pag-forma-item .pag-valor');
+          if (first) first.value = round2(__ctx.total).toFixed(2);
+          recomputar();
+        });
+        wrap.appendChild(trash);
+      }
+    } else {
+      if (label) label.textContent = 'Adicionar caixinha';
+      tipBtn.classList.remove('is-active');
+      if (trash) trash.remove();
+    }
   }
 
   // -------- Modal de caixinha --------
@@ -554,7 +756,7 @@
       + '<div class="modal-overlay" id="modal-caixinha">'
       +   '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="tip-title">'
       +     '<div class="modal-header">'
-      +       '<h3 id="tip-title">🎁 Adicionar caixinha</h3>'
+      +       '<h3 id="tip-title"><i class="fa-solid fa-gift" aria-hidden="true" style="color:var(--gold,#6c3aed);margin-right:6px;"></i> Adicionar caixinha</h3>'
       +       '<button type="button" class="modal-close" data-tip-close="1" aria-label="Fechar">&times;</button>'
       +     '</div>'
       +     '<div class="modal-body">'
@@ -860,13 +1062,11 @@
       onSuccess: opts.onSuccess || null
     };
 
-    document.getElementById('pag-cliente').textContent = ag.cliente_nome || '—';
+    document.getElementById('pag-cliente').textContent = ag.cliente_nome || ag.nome_cliente || ag.nomeCliente || ag.cliente_name || (ag.cliente && (ag.cliente.nome || ag.cliente.name)) || (typeof ag.cliente === 'string' ? ag.cliente : '') || ag.nome || '—';
     document.getElementById('pag-data').textContent =
       (ag.data ? ag.data.split('-').reverse().join('/') : '') + ' · ' + (ag.hora || '').slice(0,5);
     document.getElementById('pag-total').textContent = fmtBRL(total);
-    // Label da linha base: "Total a pagar (serviços)"
-    var lbl = document.querySelector('#modal-pagamento-ag .pag-resumo .pag-resumo-row:last-child span');
-    if (lbl) lbl.textContent = 'Total a pagar (serviços)';
+    // (Layout v2) — a linha do resumo já tem rótulo "TOTAL" fixo.
     document.getElementById('pag-confirmar-label').textContent =
       __ctx.mode === 'concluir' ? 'Confirmar e concluir' : 'Salvar pagamento';
 
@@ -897,10 +1097,10 @@
           addLinhaPagamento({ forma: p.forma_pagamento, valor: p.valor, parcelas: p.parcelas });
         });
       } else {
-        addLinhaPagamento({ forma: 'pix', valor: round2(total + (__ctx.tipAmount||0)) });
+        addLinhaPagamento({ forma: 'pix', valor: '' });
       }
     } else {
-      addLinhaPagamento({ forma: 'pix', valor: round2(total + (__ctx.tipAmount||0)) });
+      addLinhaPagamento({ forma: 'pix', valor: '' });
     }
 
     openPagModal();

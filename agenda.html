@@ -7,7 +7,8 @@
   <title>Slotify</title>
   <meta name="description" content="Slotify - Sistema de agendamento para salões de beleza">
   <link rel="stylesheet" href="/estilos.css" onerror="this.onerror=null;this.href='estilos.css'">
-  <link rel="stylesheet" href="/pagamentos.css" onerror="this.onerror=null;this.href='pagamentos.css'">
+  <link rel="stylesheet" href="/pagamentos.css?v=10" onerror="this.onerror=null;this.href='pagamentos.css'">
+  <link rel="stylesheet" href="/agendamento-desconto.css?v=2" onerror="this.onerror=null;this.href='agendamento-desconto.css?v=2'">
   <link rel="stylesheet" href="/agendamento-prepago.css?v=6" onerror="this.onerror=null;this.href='agendamento-prepago.css'">
   <link rel="stylesheet" href="/dashboard-pagamentos.css" onerror="this.onerror=null;this.href='dashboard-pagamentos.css'">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,6 +25,7 @@
   <link rel="stylesheet" href="/analytics-produtos.css">
    <link rel="stylesheet" href="/import-clientes.css" onerror="this.onerror=null;this.href='import-clientes.css'">
    <link rel="stylesheet" href="comissoes.css?v=3" onerror="this.onerror=null;this.href='comissoes.css'">
+   <link rel="stylesheet" href="/bloqueio-colaborador-concluido.css?v=2" onerror="this.onerror=null;this.href='bloqueio-colaborador-concluido.css?v=2'">
   <style>
     .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
     .pcr-app { z-index: 99999 !important; position: fixed !important; }
@@ -3334,14 +3336,20 @@
   </div>
 
   <!-- NOVA FEATURE DE PAGAMENTOS -->
-  <script src="/pagamentos.js?v=7" defer></script>
-  <script src="/agendamento-prepago.js?v=9" defer></script>
+<script src="/pagamentos.js?v=10" defer></script>
+   <script src="/agendamento-prepago.js?v=6" defer></script>
   <script src="/dashboard-pagamentos.js?v=1" defer></script>
   <script src="/analytics-cancelamentos.js?v=1" defer></script>
   <script src="/analytics-produtos.js?v=2" defer></script>
   <script src="/cancelamento-auth.js?v=5" defer></script>
+  <!-- DESCONTO (ordem obrigatória: auth ANTES de agendamento-desconto; financeiro DEPOIS) -->
+  <script src="/desconto-auth.js?v=1" defer onerror="this.onerror=null;this.src='desconto-auth.js?v=1'"></script>
+  <script src="/agendamento-desconto.js?v=2" defer onerror="this.onerror=null;this.src='agendamento-desconto.js?v=2'"></script>
+  <script src="/desconto-financeiro.js?v=1" defer onerror="this.onerror=null;this.src='desconto-financeiro.js?v=1'"></script>
    <script src="/import-clientes.js?v=1" defer onerror="this.onerror=null;this.src='import-clientes.js?v=1'"></script>
    <script src="comissoes.js?v=3" defer onerror="this.onerror=null;this.src='comissoes.js?v=3'"></script>
+   <script src="/comissoes-desconto.js?v=1" defer onerror="this.onerror=null;this.src='comissoes-desconto.js?v=1'"></script>
+   <script src="/bloqueio-colaborador-concluido.js?v=7" defer onerror="this.onerror=null;this.src='bloqueio-colaborador-concluido.js?v=7'"></script>
 
 </body>
 </html>

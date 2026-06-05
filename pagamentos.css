@@ -424,11 +424,11 @@
 
 /* ---------- MOBILE (≤ 520px) ---------- */
 @media (max-width: 520px) {
-  #modal-pagamento-ag.modal-overlay { padding: 8px; align-items: flex-end; }
+  #modal-pagamento-ag.modal-overlay { padding: 0; align-items: stretch; }
   #modal-pagamento-ag .modal {
     max-width: 100%;
-    max-height: 92vh;
-    border-radius: 16px 16px 0 0;
+    max-height: 100vh;
+    border-radius: 0;
   }
   #modal-pagamento-ag .modal-header h3 { font-size: 16px; }
   #modal-pagamento-ag .modal-body { padding: 10px 14px 4px !important; }
@@ -471,4 +471,483 @@
     width: 100%;
     min-width: 0;
   }
+}
+
+/* =====================================================================
+   PAGAMENTOS v2 — Refactor visual (Desktop + Mobile)
+   Sem alterar regras de negócio. Apenas UI/UX.
+   ===================================================================== */
+
+.pag-modal-v2 {
+  max-width: 920px !important;
+  width: calc(100% - 32px);
+  padding: 0;
+}
+.pag-modal-v2 .pag-v2-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+}
+.pag-modal-v2 .pag-v2-header h3 {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 18px; font-weight: 700; color: var(--text, #1a1a2e);
+}
+.pag-modal-v2 .pag-v2-h-icon {
+  width: 36px; height: 36px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 14%, transparent);
+  color: var(--gold, #6c3aed);
+}
+
+.pag-modal-v2 .pag-v2-body {
+  padding: 20px 24px 12px !important;
+}
+
+/* ---------- Header card (cliente / atendimento) ---------- */
+.pag-v2-headcard {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center; gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  margin-bottom: 18px;
+}
+.pag-v2-hc-item { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.pag-v2-hc-ic {
+  width: 40px; height: 40px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 12%, transparent);
+  color: var(--gold, #6c3aed); font-size: 16px; flex: 0 0 auto;
+}
+.pag-v2-hc-text { display: flex; flex-direction: column; min-width: 0; }
+.pag-v2-hc-label { font-size: 12px; color: var(--text-muted, #6b7280); }
+.pag-v2-hc-text strong {
+  font-size: 15px; font-weight: 700; color: var(--text, #1a1a2e);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pag-v2-hc-sep {
+  width: 1px; align-self: stretch;
+  background: var(--border, #e5e7eb);
+}
+
+/* ---------- Grid 2 colunas ---------- */
+.pag-v2-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.pag-v2-col-left, .pag-v2-col-right { min-width: 0; }
+
+/* ---------- Hero "Valor pendente" ---------- */
+.pag-v2-pending {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 6px;
+  padding: 22px 18px;
+  border: 1px solid color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 7%, var(--bg-card, #fff));
+  margin-bottom: 14px;
+}
+.pag-v2-pending-label {
+  font-size: 12px; letter-spacing: .08em; font-weight: 700;
+  color: var(--text-muted, #6b7280);
+}
+.pag-v2-pending-value {
+  font-size: 40px; line-height: 1.05; font-weight: 800;
+  color: var(--gold, #6c3aed);
+  letter-spacing: -0.5px;
+}
+.pag-v2-pending-desc {
+  font-size: 12px; color: var(--text-muted, #6b7280);
+}
+
+/* ---------- Section labels ---------- */
+.pag-v2-section-label {
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  color: var(--text, #1a1a2e);
+  margin: 10px 2px 8px;
+}
+
+/* ---------- Botões "Aplicar desconto" / "Adicionar caixinha" (card style) ---------- */
+.pag-modal-v2 .pag-tip-btn,
+.pag-modal-v2 #desc-apply-btn {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  color: var(--gold, #6c3aed);
+  font: inherit; font-weight: 600; font-size: 14px;
+  cursor: pointer; transition: .15s;
+  margin: 0 0 10px;
+  text-align: left;
+  position: relative;
+}
+/* removed empty ::before icon box — inline icons (FA / emoji) are used instead */
+.pag-modal-v2 .pag-tip-btn::after,
+.pag-modal-v2 #desc-apply-btn::after {
+  content: "›";
+  margin-left: auto;
+  color: var(--gold, #6c3aed);
+  font-size: 22px; line-height: 1;
+}
+.pag-modal-v2 .pag-tip-btn:hover,
+.pag-modal-v2 #desc-apply-btn:hover {
+  border-color: var(--gold, #6c3aed);
+  background: color-mix(in srgb, var(--gold, #6c3aed) 5%, var(--bg-card, #fff));
+}
+.pag-modal-v2 .pag-tip-btn i,
+.pag-modal-v2 #desc-apply-btn i,
+.pag-modal-v2 .pag-tip-ic { color: var(--gold, #6c3aed); font-size: 16px; }
+
+/* "Forma de pagamento" labels acima da lista */
+.pag-modal-v2 .pag-formas-list { margin-top: 6px; }
+
+/* ---------------------------------------------------------------
+   Dropdown customizado de FORMA DE PAGAMENTO (com ícones)
+   --------------------------------------------------------------- */
+.pag-forma-dd {
+  position: relative;
+  width: 100%;
+}
+.pag-forma-dd .pag-forma {
+  /* mantém o <select> nativo invisível, apenas para preservar a leitura via .value */
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  border: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.pag-forma-toggle {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  color: var(--text, #1a1a2e);
+  font: inherit; font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  text-align: left;
+}
+.pag-forma-toggle:hover { border-color: var(--gold, #6c3aed); }
+.pag-forma-dd.open .pag-forma-toggle {
+  border-color: var(--gold, #6c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+}
+.pag-forma-ic-wrap {
+  width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--gold, #6c3aed);
+  flex: 0 0 auto;
+}
+.pag-forma-ic { display: block; }
+.pag-forma-label { flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pag-forma-caret {
+  font-size: 12px;
+  color: var(--text-muted, #6b7280);
+  transition: transform .15s;
+}
+.pag-forma-dd.open .pag-forma-caret { transform: rotate(180deg); color: var(--gold, #6c3aed); }
+
+.pag-forma-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0; right: 0;
+  list-style: none;
+  margin: 0; padding: 6px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -10px rgba(0,0,0,.18);
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.pag-forma-menu li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text, #1a1a2e);
+  font-size: 14px;
+  font-weight: 500;
+}
+.pag-forma-menu li:hover {
+  background: color-mix(in srgb, var(--gold, #6c3aed) 8%, transparent);
+}
+.pag-forma-menu li.is-active {
+  background: color-mix(in srgb, var(--gold, #6c3aed) 12%, transparent);
+  color: var(--gold, #6c3aed);
+  font-weight: 600;
+}
+
+/* ---------- Resumo financeiro (direita) ---------- */
+.pag-modal-v2 .pag-resumo {
+  background: var(--surface-card, var(--bg-card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  padding: 18px 18px;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pag-modal-v2 .pag-resumo .pag-resumo-row {
+  font-size: 14px; color: var(--text, #1a1a2e);
+}
+.pag-modal-v2 .pag-resumo .pag-resumo-row > span:first-child {
+  color: var(--text-muted, #6b7280);
+}
+.pag-modal-v2 .pag-resumo .pag-resumo-row strong { font-weight: 600; }
+.pag-modal-v2 .pag-v2-neg { color: #ef4444 !important; }
+.pag-modal-v2 .pag-v2-pos { color: #16a34a !important; }
+.pag-modal-v2 .pag-tip-row .pag-tip-edit,
+.pag-modal-v2 .pag-tip-row .pag-tip-remove {
+  border: 0; background: transparent; font-size: 11px;
+  cursor: pointer; margin-left: 6px; padding: 0;
+}
+.pag-modal-v2 .pag-tip-row .pag-tip-edit { color: var(--gold, #6c3aed); }
+.pag-modal-v2 .pag-tip-row .pag-tip-remove { color: #ef4444; }
+
+.pag-modal-v2 .pag-resumo-total {
+  border-top: 1px dashed var(--border, #e5e7eb);
+  padding-top: 12px; margin-top: 4px;
+  align-items: baseline;
+}
+.pag-modal-v2 .pag-resumo-total > span:first-child {
+  font-size: 14px; font-weight: 700; color: var(--text, #1a1a2e) !important;
+  letter-spacing: .04em;
+}
+.pag-modal-v2 .pag-resumo-total .pag-total {
+  font-size: 24px; font-weight: 800; color: var(--gold, #6c3aed);
+}
+
+/* ---------- Card de conferência ---------- */
+.pag-modal-v2 .pag-confer-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface-card, var(--bg-card, #fff));
+  margin: 0;
+  font-size: 13px;
+}
+.pag-modal-v2 .pag-confer-card.ok {
+  background: color-mix(in srgb, #16a34a 9%, var(--bg-card, #fff));
+  border-color: color-mix(in srgb, #16a34a 30%, transparent);
+}
+.pag-modal-v2 .pag-confer-card.faltando,
+.pag-modal-v2 .pag-confer-card.excedido {
+  background: color-mix(in srgb, #f59e0b 10%, var(--bg-card, #fff));
+  border-color: color-mix(in srgb, #f59e0b 32%, transparent);
+}
+.pag-modal-v2 .pag-confer-ic {
+  width: 32px; height: 32px; flex: 0 0 auto; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #16a34a; color: #fff; font-size: 14px;
+}
+.pag-modal-v2 .pag-confer-ic.warn { background: #f59e0b; }
+.pag-modal-v2 .pag-confer-text {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.pag-modal-v2 .pag-confer-card.ok .pag-confer-text strong { color: #15803d; }
+.pag-modal-v2 .pag-confer-card.faltando .pag-confer-text strong,
+.pag-modal-v2 .pag-confer-card.excedido .pag-confer-text strong { color: #b45309; }
+.pag-modal-v2 .pag-confer-text strong { font-size: 14px; font-weight: 700; }
+.pag-modal-v2 .pag-confer-text span { color: var(--text-muted, #6b7280); line-height: 1.45; }
+
+/* ---------- Botão "Adicionar mais formas" ---------- */
+.pag-modal-v2 .pag-add-btn {
+  margin-top: 4px;
+  border-color: color-mix(in srgb, var(--gold, #6c3aed) 35%, transparent);
+}
+
+/* ---------- Rodapé ---------- */
+.pag-modal-v2 .pag-v2-actions {
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--border, #e5e7eb);
+  background: var(--surface-card, var(--bg-card, #fff));
+}
+.pag-modal-v2 .pag-v2-actions .btn-cancel {
+  padding: 11px 22px; border-radius: 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-card, #fff); color: var(--text, #1a1a2e);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.pag-modal-v2 .pag-v2-actions .btn-submit {
+  padding: 11px 22px; border-radius: 10px; border: 0;
+  background: linear-gradient(135deg, var(--gold, #6c3aed), var(--gold-light, #8b5cf6)) !important;
+  color: var(--gold-contrast, #fff);
+  font: inherit; font-weight: 700; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--gold, #6c3aed) 60%, transparent);
+}
+.pag-modal-v2 .pag-v2-actions .btn-submit:disabled {
+  opacity: .55; cursor: not-allowed; box-shadow: none;
+}
+
+/* ---------- Mobile (Fullscreen — sem espaço vazio acima) ---------- */
+@media (max-width: 760px) {
+  /* Overlay ocupa 100% e alinha o modal ao topo */
+  #modal-pagamento-ag.modal-overlay {
+    padding: 0 !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    overflow: hidden;
+  }
+  .pag-modal-v2 {
+    max-width: 100% !important;
+    width: 100% !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    align-self: stretch;
+    display: flex; flex-direction: column;
+  }
+  /* Header fixo no topo */
+  .pag-modal-v2 .pag-v2-header {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--surface-card, var(--bg-card, #fff));
+  }
+  .pag-modal-v2 .pag-v2-body {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 20px !important;
+  }
+  .pag-v2-headcard {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .pag-v2-hc-sep { display: none; }
+  .pag-v2-cols { grid-template-columns: 1fr; gap: 14px; }
+  .pag-v2-pending-value { font-size: 34px; }
+  /* Rodapé colado embaixo */
+  .pag-modal-v2 .pag-v2-actions {
+    flex-direction: column-reverse;
+    padding: 12px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+    position: sticky; bottom: 0;
+  }
+  .pag-modal-v2 .pag-v2-actions .btn-cancel,
+  .pag-modal-v2 .pag-v2-actions .btn-submit {
+    width: 100%; justify-content: center;
+  }
+}
+
+/* =====================================================================
+   UI FIXES (v2026-06-04)
+   - Ícone PIX: preservar identidade visual oficial (sem filtros/cor)
+   - Rodapé do modal v2: garantir que ambos os botões fiquem visíveis
+     no mobile, sem overflow nem corte.
+   ===================================================================== */
+
+/* PIX usa imagem oficial — não aplicar cor do tema nem filtros */
+.pag-forma-ic-pix {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  filter: none !important;
+  color: initial !important;
+  background: transparent !important;
+}
+
+/* Rodapé do modal v2 — desktop/tablet: permite quebra segura */
+.pag-modal-v2 .pag-v2-actions {
+  flex-wrap: wrap;
+}
+.pag-modal-v2 .pag-v2-actions .btn-cancel,
+.pag-modal-v2 .pag-v2-actions .btn-submit {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Mobile: empilhar verticalmente garantindo 100% de largura nos dois botões */
+@media (max-width: 760px) {
+  .pag-modal-v2 .pag-v2-actions {
+    flex-direction: column-reverse !important;
+    flex-wrap: nowrap !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+    width: 100%;
+  }
+  .pag-modal-v2 .pag-v2-actions .btn-cancel,
+  .pag-modal-v2 .pag-v2-actions .btn-submit {
+    width: 100% !important;
+    flex: 0 0 auto !important;
+    justify-content: center !important;
+    white-space: normal;
+  }
+}
+
+
+/* ============================================================
+   Ações de Desconto / Caixinha — padrão unificado (v2 refino)
+   ============================================================ */
+.pag-modal-v2 .pag-action-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.pag-modal-v2 .pag-action-row > .pag-tip-btn,
+.pag-modal-v2 .pag-action-row > #desc-apply-btn {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.pag-modal-v2 .pag-action-remove {
+  flex: 0 0 auto;
+  width: 44px;
+  border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  color: #ef4444;
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.pag-modal-v2 .pag-action-remove:hover {
+  background: color-mix(in srgb, #ef4444 18%, transparent);
+  border-color: color-mix(in srgb, #ef4444 55%, transparent);
+}
+
+/* Estado ativo do botão original (substitui o botão, não adiciona card) */
+.pag-modal-v2 .pag-tip-btn.is-active,
+.pag-modal-v2 #desc-apply-btn.is-active {
+  border-style: solid;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 10%, transparent);
+}
+
+/* Esconde a linha de desconto no resumo quando NÃO há desconto
+   (reforça a regra "linhas R$ 0,00 não aparecem") */
+.pag-modal-v2 .pag-resumo-row.pag-resumo-desc-row[hidden] {
+  display: none !important;
+}
+
+/* ============================================================
+   Card de conferência — centralizar ícone + texto
+   ============================================================ */
+.pag-modal-v2 .pag-confer-card {
+  justify-content: center;
+  align-items: center;
+  text-align: left;
+}
+.pag-modal-v2 .pag-confer-text {
+  align-items: flex-start;
+  flex: 0 1 auto;
 }

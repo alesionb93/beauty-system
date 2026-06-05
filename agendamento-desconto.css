@@ -1,0 +1,216 @@
+/* =====================================================================
+   AGENDAMENTO-DESCONTO.CSS — Add-on isolado (v1)
+   Estilos do botão "Aplicar desconto", do card de desconto aplicado
+   e do modal de informação de desconto. 100% baseado em theme tokens.
+   ===================================================================== */
+
+/* ---------- Botão "Aplicar desconto" no modal de pagamento ---------- */
+.desc-apply-btn {
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--gold, #6c3aed);
+  background: color-mix(in srgb, var(--gold, #6c3aed) 6%, transparent);
+  color: var(--gold, #6c3aed);
+  font-weight: 600;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  transition: .15s;
+}
+.desc-apply-btn:hover {
+  background: color-mix(in srgb, var(--gold, #6c3aed) 12%, transparent);
+}
+.desc-apply-btn i { color: var(--gold, #6c3aed); }
+
+/* ---------- Card "Desconto aplicado" + linha "Total final" ---------- */
+.desc-applied-card {
+  display: grid;
+  grid-template-columns: 1fr auto 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 8px;
+  border: 1px solid color-mix(in srgb, var(--gold, #6c3aed) 30%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 8%, var(--bg-card, #fff));
+}
+.desc-applied-card .desc-label {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600;
+  color: var(--text, #1a1a2e);
+}
+.desc-applied-card .desc-label i { color: var(--gold, #6c3aed); }
+.desc-applied-card .desc-value {
+  font-size: 14px; font-weight: 700;
+  color: #ef4444;
+  white-space: nowrap;
+}
+.desc-applied-card .desc-remove {
+  width: 36px; height: 36px; border: none; border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444; cursor: pointer; font-size: 14px;
+}
+.desc-applied-card .desc-remove:hover {
+  background: color-mix(in srgb, #ef4444 22%, transparent);
+}
+
+.desc-total-final-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  margin: 0 0 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  font-size: 13px;
+  color: var(--text-muted, #6b7280);
+}
+.desc-total-final-row strong {
+  font-size: 16px; font-weight: 700;
+  color: var(--text, #1a1a2e);
+}
+
+/* ---------- Modal "Aplicar desconto" ---------- */
+.desc-modal-body { padding: 6px 2px 2px; }
+
+.desc-tipo-group {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin-bottom: 14px;
+}
+.desc-tipo-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  cursor: pointer;
+  font-size: 14px; color: var(--text, #1a1a2e);
+  transition: .15s;
+}
+.desc-tipo-opt:hover { border-color: var(--gold, #6c3aed); }
+.desc-tipo-opt input[type="radio"] {
+  accent-color: var(--gold, #6c3aed);
+  width: 16px; height: 16px;
+}
+.desc-tipo-opt.active {
+  border-color: var(--gold, #6c3aed);
+  background: color-mix(in srgb, var(--gold, #6c3aed) 6%, transparent);
+}
+
+.desc-field-label {
+  display: block;
+  font-size: 13px; font-weight: 600;
+  color: var(--text, #1a1a2e);
+  margin-bottom: 6px;
+}
+.desc-field-input {
+  width: 100%; height: 42px; padding: 0 12px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-input, var(--bg-card, #fff));
+  color: var(--text, #1a1a2e); font: inherit; font-size: 15px;
+  margin-bottom: 12px;
+}
+.desc-field-input:focus {
+  outline: none; border-color: var(--gold, #6c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+}
+
+.desc-preview {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  margin-bottom: 6px;
+}
+.desc-preview-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; color: var(--text-muted, #6b7280);
+}
+.desc-preview-row strong { color: var(--text, #1a1a2e); }
+.desc-preview-row.desc-preview-desc strong { color: #ef4444; }
+.desc-preview-row.desc-preview-final {
+  border-top: 1px dashed var(--border, #e5e7eb);
+  padding-top: 8px; margin-top: 4px;
+  font-size: 14px;
+}
+.desc-preview-row.desc-preview-final strong {
+  font-size: 18px; color: var(--gold, #6c3aed);
+}
+
+.desc-error {
+  display: none;
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  color: #ef4444;
+  font-size: 13px; font-weight: 500;
+}
+.desc-error.show { display: block; }
+
+/* ---------- Modal "Remover desconto?" ---------- */
+.desc-confirm-body {
+  padding: 20px 24px;
+  text-align: center;
+}
+.desc-confirm-body .desc-confirm-icon {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: color-mix(in srgb, #f59e0b 15%, transparent);
+  color: #f59e0b;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+.desc-confirm-body p {
+  font-size: 14px; color: var(--text-muted, #6b7280);
+  margin: 4px 0;
+}
+.desc-confirm-body p.desc-confirm-title {
+  font-size: 16px; font-weight: 600; color: var(--text, #1a1a2e);
+  margin-bottom: 8px;
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+  color: #fff !important;
+}
+
+/* Garantir que os modais do add-on apareçam ACIMA do modal de pagamento */
+#modal-desconto-aplicar.modal-overlay,
+#modal-desconto-remover.modal-overlay { z-index: 9999; }
+
+/* =====================================================================
+   v2 — Ajustes para o novo layout do modal Registrar pagamento
+   • O TOTAL final já é mostrado no Resumo Financeiro (coluna direita)
+     do novo modal. A linha duplicada "Total final" do add-on fica
+     redundante e gera poluição visual. Ocultamos quando estamos no
+     layout v2 (.pag-modal-v2).
+   ===================================================================== */
+.pag-modal-v2 .desc-total-final-row { display: none !important; }
+
+/* O botão "Aplicar desconto" e o card "Desconto aplicado" recebem
+   espaçamento coerente com os demais cards de ação da coluna esquerda. */
+.pag-modal-v2 .desc-applied-card { margin: 0 0 10px; }
+
+
+/* =====================================================================
+   v2.1 — Padrão unificado com Caixinha
+   • O estado "Desconto aplicado" agora é apresentado mutando o próprio
+     botão (sem card adicional). Garantimos que qualquer resquício do
+     antigo card/linha de total final fique oculto, caso algum DOM
+     legado ainda esteja em cache.
+   ===================================================================== */
+.pag-modal-v2 #desc-applied-card,
+.pag-modal-v2 #desc-total-final-row { display: none !important; }
+
+/* Estado ativo do botão de desconto — mesmo visual do .is-active da caixinha */
+.pag-modal-v2 #desc-apply-btn.is-active {
+  border-style: solid;
+  background: color-mix(in srgb, var(--gold, #6c3aed) 10%, transparent);
+  cursor: default;
+}

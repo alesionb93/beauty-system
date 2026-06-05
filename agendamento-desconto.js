@@ -122,19 +122,27 @@
     btn.id = 'desc-apply-btn';
     btn.className = 'desc-apply-btn';
     btn.setAttribute('data-desc-action', 'open-apply');
-    btn.innerHTML = '<i class="fa-solid fa-tag"></i> Aplicar desconto';
+    btn.innerHTML = '<i class="fa-solid fa-tag"></i> <span class="desc-apply-btn-label">Aplicar desconto</span>';
     // NÃO usamos addEventListener direto aqui porque pagamentos.js pode
     // recriar/rerenderizar o entorno e perderíamos o handler. A captura
     // do clique acontece via delegação global em document (ver instalarDelegacao).
 
-    // Inserir antes do botão de caixinha (Adicionar caixinha) quando presente,
-    // para preservar a ordem: Valor pendente → Aplicar desconto → Adicionar caixinha
-    // → Forma de pagamento. Fallback: antes da lista de formas.
-    var tipBtn = document.getElementById('pag-tip-btn');
-    if (tipBtn && tipBtn.parentNode) {
-      tipBtn.parentNode.insertBefore(btn, tipBtn);
+    // Wrapper unificado (botão + futura lixeira) — mesmo padrão da caixinha
+    var wrap = document.createElement('div');
+    wrap.className = 'pag-action-row';
+    wrap.id = 'desc-row-wrap';
+    wrap.appendChild(btn);
+
+    // Inserir ANTES do wrap do botão de caixinha (ou do próprio botão),
+    // para preservar a ordem: Valor pendente → Aplicar desconto →
+    // Adicionar caixinha → Forma de pagamento.
+    var tipWrap = document.getElementById('pag-tip-row-wrap');
+    var tipBtn  = document.getElementById('pag-tip-btn');
+    var anchor  = tipWrap || (tipBtn && tipBtn.parentNode === tipWrap ? tipWrap : tipBtn);
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(wrap, anchor);
     } else {
-      list.parentNode.insertBefore(btn, list);
+      list.parentNode.insertBefore(wrap, list);
     }
   }
 
@@ -166,45 +174,44 @@
   function renderDescontoAplicadoUI() {
     var modal = document.getElementById('modal-pagamento-ag');
     if (!modal) return;
-    var list = getFormasListEl();
-    if (!list) return;
 
-    // Remove blocos anteriores
-    var oldBtn = modal.querySelector('#desc-apply-btn');
+    // Remove blocos antigos da v1 (card separado + linha de total)
     var oldCard = modal.querySelector('#desc-applied-card');
     var oldTotal = modal.querySelector('#desc-total-final-row');
     if (oldCard) oldCard.remove();
     if (oldTotal) oldTotal.remove();
 
+    var btn = modal.querySelector('#desc-apply-btn');
+    if (!btn) return;
+    var wrap = btn.parentNode;
+    var trash = wrap && wrap.querySelector('#desc-remove-btn');
+    var labelSpan = btn.querySelector('.desc-apply-btn-label');
+    // Garante uma <span> de label dentro do botão para alternar o texto
+    if (!labelSpan) {
+      btn.innerHTML = '<i class="fa-solid fa-tag"></i> <span class="desc-apply-btn-label">Aplicar desconto</span>';
+      labelSpan = btn.querySelector('.desc-apply-btn-label');
+    }
+
     if (__descAtivo > 0) {
-      if (oldBtn) oldBtn.style.display = 'none';
-
-      var orig = getValorOriginal();
-      var finalAmt = round2(orig - __descAtivo);
-
-      var card = document.createElement('div');
-      card.id = 'desc-applied-card';
-      card.className = 'desc-applied-card';
-      card.innerHTML =
-        '<span class="desc-label"><i class="fa-solid fa-tag"></i> Desconto aplicado</span>' +
-        '<span class="desc-value">-' + fmtBRL(__descAtivo) + '</span>' +
-        '<button type="button" class="desc-remove" id="desc-remove-btn" data-desc-action="open-remove" title="Remover desconto">' +
-          '<i class="fa-solid fa-trash"></i>' +
-        '</button>';
-
-      var totalRow = document.createElement('div');
-      totalRow.id = 'desc-total-final-row';
-      totalRow.className = 'desc-total-final-row';
-      totalRow.innerHTML =
-        '<span>Total final</span><strong>' + fmtBRL(finalAmt) + '</strong>';
-
-      var tipBtn2 = document.getElementById('pag-tip-btn');
-      var anchor = (tipBtn2 && tipBtn2.parentNode) ? tipBtn2 : list;
-      anchor.parentNode.insertBefore(card, anchor);
-      anchor.parentNode.insertBefore(totalRow, anchor);
-      // Handler de remover é capturado por delegação global em document.
+      if (labelSpan) labelSpan.textContent = 'Desconto aplicado';
+      btn.classList.add('is-active');
+      btn.setAttribute('data-desc-action', 'noop');
+      if (!trash && wrap) {
+        trash = document.createElement('button');
+        trash.type = 'button';
+        trash.id = 'desc-remove-btn';
+        trash.className = 'pag-action-remove';
+        trash.title = 'Remover desconto';
+        trash.setAttribute('aria-label', 'Remover desconto');
+        trash.setAttribute('data-desc-action', 'open-remove');
+        trash.innerHTML = '<i class="fa-solid fa-trash"></i>';
+        wrap.appendChild(trash);
+      }
     } else {
-      if (oldBtn) oldBtn.style.display = '';
+      if (labelSpan) labelSpan.textContent = 'Aplicar desconto';
+      btn.classList.remove('is-active');
+      btn.setAttribute('data-desc-action', 'open-apply');
+      if (trash) trash.remove();
     }
   }
 

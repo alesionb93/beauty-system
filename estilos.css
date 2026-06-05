@@ -6263,3 +6263,54 @@ body:not(.tema-fullscreen) .sk {
    recortado antes do CSS principal carregar */
 #calendar-days .sk-cal__grid,
 #day-appointments .sk-day { will-change: opacity; }
+
+/* ============================================================
+   Botão "Aplicar desconto" no modal "Registrar pagamento"
+   (injetado por agendamento-desconto.js)
+   Restaura visual outline roxo full-width (igual ao padrão antigo).
+   ============================================================ */
+[data-desc-action="open-apply"],
+#btn-aplicar-desconto,
+.btn-aplicar-desconto {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 10px 0;
+  padding: 11px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #7c3aed;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, box-shadow .15s ease, transform .05s ease;
+  box-shadow: 0 1px 0 rgba(124, 58, 237, 0.04);
+}
+[data-desc-action="open-apply"]:hover,
+#btn-aplicar-desconto:hover,
+.btn-aplicar-desconto:hover {
+  background: #ede9fe;
+  border-color: #c4b5fd;
+}
+[data-desc-action="open-apply"]:active,
+#btn-aplicar-desconto:active,
+.btn-aplicar-desconto:active {
+  transform: translateY(1px);
+}
+[data-desc-action="open-apply"]:focus-visible,
+#btn-aplicar-desconto:focus-visible,
+.btn-aplicar-desconto:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+}
+[data-desc-action="open-apply"][disabled],
+#btn-aplicar-desconto[disabled],
+.btn-aplicar-desconto[disabled] {
+  opacity: .55;
+  cursor: not-allowed;
+}

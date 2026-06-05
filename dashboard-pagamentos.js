@@ -232,6 +232,13 @@
     return possuiVendaPacote(ag) || possuiServicoComVenda(ag) || possuiProdutosVendidos(ag);
   }
   function calcularValorTotal(ag){
+    var bruto = calcularValorTotalBruto(ag);
+    var desc = Number(ag && ag.desconto_aplicado) || 0;
+    return round2(Math.max(0, bruto - desc));
+  }
+  // expõe o bruto para outros add-ons (ex.: desconto-financeiro.js)
+  try { window.__dashPagCalcGross = calcularValorTotalBruto; } catch(_){}
+  function calcularValorTotalBruto(ag){
     if (!ag) return 0;
     var total = 0;
     var sp = window.servicePrices || {};
