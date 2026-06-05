@@ -1,0 +1,135 @@
+/* =====================================================================
+   QRCODE-AGENDAMENTO.CSS — Add-on isolado (v1 — 2026-06-05)
+   Estilos da seção "Escaneie para agendar" injetada dentro de
+   #link-cliente-box (tela Configurações > Geral > Agendamento pelo cliente)
+   ===================================================================== */
+
+.qr-ag-section {
+  margin-top: 18px;
+  padding: 18px;
+  background: var(--surface-card, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 14px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 22px;
+  align-items: center;
+}
+
+/* Moldura com cantos roxos do QR (estilo "scanner") */
+.qr-ag-frame {
+  position: relative;
+  padding: 14px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(26,26,46,0.06);
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-ag-frame::before,
+.qr-ag-frame::after,
+.qr-ag-frame > .qr-ag-corner-bl,
+.qr-ag-frame > .qr-ag-corner-br {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--gold, #6c3aed);
+  border-radius: 4px;
+}
+.qr-ag-frame::before { top: -2px; left: -2px; border-right: 0; border-bottom: 0; }
+.qr-ag-frame::after  { top: -2px; right: -2px; border-left: 0; border-bottom: 0; }
+.qr-ag-frame > .qr-ag-corner-bl { bottom: -2px; left: -2px; border-right: 0; border-top: 0; }
+.qr-ag-frame > .qr-ag-corner-br { bottom: -2px; right: -2px; border-left: 0; border-top: 0; }
+
+.qr-ag-frame canvas,
+.qr-ag-frame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.qr-ag-info { display: flex; flex-direction: column; gap: 6px; }
+.qr-ag-info h4 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text, #1a1a2e);
+  margin: 0;
+}
+.qr-ag-info p {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.9rem;
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+
+.qr-ag-actions { display: flex; flex-direction: column; gap: 8px; max-width: 280px; }
+.qr-ag-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .15s ease, transform .05s ease, opacity .15s ease;
+  font-family: inherit;
+}
+.qr-ag-btn[disabled] { opacity: .6; cursor: not-allowed; }
+.qr-ag-btn:active:not([disabled]) { transform: translateY(1px); }
+
+.qr-ag-btn-primary {
+  background: var(--gold, #6c3aed);
+  color: var(--gold-contrast, #fff);
+}
+.qr-ag-btn-primary:hover:not([disabled]) { background: var(--gold-dark, #5b21b6); }
+
+.qr-ag-btn-secondary {
+  background: #fff;
+  color: var(--text, #1a1a2e);
+  border-color: var(--border, #e5e7eb);
+}
+.qr-ag-btn-secondary:hover:not([disabled]) { background: var(--bg-card-hover, #f0f0ee); }
+
+.qr-ag-empty {
+  grid-column: 1 / -1;
+  color: var(--text-muted, #6b7280);
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 18px;
+}
+
+/* ===== Responsivo (mobile) ===== */
+@media (max-width: 640px) {
+  .qr-ag-section {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 16px;
+    padding: 16px;
+  }
+  .qr-ag-info { align-items: center; }
+  .qr-ag-actions { width: 100%; max-width: 100%; }
+  .qr-ag-frame { width: 200px; height: 200px; }
+}
+
+/* ===== Print (Imprimir QR Code) =====
+   A janela de impressão usa documento próprio, mas mantemos um fallback
+   caso seja impressa diretamente da página. */
+@media print {
+  body * { visibility: hidden !important; }
+  .qr-ag-print-area, .qr-ag-print-area * { visibility: visible !important; }
+  .qr-ag-print-area {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px;
+  }
+}
