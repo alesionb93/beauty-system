@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('CT007 - Logout colaborador', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
 
   await page.getByRole('textbox', { name: 'Login ou e-mail' }).fill('nicolas');
   await page.getByRole('textbox', { name: 'Senha' }).fill('Aranjiex22@@');

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('CT006 - Logout master admin', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
   await page.getByRole('textbox', { name: 'Login ou e-mail' }).click();
   await page.getByRole('textbox', { name: 'Login ou e-mail' }).fill('alesio');
   await page.getByRole('textbox', { name: 'Senha' }).click();
@@ -9,5 +9,5 @@ test('CT006 - Logout master admin', async ({ page }) => {
   await page.getByRole('button', { name: 'Entrar' }).click();
   await page.getByRole('button', { name: ' Sair' }).click();
   await page.getByText('— Sistema de Agendamento —').click();
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
 });

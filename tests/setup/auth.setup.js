@@ -2,7 +2,7 @@ import { test as setup } from '@playwright/test';
 
 setup('autenticar usuário', async ({ page }) => {
 
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
 
   await page.getByRole('textbox', {
     name: 'Login ou e-mail'

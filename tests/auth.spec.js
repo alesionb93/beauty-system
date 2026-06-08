@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 async function login(page, email, senha) {
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
 
   await page.getByRole('textbox', { name: 'Email' }).fill(email);
   await page.getByRole('textbox', { name: 'Senha' }).fill(senha);

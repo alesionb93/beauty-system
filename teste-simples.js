@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('test', async ({ page }) => {
-  await page.goto('http://127.0.0.1:5500/index.html');
+  await page.goto('/index.html');
   await page.getByRole('textbox', { name: 'Login ou e-mail' }).click();
   await page.getByRole('textbox', { name: 'Login ou e-mail' }).fill('alesio');
   await page.getByRole('textbox', { name: 'Senha' }).click();
