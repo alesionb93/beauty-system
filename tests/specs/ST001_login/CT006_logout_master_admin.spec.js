@@ -1,13 +1,16 @@
 import { test, expect } from '@playwright/test';
+import { loginRobusto } from './_helpers.js';
 
 test('CT006 - Logout master admin', async ({ page }) => {
-  await page.goto('/index.html');
-  await page.getByRole('textbox', { name: 'Login ou e-mail' }).click();
-  await page.getByRole('textbox', { name: 'Login ou e-mail' }).fill('alesio');
-  await page.getByRole('textbox', { name: 'Senha' }).click();
-  await page.getByRole('textbox', { name: 'Senha' }).fill('Aranjiex22@@');
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await page.getByRole('button', { name: ' Sair' }).click();
-  await page.getByText('— Sistema de Agendamento —').click();
-  await page.goto('/index.html');
+  await loginRobusto(page, 'alesio', 'Aranjiex22@@');
+  await expect(page.getByText('SELECIONE O CLIENTE')).toBeVisible({ timeout: 15000 });
+
+  const sair = page.getByRole('button', { name: /sair/i });
+  await expect(sair).toBeVisible();
+  await expect(async () => {
+    await sair.click();
+    await expect(page).toHaveURL(/index\.html/, { timeout: 1500 });
+  }).toPass({ timeout: 15000, intervals: [500, 1000] });
+
+  await expect(page.getByRole('button', { name: /entrar/i })).toBeVisible();
 });

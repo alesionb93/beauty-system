@@ -1,25 +1,14 @@
-import { test as setup } from '@playwright/test';
+import { test as setup, expect } from '@playwright/test';
+import { loginRobusto } from './_helpers.js';
 
 setup('autenticar usuário', async ({ page }) => {
-
-  await page.goto('/index.html');
-
-  await page.getByRole('textbox', {
-    name: 'Login ou e-mail'
-  }).fill('nicolas');
-
-  await page.getByRole('textbox', {
-    name: 'Senha'
-  }).fill('Aranjiex22@@');
-
-  await page.getByRole('button', {
-    name: 'Entrar'
-  }).click();
-
-  await page.waitForTimeout(3000);
-
-  await page.context().storageState({
-    path: 'playwright/.auth/admin.json'
-  });
-
+  await loginRobusto(page, 'nicolas', 'Aranjiex22@@');
+  // Espera sinal real de sessão, não timeout fixo
+  await page.waitForURL(/agenda\.html/, { timeout: 20000 });
+  await page.waitForFunction(
+    () => Object.keys(localStorage).some(k => k.startsWith('sb-') && k.endsWith('-auth-token')),
+    null,
+    { timeout: 15000 }
+  );
+  await page.context().storageState({ path: 'playwright/.auth/admin.json' });
 });

@@ -1,11 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { loginRobusto } from './_helpers.js';
 
 test('CT003 - Senha invalida', async ({ page }) => {
-  await page.goto('/index.html');
-  await page.getByRole('textbox', { name: 'Login ou e-mail' }).click();
-  await page.getByRole('textbox', { name: 'Login ou e-mail' }).fill('alesionb');
-  await page.getByRole('textbox', { name: 'Login ou e-mail' }).press('Tab');
-  await page.getByRole('textbox', { name: 'Senha' }).fill('katakon123');
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await page.getByText('Login ou senha incorretos.').click();
+  await loginRobusto(page, 'alesionb', 'katakon123');
+  await expect(page.getByText('Login ou senha incorretos.')).toBeVisible({ timeout: 15000 });
 });

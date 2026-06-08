@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
+import { abrirLogin } from './_helpers.js';
 
 test('CT005 - Campos vazios', async ({ page }) => {
-  await page.goto('/index.html');
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await page.getByText('Preencha login e senha.').click();
-  await page.goto('/index.html');
+  const { entrar } = await abrirLogin(page);
+  await entrar.click();
+  await expect(page.getByText('Preencha login e senha.')).toBeVisible({ timeout: 10000 });
 });
