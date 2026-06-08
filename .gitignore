@@ -1,5 +1,29 @@
+# Dependências
 node_modules/
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# Configurações locais
 .vscode/
+
+# Variáveis de ambiente
 .env
+.env.*
+
+# Builds
 dist/
 build/
+
+# Arquivos do sistema operacional
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Arquivos temporários
+*.tmp
+*.temp

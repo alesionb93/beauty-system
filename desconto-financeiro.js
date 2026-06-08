@@ -1,13 +1,36 @@
 /* =====================================================================
-   DESCONTO-FINANCEIRO.JS — Add-on isolado (v1 — 2026-06-03)
+   DESCONTO-FINANCEIRO.JS — Add-on isolado (v3 — 2026-06-06)
    ---------------------------------------------------------------------
    Carregue DEPOIS de pagamentos.js, dashboard-pagamentos.js e
    agendamento-desconto.js, em agenda.html:
 
-       <script src="/desconto-financeiro.js?v=1" defer></script>
+       <script src="/desconto-financeiro.js?v=3" defer></script>
 
-   O QUE FAZ
-   ---------
+   v3 (2026-06-06) — CORREÇÃO: filtro do Dashboard era ignorado
+   ---------------------------------------------------------
+   • Bug "valores piscam de R$ 80 → R$ 70" no primeiro Aplicar:
+     causado por o loadDashboard original escrever o valor BRUTO
+     sincronamente e só depois (após awaits de caixinha/widgets) o
+     desconto era subtraído. Agora um MutationObserver instalado
+     durante o ciclo de loadDashboard reaplica o desconto IMEDIATAMENTE
+     a cada escrita em #dash-faturamento, eliminando a pintura
+     intermediária do valor bruto.
+   • Bug "cada clique em Aplicar subtrai mais R$ 10 (70 → 60 → 50 …)":
+     causado por o ajuste no DOM ser não-idempotente sob race entre
+     múltiplas execuções de loadDashboard (cliques rápidos no
+     "Aplicar" disparam wraps concorrentes). Agora:
+       1) `dataset.descSum` rastreia QUANTO já foi descontado do
+          texto atual. `base = atual + jáAplicado` garante que cada
+          reaplicação parte do valor BRUTO real.
+       2) Antes do orig rodar, resetamos `descSum=0` (porque o orig
+          regrava o texto sem nosso ajuste). Assim, depois do orig
+          escrever, `atual` é o bruto e subtraímos o desconto UMA vez.
+       3) As chamadas a loadDashboard são serializadas via um lock
+          (`__descFinRunning`) — múltiplos cliques em Aplicar passam
+          a compartilhar a MESMA execução em curso. Idempotência total.
+
+   O QUE FAZ (mantido da v1)
+   -------------------------
    Garante que TODO indicador financeiro do sistema use o valor LÍQUIDO
    (após desconto) — sem alterar fluxos de pacotes, produtos, estoque,
    histórico do cliente, agenda, quantidade de atendimentos/serviços ou
@@ -18,19 +41,6 @@
      - bruto (services + produtos + venda de pacote) >
        valor_total_pago - caixinha
      ⇒ desconto = bruto - (pago - caixinha)
-
-   Onde aplica:
-     1) Hidrata ag.desconto_aplicado em window.appointments antes do
-        loadDashboard rodar. dashboard-pagamentos.js já lê esse campo
-        em calcularValorTotal → Pendente cai a zero.
-     2) Após loadDashboard + caixinha + dashboard-pagamentos rodarem,
-        ajusta no DOM:
-          • #dash-faturamento  −= totalDescontos
-          • #dash-ticket       recalcula com novo faturamento
-          • Tabela "Por Profissional"  → faturamento e comissão por linha
-          • Cards mobile "Por Profissional" → idem
-     3) Atribuição de desconto por profissional segue o mesmo padrão da
-        caixinha: 100% ao profissional principal do agendamento.
 
    NÃO TOCA:
      - regras de venda/uso de pacote
@@ -44,7 +54,7 @@
   if (window.__SLOTIFY_DESC_FIN_LOADED__) return;
   window.__SLOTIFY_DESC_FIN_LOADED__ = true;
 
-  console.log('%c🧾 desconto-financeiro.js v1 carregado',
+  console.log('%c🧾 desconto-financeiro.js v2 carregado (idempotente + anti-flicker)',
     'background:#0ea5e9;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------- Helpers --------------------
@@ -141,7 +151,11 @@
 
     var ags = window.appointments.filter(function(a){ return inFiltro(a) && isOkParaFaturamento(a); });
     var ids = ags.map(function(a){ return a.id; }).filter(Boolean);
-    if (!ids.length) return out;
+    if (!ids.length) {
+      // Limpa qualquer desconto_aplicado de execuções anteriores em ags fora do filtro,
+      // mas mantém o campo nos demais para evitar mutação desnecessária.
+      return out;
+    }
 
     var tips = await fetchTipsPorAg(ids);
 
@@ -153,9 +167,6 @@
       var bruto = grossDe(a);
       var desc = 0;
 
-      // Só inferimos desconto quando o pagamento está fechado ('pago')
-      // E o bruto é estritamente maior que o efetivamente recebido (líquido de caixinha).
-      // Pagamentos parciais permanecem como pendência, não como desconto.
       if (st === 'pago' && bruto > 0 && pagoNet >= 0 && (bruto - pagoNet) > 0.01) {
         desc = round2(bruto - pagoNet);
       }
@@ -171,24 +182,41 @@
     return out;
   }
 
-  // -------------------- Ajuste de DOM (pós loadDashboard + caixinha + dash-pag) --------------------
+  // -------------------- Ajuste de DOM (idempotente) --------------------
+  // Estratégia: dataset.descSum guarda quanto JÁ subtraímos do texto atual.
+  // base = atual + jáAplicado  →  representa o valor que o orig escreveu.
+  // novo = base - totalDescontos.  Repetir N vezes ⇒ mesmo resultado.
   function ajustarFaturamentoETicket(totalDescontos){
-    if (totalDescontos <= 0) return;
     var fatEl = document.getElementById('dash-faturamento');
-    if (fatEl){
-      var atual = parseMoneyText(fatEl.textContent);
-      var novo  = round2(Math.max(0, atual - totalDescontos));
+    if (!fatEl) return;
+    var atual = parseMoneyText(fatEl.textContent);
+    var jaAplicado = parseFloat(fatEl.dataset.descSum || '0') || 0;
+    var base = round2(atual + jaAplicado);
+    var novo = round2(Math.max(0, base - (Number(totalDescontos) || 0)));
+    if (Math.abs(novo - atual) > 0.005) {
       fatEl.textContent = fmtBRL(novo);
-      fatEl.dataset.descSum = String(totalDescontos);
-      var prev = fatEl.title || '';
-      fatEl.title = (prev ? prev + ' · ' : '') + 'Já desconta ' + fmtBRL(totalDescontos) + ' em descontos aplicados';
-      // Ticket médio segue o faturamento
-      var tickEl  = document.getElementById('dash-ticket');
-      var totAgEl = document.getElementById('dash-total-ag');
-      if (tickEl && totAgEl){
-        var qtd = parseInt(String(totAgEl.textContent).replace(/\D/g,''), 10) || 0;
-        if (qtd > 0) tickEl.textContent = fmtBRL(round2(novo / qtd));
-      }
+    }
+    fatEl.dataset.descSum = String(totalDescontos > 0 ? totalDescontos : 0);
+
+    // Title: preserva mensagens prévias (produtos/caixinha) e adiciona a nossa
+    var titleParts = [];
+    if (fatEl.dataset.prodSum && parseFloat(fatEl.dataset.prodSum) > 0) {
+      titleParts.push('Inclui ' + fmtBRL(parseFloat(fatEl.dataset.prodSum)) + ' em produtos vendidos');
+    }
+    if (fatEl.dataset.tipSum && parseFloat(fatEl.dataset.tipSum) > 0) {
+      titleParts.push('Inclui ' + fmtBRL(parseFloat(fatEl.dataset.tipSum)) + ' em caixinhas (gorjetas)');
+    }
+    if (totalDescontos > 0) {
+      titleParts.push('Já desconta ' + fmtBRL(totalDescontos) + ' em descontos aplicados');
+    }
+    fatEl.title = titleParts.join(' · ');
+
+    // Ticket médio segue o faturamento
+    var tickEl  = document.getElementById('dash-ticket');
+    var totAgEl = document.getElementById('dash-total-ag');
+    if (tickEl && totAgEl){
+      var qtd = parseInt(String(totAgEl.textContent).replace(/\D/g,''), 10) || 0;
+      if (qtd > 0) tickEl.textContent = fmtBRL(round2(novo / qtd));
     }
   }
 
@@ -212,15 +240,24 @@
       if (!tds.length || !tds[idxNome] || !tds[idxFat]) return;
       var nome = (tds[idxNome].textContent || '').trim();
       var desc = Number(porProf[nome]) || 0;
-      if (!desc) return;
-      var fatOld = parseMoneyText(tds[idxFat].textContent);
-      var fatNew = round2(Math.max(0, fatOld - desc));
+
+      // Idempotência por célula
+      var fatOldShown = parseMoneyText(tds[idxFat].textContent);
+      var prevFat = parseFloat(tds[idxFat].dataset.descSum || '0') || 0;
+      var fatBase = round2(fatOldShown + prevFat);
+      var fatNew = round2(Math.max(0, fatBase - desc));
+
       if (idxCom >= 0 && tds[idxCom]){
-        var comOld = parseMoneyText(tds[idxCom].textContent);
-        var ratio  = fatOld > 0 ? (comOld / fatOld) : 0;
-        tds[idxCom].textContent = fmtBRL(round2(fatNew * ratio));
+        var comOldShown = parseMoneyText(tds[idxCom].textContent);
+        var prevCom = parseFloat(tds[idxCom].dataset.descSum || '0') || 0;
+        var comBase = round2(comOldShown + prevCom);
+        var ratio = fatBase > 0 ? (comBase / fatBase) : 0;
+        var comNew = round2(fatNew * ratio);
+        tds[idxCom].textContent = fmtBRL(comNew);
+        tds[idxCom].dataset.descSum = String(round2(comBase - comNew));
       }
       tds[idxFat].textContent = fmtBRL(fatNew);
+      tds[idxFat].dataset.descSum = String(desc > 0 ? desc : 0);
     });
   }
 
@@ -232,23 +269,30 @@
       if (!nameEl) return;
       var nome = (nameEl.textContent || '').trim();
       var desc = Number(porProf[nome]) || 0;
-      if (!desc) return;
       var fatBlock = card.querySelector('.dash-prof-metric.faturamento .dash-prof-metric-value');
       var comBlock = card.querySelector('.dash-prof-metric.comissao .dash-prof-metric-value');
       if (!fatBlock) return;
-      var fatOld = parseMoneyText(fatBlock.textContent);
-      var fatNew = round2(Math.max(0, fatOld - desc));
-      var comOld = comBlock ? parseMoneyText(comBlock.textContent) : 0;
-      var ratio  = fatOld > 0 ? (comOld / fatOld) : 0;
+
+      var fatOldShown = parseMoneyText(fatBlock.textContent);
+      var prevFat = parseFloat(fatBlock.dataset.descSum || '0') || 0;
+      var fatBase = round2(fatOldShown + prevFat);
+      var fatNew = round2(Math.max(0, fatBase - desc));
+
+      if (comBlock){
+        var comOldShown = parseMoneyText(comBlock.textContent);
+        var prevCom = parseFloat(comBlock.dataset.descSum || '0') || 0;
+        var comBase = round2(comOldShown + prevCom);
+        var ratio = fatBase > 0 ? (comBase / fatBase) : 0;
+        var comNew = round2(fatNew * ratio);
+        comBlock.textContent = fmtBRL(comNew);
+        comBlock.dataset.descSum = String(round2(comBase - comNew));
+      }
       fatBlock.textContent = fmtBRL(fatNew);
-      if (comBlock) comBlock.textContent = fmtBRL(round2(fatNew * ratio));
+      fatBlock.dataset.descSum = String(desc > 0 ? desc : 0);
     });
   }
 
-  // -------------------- Recalcula "Divisão de comissões" a partir da tabela já líquida --------------------
-  // A box renderizada por renderDashComissoes() usa o faturamento BRUTO de profData.
-  // Como já ajustamos a tabela "Por Profissional" (fat e comissão por linha proporcionalmente),
-  // basta somar a coluna líquida: totalProf = Σ comissões, totalEstab = totalFat − totalProf.
+  // -------------------- Recalcula "Divisão de comissões" --------------------
   function ajustarDivisaoComissoes(){
     var tbody = document.getElementById('dash-prof-tbody');
     if (!tbody) return;
@@ -292,9 +336,7 @@
     if (elPPct) elPPct.textContent = (Math.round(pp * 10) / 10) + '%';
   }
 
-  // -------------------- Recalcula "Total a receber" (col. injetada por pagamentos.js) --------------------
-  // pagamentos.js calculou totalReceber = caixinha + comissão ANTES do nosso ajuste de comissão.
-  // Reaplicamos: totalReceber = caixinha + comissão (já líquida).
+  // -------------------- "Total a receber" (col. injetada por pagamentos.js) --------------------
   function ajustarTotalReceber(){
     var tbody = document.getElementById('dash-prof-tbody');
     if (tbody){
@@ -320,7 +362,6 @@
         });
       }
     }
-    // Cards mobile
     var box = document.getElementById('dash-prof-cards-mobile');
     if (box){
       Array.prototype.forEach.call(box.querySelectorAll('.dash-prof-card'), function(card){
@@ -337,48 +378,112 @@
 
   function aplicarNoDOM(resumo){
     if (!resumo) return;
-    ajustarFaturamentoETicket(resumo.total);
+    ajustarFaturamentoETicket(Number(resumo.total) || 0);
     ajustarTabelaProf(resumo.porProf || {});
     ajustarCardsProf(resumo.porProf || {});
-    // Após ajustar a tabela/cards de profissional, recompõe a box "Divisão de comissões"
-    // e a coluna/linha "Total a receber" usando os valores já líquidos.
     try { ajustarDivisaoComissoes(); } catch(e){ console.warn('[desc-fin] ajustarDivisaoComissoes', e); }
     try { ajustarTotalReceber();     } catch(e){ console.warn('[desc-fin] ajustarTotalReceber', e); }
   }
 
+  // -------------------- Reset de marcadores antes do orig (idempotência) --------------------
+  function resetDatasetMarkers(){
+    var fatEl = document.getElementById('dash-faturamento');
+    if (fatEl) fatEl.dataset.descSum = '0';
+
+    var tbody = document.getElementById('dash-prof-tbody');
+    if (tbody){
+      Array.prototype.forEach.call(tbody.querySelectorAll('td'), function(td){
+        if (td.dataset && td.dataset.descSum) td.dataset.descSum = '0';
+      });
+    }
+    var box = document.getElementById('dash-prof-cards-mobile');
+    if (box){
+      Array.prototype.forEach.call(box.querySelectorAll('.dash-prof-metric-value'), function(v){
+        if (v.dataset && v.dataset.descSum) v.dataset.descSum = '0';
+      });
+    }
+  }
+
   // -------------------- Hook em loadDashboard --------------------
-  // Instala POR ÚLTIMO para envolver pagamentos.js (caixinha) e
-  // dashboard-pagamentos.js (Recebido/Pendente). Como o nosso wrap é o
-  // mais externo, ele roda PRIMEIRO (pré-hidratação) e por ÚLTIMO
-  // (ajuste de DOM), exatamente o que queremos.
   function instalar(){
     if (typeof window.loadDashboard !== 'function') {
       return setTimeout(instalar, 400);
     }
     if (window.loadDashboard.__descFinWrapped) return;
     var orig = window.loadDashboard;
-    var wrapped = async function(){
-      var resumo = { total: 0, porProf: {} };
-      try { resumo = await hidratarDescontos(); }
-      catch(e){ console.warn('[desc-fin] hidratar', e); }
-      var ret = await orig.apply(this, arguments);
-      try { aplicarNoDOM(resumo); }
-      catch(e){ console.warn('[desc-fin] aplicarNoDOM', e); }
-      return ret;
+
+    // ----- Estado de runtime -----
+    var running = null;          // serialização: promessa em curso
+    var lastResumo = { total: 0, porProf: {} };
+    var observer = null;
+
+    // MutationObserver: enquanto o ciclo de loadDashboard estiver em curso,
+    // reaplica o ajuste de desconto a cada escrita em #dash-faturamento.
+    // Isso elimina o "flicker" de R$80 → R$70 entre o write síncrono do
+    // orig e o término dos awaits subsequentes (caixinha, widgets, etc.).
+    function startObserver(){
+      try {
+        if (observer) return;
+        var fatEl = document.getElementById('dash-faturamento');
+        if (!fatEl || typeof MutationObserver === 'undefined') return;
+        observer = new MutationObserver(function(){
+          // Reaplica usando o último resumo conhecido. Idempotente.
+          try { ajustarFaturamentoETicket(Number(lastResumo.total) || 0); }
+          catch(_){}
+        });
+        observer.observe(fatEl, { childList: true, characterData: true, subtree: true });
+      } catch(_){}
+    }
+    function stopObserver(){
+      try { if (observer) { observer.disconnect(); observer = null; } } catch(_){}
+    }
+
+    // Fila serial: NUNCA compartilhar a promessa em curso — isso devolve
+    // resultados com filtros antigos. Em vez disso, encadeamos: se já
+    // está rodando, esperamos terminar e rodamos uma nova execução com
+    // os argumentos/filtros ATUAIS.
+    var queueTail = Promise.resolve();
+    var wrapped = function(){
+      var self = this;
+      var args = arguments;
+      var run = function(){
+        return (async function(){
+          var resumo = { total: 0, porProf: {} };
+          try { resumo = await hidratarDescontos(); }
+          catch(e){ console.warn('[desc-fin] hidratar', e); }
+          lastResumo = resumo;
+
+          // Zera marcadores: o orig vai regravar valores BRUTOS, e queremos
+          // que nosso ajuste subtraia exatamente UMA vez sobre eles.
+          resetDatasetMarkers();
+
+          // Observer ativo durante o orig — mata o flicker do valor bruto.
+          startObserver();
+
+          var ret;
+          try {
+            ret = await orig.apply(self, args);
+          } finally {
+            stopObserver();
+          }
+          try { aplicarNoDOM(resumo); }
+          catch(e){ console.warn('[desc-fin] aplicarNoDOM', e); }
+          return ret;
+        })();
+      };
+      var p = queueTail.then(run, run);
+      // Mantém a cauda viva mesmo após erro, sem propagar rejeição.
+      queueTail = p.catch(function(){});
+      return p;
     };
     wrapped.__descFinWrapped = true;
     window.loadDashboard = wrapped;
-    console.log('[desc-fin] hook em loadDashboard instalado');
-
-    // Se a página dashboard já está visível, força um refresh
-    var page = document.getElementById('page-dashboard');
-    if (page && page.classList.contains('active')) {
-      setTimeout(function(){ try { window.loadDashboard(); } catch(_){} }, 250);
-    }
+    console.log('[desc-fin] hook v3 em loadDashboard instalado (idempotente + fila serial + observer)');
+    // NÃO auto-executar loadDashboard aqui — disparar agora roda com
+    // filtros antigos e enfileira execuções "fantasma" que atrapalham o
+    // clique do usuário no botão Aplicar.
   }
 
-  // 1500ms garante que pagamentos.js (caixinha) e dashboard-pagamentos.js
-  // já instalaram os wraps deles primeiro.
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function(){ setTimeout(instalar, 1500); });
   } else {

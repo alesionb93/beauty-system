@@ -1,11 +1,31 @@
-  module.exports = {
-    testDir: './tests',
+const { defineConfig } = require('@playwright/test');
 
-    use: {
-      headless: false,
+module.exports = defineConfig({
+  testDir: './tests',
 
-      channel: 'chrome',
+  fullyParallel: false,
 
-      viewport: null
-    }
-  };
+  reporter: [
+    [
+      'html',
+      {
+        open: 'always'
+      }
+    ],
+    [
+      './tests/reporters/business-reporter.js'
+    ]
+  ],
+
+  use: {
+    headless: true,
+
+    screenshot: 'only-on-failure',
+
+    video: 'retain-on-failure',
+
+    trace: 'retain-on-failure'
+  },
+
+  outputDir: 'test-results'
+});

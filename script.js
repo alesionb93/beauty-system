@@ -5844,8 +5844,17 @@ async function loadDashboard() {
       pacotesVendidos[nomePac].valor += precoVenda;
       totalPacotesVendidos++;
       totalReceitaPacotes += precoVenda;
-      // ⚠️ NÃO incrementa profData (atendimentos/faturamento), totalServicos,
-      // servicoCount nem profHoraFat — venda é transação, não execução.
+      // 💰 FIX (Cenário 2): a RECEITA da venda do pacote pertence ao profissional
+      // que realizou o atendimento que originou a venda. Sem isso, o quadro
+      // "Por Profissional" mostra R$ 0 enquanto o Dashboard principal mostra o valor.
+      // Não incrementa atendimentos/servicos (venda é transação, não execução),
+      // mas SOMA faturamento — base para cálculo de Comissão e Total a Receber.
+      if (!profData[profNome]) profData[profNome] = { atendimentos: 0, servicos: 0, faturamento: 0 };
+      profData[profNome].faturamento += precoVenda;
+      if (profHoraFat[profNome]) {
+        if (!profHoraFat[profNome][hora]) profHoraFat[profNome][hora] = 0;
+        profHoraFat[profNome][hora] += precoVenda;
+      }
     });
 
     if (!servicos || servicos.length === 0) return;

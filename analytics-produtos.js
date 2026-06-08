@@ -123,6 +123,18 @@
   function isCanceladoPuro(ag) {
     return ag && String(ag.status || '').toLowerCase() === 'cancelado';
   }
+  // BUG FIX (CT016): Analytics de Produtos deve contabilizar SOMENTE
+  // agendamentos efetivamente concluídos. Antes, qualquer agendamento
+  // não cancelado (incluindo "agendado", "confirmado", "em_andamento")
+  // já entrava nas métricas de venda, inflando faturamento bruto, produto
+  // mais vendido e quantidade vendida no momento da criação.
+  function isConcluido(ag) {
+    var s = String((ag && ag.status) || '').toLowerCase();
+    // 'concluido' = atendimento finalizado.
+    // 'cancelado_com_venda' = cancelado mas a venda do produto foi mantida
+    // (mesma regra do dashboard de pagamentos), portanto também conta.
+    return s === 'concluido' || s === 'concluído' || s === 'cancelado_com_venda';
+  }
 
   // -------------------------------------------------------------------
   // Catálogo de produtos (com custo) — cache por tenant
@@ -173,7 +185,7 @@
     (appts || []).forEach(function (ag) {
       if (!dentroDoPeriodo(ag, periodo)) return;
       if (!profissionalCasa(ag, periodo)) return;
-      if (isCanceladoPuro(ag)) return; // produto perdido: módulo de cancelamentos cuida
+      if (!isConcluido(ag)) return; // só contabiliza venda após conclusão do atendimento
 
       var prods = ag.produtos || [];
       if (!prods.length) return;

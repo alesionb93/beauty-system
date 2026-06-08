@@ -26,7 +26,7 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
-  console.log('%c💳 pagamentos.js v9 (pacote venda robusto) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c💳 pagamentos.js v11 (caixinha idempotente + anti-flicker no dashboard) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
 
 
@@ -1372,18 +1372,64 @@
       if (typeof window.loadDashboard === 'function' && !window.loadDashboard.__pagTipWrapped) {
         clearInterval(iv);
         var original = window.loadDashboard;
-        var wrapped = async function(){
-          var ret = await original.apply(this, arguments);
-          try { await aplicarCaixinhaNoDashboard(); } catch(e){ console.warn('[pag][dash-tip]', e); }
-          return ret;
+        var lastTipResumo = { total: 0, porProf: {} };
+        var observer = null;
+
+        function startTipObserver(){
+          try {
+            if (observer) return;
+            var fatEl = document.getElementById('dash-faturamento');
+            if (!fatEl || typeof MutationObserver === 'undefined') return;
+            observer = new MutationObserver(function(){
+              try { aplicarResumoCaixinhaNoDOM(lastTipResumo, true); }
+              catch(_){}
+            });
+            observer.observe(fatEl, { childList: true, characterData: true, subtree: true });
+          } catch(_){}
+        }
+
+        function stopTipObserver(){
+          try { if (observer) { observer.disconnect(); observer = null; } } catch(_){}
+        }
+
+        // Fila serial: garante que cliques rápidos no "Aplicar" não
+        // sobreponham execuções e causem oscilação dos valores.
+        var queueTail = Promise.resolve();
+        var wrapped = function(){
+          var self = this, args = arguments;
+          var run = async function(){
+            var resumo = { total: 0, porProf: {} };
+            try { resumo = await calcularResumoCaixinhasDashboard(); }
+            catch(e){ console.warn('[pag][dash-tip] calcular resumo', e); }
+            lastTipResumo = resumo;
+            // Reseta marcador ANTES do original rodar para garantir
+            // idempotência: o original reescreve o valor bruto, e nós
+            // precisamos saber que ainda não aplicamos caixinha alguma.
+            resetTipMarker();
+            startTipObserver();
+            var ret;
+            try { ret = await original.apply(self, args); }
+            finally { stopTipObserver(); }
+            try { aplicarResumoCaixinhaNoDOM(resumo, false); }
+            catch(e){ console.warn('[pag][dash-tip]', e); }
+            return ret;
+          };
+          var p = queueTail.then(run, run);
+          queueTail = p.catch(function(){});
+          return p;
         };
         wrapped.__pagTipWrapped = true;
         window.loadDashboard = wrapped;
-        console.log('[pag] hook de caixinha no dashboard instalado');
+        console.log('[pag] hook de caixinha no dashboard instalado (v3 idempotente + fila serial + observer)');
       } else if (++tries > 50) {
         clearInterval(iv);
       }
     }, 200);
+  }
+
+  function resetTipMarker(){
+    var fatEl = document.getElementById('dash-faturamento');
+    if (fatEl) fatEl.dataset.tipSum = '0';
   }
 
   function parseMoneyText(txt){
@@ -1392,10 +1438,11 @@
     return isNaN(v) ? 0 : v;
   }
 
-  async function aplicarCaixinhaNoDashboard(){
+  async function calcularResumoCaixinhasDashboard(){
     var sb = getSb(); var tenantId = getTenantId();
-    if (!sb || !tenantId) return;
-    if (!Array.isArray(window.appointments)) return;
+    var vazio = { total: 0, porProf: {} };
+    if (!sb || !tenantId) return vazio;
+    if (!Array.isArray(window.appointments)) return vazio;
 
     // Range filtrado pelo dashboard (mesma lógica do hook de produtos)
     var range = (typeof window.getCalendarVisibleDateRange === 'function')
@@ -1417,9 +1464,7 @@
       idsValidos.push(a.id);
     });
     if (!idsValidos.length) {
-      limparMarcadorTip();
-      injetarColunasCaixinhaNaTabela({});
-      return;
+      return vazio;
     }
 
     // Busca observacoes em lote
@@ -1446,7 +1491,7 @@
       }
     } catch(e){
       console.warn('[pag][dash-tip] erro ao buscar caixinhas', e);
-      return;
+      return vazio;
     }
 
     // Caixinha por profissional (usa o profissional principal do agendamento)
@@ -1463,11 +1508,26 @@
     });
 
     totalCaixinha = round2(totalCaixinha);
+    return { total: totalCaixinha, porProf: tipPorProf };
+  }
+
+  function aplicarResumoCaixinhaNoDOM(resumo, apenasCard){
+    resumo = resumo || { total: 0, porProf: {} };
+    var totalCaixinha = round2(Number(resumo.total) || 0);
     var fatEl = document.getElementById('dash-faturamento');
     if (fatEl) {
+      // ===== IDEMPOTÊNCIA =====
+      // Em vez de "atual + totalCaixinha" (que acumula a cada chamada),
+      // calculamos: base = valor_atual - caixinha_já_aplicada, e depois
+      // novo = base + totalCaixinha. Assim, chamar N vezes produz o
+      // mesmo resultado — sem oscilar entre 80 e 90 em cliques rápidos.
+      var prevApplied = parseFloat(fatEl.dataset.tipSum || '0') || 0;
       var atual = parseMoneyText(fatEl.textContent);
-      var novo = round2(atual + totalCaixinha);
-      fatEl.textContent = fmtBRL(novo);
+      var base = round2(atual - prevApplied);
+      var novo = round2(base + totalCaixinha);
+      if (Math.abs(novo - atual) > 0.005) {
+        fatEl.textContent = fmtBRL(novo);
+      }
       fatEl.dataset.tipSum = String(totalCaixinha);
       var prodTitle = fatEl.dataset.prodSum && parseFloat(fatEl.dataset.prodSum) > 0
         ? ('Inclui ' + fmtBRL(parseFloat(fatEl.dataset.prodSum)) + ' em produtos vendidos')
@@ -1484,10 +1544,17 @@
       }
     }
 
-    // Injeta colunas "Caixinha" e "Total a receber" na tabela "Por Profissional"
-    injetarColunasCaixinhaNaTabela(tipPorProf);
+    if (!apenasCard) {
+      // Injeta colunas "Caixinha" e "Total a receber" na tabela "Por Profissional"
+      injetarColunasCaixinhaNaTabela(resumo.porProf || {});
+    }
 
-    console.log('[pag][dash-tip] caixinha somada ao faturamento:', totalCaixinha);
+    console.log('[pag][dash-tip] caixinha aplicada (idempotente):', totalCaixinha);
+  }
+
+  async function aplicarCaixinhaNoDashboard(){
+    var resumo = await calcularResumoCaixinhasDashboard();
+    aplicarResumoCaixinhaNoDOM(resumo, false);
   }
 
   function limparMarcadorTip(){
