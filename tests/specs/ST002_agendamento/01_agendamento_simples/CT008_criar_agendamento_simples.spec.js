@@ -2,21 +2,20 @@ import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
-const { diasAFrente } = require('../../../helpers/datas');
 
 /**
- * CT008 — v3.1 (2026-06-09) — hardening de TZ/locale
+ * CT008 — v3 (2026-06-09)
  *
- * Mudanças vs v3:
- *   - Removido bloco manual `new Date() / padStart` para calcular a data.
- *     Substituído por `diasAFrente(7)` do helper centralizado, que
- *     retorna `YYYY-MM-DD` em America/Sao_Paulo independente do TZ
- *     do runner (UTC no GitHub Actions).
- *   - Nenhuma mudança em selectors, esperas funcionais ou regra.
+ * Alinhamento definitivo com CT012 e CT018 (que PASSAM na pipeline):
+ *   - Sem expect de heading "Agendamentos".
+ *   - Sem expect de modal/wrapper/dialog visível.
+ *   - Apenas o elemento funcional que será usado a seguir (tab "Nome").
+ *   - Retry único do click "+ Novo" caso a tab não apareça em 4s
+ *     (cobre a janela de hidratação assíncrona no Linux/headless).
  */
 test('CT008 - Criar agendamento simples', async ({ page }) => {
+  let dataFormatada;
   log.start('CT008');
-  const dataFormatada = diasAFrente(7);
 
   await test.step('✅ Login realizado', async () => {
     await loginSlotify(page);
@@ -52,6 +51,13 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Data e horário definidos', async () => {
+    const data = new Date();
+    data.setDate(data.getDate() + 7);
+    const ano = data.getFullYear();
+    const mes = String(data.getMonth() + 1).padStart(2, '0');
+    const dia = String(data.getDate()).padStart(2, '0');
+    dataFormatada = `${ano}-${mes}-${dia}`;
+
     await page.locator('#ag-data').fill(dataFormatada);
     await page.locator('#ag-hora-h').selectOption('20');
     await page.locator('#ag-minuto').selectOption('00');

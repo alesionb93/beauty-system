@@ -1,56 +1,35 @@
-const { defineConfig, devices } = require('@playwright/test');
+const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './tests',
 
-  timeout: 90_000,
-
-  expect: {
-    timeout: 10_000,
-  },
-
   fullyParallel: false,
 
-  retries: process.env.CI ? 1 : 0,
-
-  workers: process.env.CI ? 1 : undefined,
-
-  reporter: process.env.CI
-    ? [
-        ['./tests/reporters/business-reporter.js'],
-        ['html', { open: 'never' }]
-      ]
-    : './tests/reporters/business-reporter.js',
+  reporter: [
+    [
+      'html',
+      {
+        open: 'always'
+      }
+    ],
+    [
+      './tests/reporters/business-reporter.js'
+    ]
+  ],
 
   use: {
-    baseURL: process.env.BASE_URL,
-
-    timezoneId: 'America/Sao_Paulo',
-    locale: 'pt-BR',
-
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
-
-    trace: 'retain-on-failure',
-    screenshot: 'only-on-failure',
-    video: 'retain-on-failure',
+    baseURL:
+      process.env.BASE_URL ||
+      'http://127.0.0.1:5500',
 
     headless: true,
 
-    viewport: {
-      width: 1366,
-      height: 768,
-    },
+    screenshot: 'only-on-failure',
 
-    ignoreHTTPSErrors: true,
+    video: 'retain-on-failure',
+
+    trace: 'retain-on-failure'
   },
 
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-      },
-    },
-  ],
+  outputDir: 'test-results'
 });

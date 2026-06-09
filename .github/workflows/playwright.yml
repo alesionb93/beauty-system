@@ -11,10 +11,6 @@ jobs:
 
     env:
       BASE_URL: https://slotify.pilotodigital.online
-      TZ: America/Sao_Paulo
-      LANG: pt_BR.UTF-8
-      LC_ALL: pt_BR.UTF-8
-      CI: 'true'
 
     steps:
       - name: Checkout
@@ -33,9 +29,6 @@ jobs:
 
       - name: Run Testes regressivos
         run: npx playwright test specs --workers=1
-        env:
-          QA_SLOTIFY_USER: ${{ secrets.QA_SLOTIFY_USER }}
-          QA_SLOTIFY_PASS: ${{ secrets.QA_SLOTIFY_PASS }}
 
       - name: Upload Playwright Report
         if: always()
