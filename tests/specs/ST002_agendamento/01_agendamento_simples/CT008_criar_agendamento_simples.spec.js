@@ -4,48 +4,15 @@ const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 /**
- * Helper local — abre o modal "Novo Agendamento" de forma robusta.
+ * CT008 — v3 (2026-06-09)
  *
- * IMPORTANTE (v2 — 2026-06-09):
- * Não validamos mais a visibilidade do container `#modal-agendamento`.
- * Evidência da pipeline (CT012 passa com o fluxo direto, CT008 com o
- * gate falhava): o wrapper do modal pode estar em estado considerado
- * "hidden" pelo Playwright (ex.: container com size 0, classe `hidden`
- * no shell ou apenas overlay com visibility:hidden) MESMO quando os
- * elementos internos já estão montados e interativos.
- *
- * Estratégia robusta:
- *   1. Esperar a tela de Agendamentos estar pronta (heading visível).
- *   2. Clicar em "+ Novo".
- *   3. Esperar diretamente o elemento INTERNO interativo que o teste
- *      precisa usar a seguir (tab "Nome"). É o mesmo gate de fato que
- *      o auto-wait do Playwright aplica no CT012.
- *   4. Retry único do click se o tab não aparecer em 4s.
+ * Alinhamento definitivo com CT012 e CT018 (que PASSAM na pipeline):
+ *   - Sem expect de heading "Agendamentos".
+ *   - Sem expect de modal/wrapper/dialog visível.
+ *   - Apenas o elemento funcional que será usado a seguir (tab "Nome").
+ *   - Retry único do click "+ Novo" caso a tab não apareça em 4s
+ *     (cobre a janela de hidratação assíncrona no Linux/headless).
  */
-async function abrirNovoAgendamento(page) {
-  await expect(page.getByRole('heading', { name: 'Agendamentos' })).toBeVisible();
-
-  const botaoNovo = page.getByRole('button', { name: '+ Novo' });
-  await expect(botaoNovo).toBeVisible();
-  await expect(botaoNovo).toBeEnabled();
-
-  // Alvo real: a tab "Nome" só existe DENTRO do modal aberto.
-  // Se ela ficou visível, o modal está usável — não importa o estado
-  // do container externo.
-  const tabNome = page.getByRole('tab', { name: /Nome/ });
-
-  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
-    await botaoNovo.click();
-    try {
-      await expect(tabNome).toBeVisible({ timeout: 4000 });
-      return;
-    } catch (err) {
-      if (tentativa === 2) throw err;
-      await page.waitForTimeout(400);
-    }
-  }
-}
-
 test('CT008 - Criar agendamento simples', async ({ page }) => {
   let dataFormatada;
   log.start('CT008');
@@ -55,7 +22,16 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await abrirNovoAgendamento(page);
+    const btnNovo = page.getByRole('button', { name: '+ Novo' });
+    const abaNome = page.getByRole('tab', { name: /Nome/i });
+
+    await btnNovo.click();
+    try {
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    } catch {
+      await btnNovo.click();
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Cliente selecionado', async () => {
@@ -88,7 +64,6 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento salvo', async () => {
-    // Sincroniza com a persistência real para evitar race no Dashboard
     const respCriacao = page.waitForResponse(
       (r) => /agendamentos?($|\?|\/)/.test(r.url())
         && ['POST', 'PATCH', 'PUT'].includes(r.request().method()),

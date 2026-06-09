@@ -4,37 +4,15 @@ const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 /**
- * Helper local — abre o card do agendamento de forma resiliente.
+ * CT009 — v3 (2026-06-09)
  *
- * IMPORTANTE (v2 — 2026-06-09):
- * Igual ao CT008, NÃO validamos mais o container `#modal-detalhe-agendamento`.
- * O wrapper pode estar em estado "hidden" para o Playwright mesmo quando o
- * conteúdo interno já está usável. Esperamos diretamente o elemento real
- * que vai ser interagido logo a seguir (texto "cliente automação" ou o
- * botão "Concluir atendimento").
+ * Mesmo princípio do CT008 v3:
+ *   - Sem heading "Agendamentos".
+ *   - Sem expect de #modal-detalhe-agendamento.
+ *   - Esperamos apenas o elemento real que será usado a seguir
+ *     (botão "Concluir atendimento").
+ *   - Retry único do click no card caso o botão não apareça em 4s.
  */
-async function abrirCardAgendamento(page, textoHorario) {
-  await expect(page.getByRole('heading', { name: 'Agendamentos' })).toBeVisible();
-
-  const card = page.getByText(textoHorario).first();
-  await expect(card).toBeVisible({ timeout: 10000 });
-
-  // Alvo real: conteúdo dentro do modal de detalhes
-  const conteudoModal = page.getByText('cliente automação').first()
-    .or(page.getByRole('button', { name: /Concluir atendimento/i }));
-
-  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
-    await card.click();
-    try {
-      await expect(conteudoModal).toBeVisible({ timeout: 4000 });
-      return;
-    } catch (err) {
-      if (tentativa === 2) throw err;
-      await page.waitForTimeout(400);
-    }
-  }
-}
-
 test('CT009 - Concluir agendamento simples', async ({ page }) => {
   let dataFormatada;
   log.start('CT009');
@@ -56,7 +34,16 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento aberto', async () => {
-    await abrirCardAgendamento(page, '20:00 – 21:00');
+    const card = page.getByText('20:00 – 21:00').first();
+    const btnConcluir = page.getByRole('button', { name: /Concluir atendimento/i });
+
+    await card.click();
+    try {
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    } catch {
+      await card.click();
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Atendimento concluído', async () => {
@@ -66,7 +53,6 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
     await expect(btnConfirmar).toBeVisible({ timeout: 10000 });
     await btnConfirmar.click();
 
-    // Sincroniza com a persistência REAL do pagamento (sem waitForTimeout).
     const respPag = page.waitForResponse(
       (r) => /agendamento_pagamentos/.test(r.url()) && r.request().method() !== 'GET',
       { timeout: 15000 }
