@@ -12,7 +12,15 @@ test('CT016 - Criar agendamento com venda de produto', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await page.getByRole('button', { name: '+ Novo' }).click();
+    const btnNovo = page.getByRole('button', { name: '+ Novo' });
+    const abaNome = page.getByRole('tab', { name: ' Nome' });
+    await btnNovo.click();
+    try {
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    } catch {
+      await btnNovo.click();
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Cliente selecionado', async () => {
@@ -52,8 +60,12 @@ test('CT016 - Criar agendamento com venda de produto', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento salvo', async () => {
+    const respAg = page.waitForResponse(
+      (r) => /agendamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await page.waitForTimeout(3000);
+    await respAg;
   });
 
   await test.step('📊 Dashboard acessado', async () => {

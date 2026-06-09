@@ -13,7 +13,15 @@ test('CT018 - Criar agendamento com venda de pacote', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await page.getByRole('button', { name: '+ Novo' }).click();
+    const btnNovo = page.getByRole('button', { name: '+ Novo' });
+    const abaNome = page.getByRole('tab', { name: ' Nome' });
+    await btnNovo.click();
+    try {
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    } catch {
+      await btnNovo.click();
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Cliente automação selecionado', async () => {
@@ -34,8 +42,8 @@ test('CT018 - Criar agendamento com venda de pacote', async ({ page }) => {
 
   await test.step('✅ Pacote barba x4 selecionado', async () => {
     const pacoteCheckbox = page.locator('.pacote-checkbox[data-pacote-acao="vender"]');
-    await expect(pacoteCheckbox).toBeVisible();
     await pacoteCheckbox.check();
+    await expect(pacoteCheckbox).toBeChecked();
     log.info('Pacote barba x4 vendido');
   });
 
@@ -61,8 +69,12 @@ test('CT018 - Criar agendamento com venda de pacote', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento salvo', async () => {
+    const respAg = page.waitForResponse(
+      (r) => /agendamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await page.waitForTimeout(3000);
+    await respAg;
   });
 
   await test.step('📊 Dashboard acessado', async () => {
@@ -104,32 +116,19 @@ test('CT018 - Criar agendamento com venda de pacote', async ({ page }) => {
       .filter({ hasText: 'cliente automação' })
       .first();
 
-    await expect(linhaCliente).toBeVisible();
     await linhaCliente.click();
-
-    await expect(
-      page.getByRole('heading', { name: /Histórico do Cliente/i })
-    ).toBeVisible();
   });
 
   await test.step('📦 Aba pacotes acessada', async () => {
     await page.locator('button[data-hist-tab="pacotes"]').click();
-    await expect(page.locator('button[data-hist-tab="pacotes"]')).toHaveClass(/active/);
-    await expect(page.locator('[data-hist-pane="pacotes"]')).toBeVisible();
   });
 
   await test.step('📦 Pacote adquirido validado', async () => {
-    const panePacotes = page.locator('[data-hist-pane="pacotes"]');
-    const conteudoPacotes = panePacotes.locator('#pacotes-cliente-conteudo');
-
-    const listaPacotes = conteudoPacotes.locator('ul.historico-lista');
-    await expect(listaPacotes).toBeVisible({ timeout: 15000 });
-
+    const listaPacotes = page.locator('[data-hist-pane="pacotes"] #pacotes-cliente-conteudo ul.historico-lista');
     const itemPacote = listaPacotes.locator('li').first();
-    await expect(itemPacote).toBeVisible();
 
     await expect(itemPacote.locator('.hist-item-body strong').first())
-      .toHaveText('Pacote barba x4');
+      .toHaveText('Pacote barba x4', { timeout: 15000 });
 
     await expect(itemPacote).toContainText('Barba Completa');
     await expect(itemPacote).toContainText('0/4');

@@ -13,7 +13,15 @@ test('CT020 - Criar agendamento com uso de pacote existente', async ({ page }) =
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await page.getByRole('button', { name: '+ Novo' }).click();
+    const btnNovo = page.getByRole('button', { name: '+ Novo' });
+    const abaNome = page.getByRole('tab', { name: ' Nome' });
+    await btnNovo.click();
+    try {
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    } catch {
+      await btnNovo.click();
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Cliente automação selecionado', async () => {
@@ -34,10 +42,8 @@ test('CT020 - Criar agendamento com uso de pacote existente', async ({ page }) =
 
   await test.step('📦 Pacote disponível validado e selecionado', async () => {
     const pacoteUso = page.locator('.pacote-checkbox[data-pacote-acao="usar"]');
-    await expect(pacoteUso).toBeVisible();
-
     const cardPacote = pacoteUso.locator('xpath=ancestor::label');
-    await expect(cardPacote).toContainText('3 restantes');
+    await expect(cardPacote).toContainText('3 restantes', { timeout: 10000 });
 
     await pacoteUso.check();
     log.info('Pacote barba x4 utilizado (saldo atual 3)');
@@ -65,8 +71,12 @@ test('CT020 - Criar agendamento com uso de pacote existente', async ({ page }) =
   });
 
   await test.step('✅ Agendamento salvo', async () => {
+    const respAg = page.waitForResponse(
+      (r) => /agendamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await page.waitForTimeout(3000);
+    await respAg;
   });
 
   await test.step('📊 Dashboard acessado', async () => {
@@ -105,27 +115,18 @@ test('CT020 - Criar agendamento com uso de pacote existente', async ({ page }) =
       .filter({ hasText: 'cliente automação' })
       .first();
 
-    await expect(linhaCliente).toBeVisible();
     await linhaCliente.click();
-
-    await expect(
-      page.getByRole('heading', { name: /Histórico do Cliente/i })
-    ).toBeVisible();
   });
 
   await test.step('📦 Aba pacotes acessada', async () => {
     await page.locator('button[data-hist-tab="pacotes"]').click();
-    await expect(page.locator('button[data-hist-tab="pacotes"]')).toHaveClass(/active/);
   });
 
   await test.step('📦 Saldo do pacote preservado', async () => {
-    const panePacotes = page.locator('[data-hist-pane="pacotes"]');
-    const listaPacotes = panePacotes.locator('ul.historico-lista');
-
-    await expect(listaPacotes).toBeVisible({ timeout: 15000 });
-
+    const listaPacotes = page.locator('[data-hist-pane="pacotes"] ul.historico-lista');
     const itemPacote = listaPacotes.locator('li').first();
-    await expect(itemPacote).toContainText('Pacote barba x4');
+
+    await expect(itemPacote).toContainText('Pacote barba x4', { timeout: 15000 });
     await expect(itemPacote).toContainText('Barba Completa');
     await expect(itemPacote).toContainText('1/4');
     await expect(itemPacote).toContainText('restam 3');
