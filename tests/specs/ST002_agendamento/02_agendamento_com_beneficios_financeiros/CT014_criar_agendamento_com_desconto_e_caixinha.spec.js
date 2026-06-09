@@ -3,6 +3,11 @@ const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * CT014 — v3 (2026-06-09)
+ *
+ * Mesma filosofia do CT008 v3 (criar agendamento).
+ */
 test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
   let dataFormatada;
   log.start('CT014');
@@ -12,7 +17,16 @@ test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await page.getByRole('button', { name: '+ Novo' }).click();
+    const btnNovo = page.getByRole('button', { name: '+ Novo' });
+    const abaNome = page.getByRole('tab', { name: /Nome/i });
+
+    await btnNovo.click();
+    try {
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    } catch {
+      await btnNovo.click();
+      await expect(abaNome).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('✅ Cliente selecionado', async () => {
@@ -45,9 +59,14 @@ test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento salvo', async () => {
+    const respCriacao = page.waitForResponse(
+      (r) => /agendamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
+
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await page.waitForTimeout(3000);
-    await expect(page.getByText('cliente').first()).toBeVisible();
+    await respCriacao;
+    await expect(page.getByText('cliente').first()).toBeVisible({ timeout: 10000 });
   });
 
   await test.step('📊 Dashboard acessado', async () => {

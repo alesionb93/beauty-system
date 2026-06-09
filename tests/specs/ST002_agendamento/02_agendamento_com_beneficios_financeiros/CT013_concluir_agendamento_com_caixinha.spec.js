@@ -4,8 +4,14 @@ const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 /**
- * Espera o tbody de profissionais ter pelo menos `min` linhas e que a contagem
- * fique estável por `stableMs` ms (evita capturar estado entre dois re-renders).
+ * CT013 — v3 (2026-06-09)
+ *
+ * Mesma filosofia do CT009 v3:
+ *   - Sem gates artificiais.
+ *   - Após click no card, espera apenas o botão "Concluir atendimento"
+ *     (elemento funcional da próxima ação).
+ *   - Retry único do click no card.
+ *   - Mantém aguardarTbodyEstavel para o dashboard (estabilidade real).
  */
 async function aguardarTbodyEstavel(page, selector = '#dash-prof-tbody', min = 1, stableMs = 600, timeout = 15000) {
   await page.waitForFunction(
@@ -31,19 +37,13 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
   let dataFormatada;
   log.start('CT013');
 
-  // ---- Forward dos logs do debug-ct013.js para o terminal ----
   page.on('console', (msg) => {
     const t = msg.text();
-
-    if (
-      t.includes('[CT013]') ||
-      t.includes('[CT013-TICKET]')
-    ) {
+    if (t.includes('[CT013]') || t.includes('[CT013-TICKET]')) {
       console.log('BROWSER>', msg.type().toUpperCase(), t);
     }
   });
   page.on('pageerror', (err) => {
-    // eslint-disable-next-line no-console
     console.log('BROWSER> PAGEERROR', err.message);
   });
 
@@ -64,8 +64,16 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento aberto', async () => {
-    await page.getByText('20:00 – 21:00').click();
-    await expect(page.getByText('cliente automação')).toBeVisible();
+    const card = page.getByText('20:00 – 21:00').first();
+    const btnConcluir = page.getByRole('button', { name: /Concluir atendimento/i });
+
+    await card.click();
+    try {
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    } catch {
+      await card.click();
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('🎁 Caixinha adicionada e atendimento concluído', async () => {
@@ -113,18 +121,13 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
     await aguardarDashboard(page);
     await aguardarValorEstavel(page, '#dash-faturamento', 90);
 
-    // 1) Espera o tbody ter ao menos 1 linha E ficar estável (sem re-render por 600ms)
     await aguardarTbodyEstavel(page, '#dash-prof-tbody', 1, 600, 20000);
 
-    // 2) Re-resolve o locator AGORA (depois do tbody estabilizar)
     const linha = page.locator('#dash-prof-tbody tr').first();
     const totalReceberCell = linha.locator('td.dash-prof-cell-total-receber');
 
-    // 3) Espera a célula renderizar com o texto esperado (retry built-in)
-    await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
     await expect(totalReceberCell).toContainText('50', { timeout: 15000 });
 
-    // ---- Debug opcional ----
     console.log('================ DEBUG CT013 ================');
     console.log('Data filtro:', dataFormatada);
     console.log('Faturamento:', await page.locator('#dash-faturamento').textContent());
@@ -150,7 +153,6 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
   });
 
   await test.step('📊 Profissional Daryl validado', async () => {
-    // Re-estabiliza antes da validação final (loadDashboard pode ter rodado de novo)
     await aguardarTbodyEstavel(page, '#dash-prof-tbody', 1, 600, 15000);
     const linhaDaryl = page.locator('#dash-prof-tbody tr').first();
     await expect(linhaDaryl.locator('td:nth-child(1)')).toHaveText('Daryl');

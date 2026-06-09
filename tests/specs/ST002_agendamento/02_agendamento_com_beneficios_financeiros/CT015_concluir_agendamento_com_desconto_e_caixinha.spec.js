@@ -3,6 +3,11 @@ const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * CT015 — v3 (2026-06-09)
+ *
+ * Mesma filosofia do CT009 v3 (concluir agendamento).
+ */
 test('CT015 - Concluir agendamento com desconto e caixinha', async ({ page }) => {
   let dataFormatada;
   log.start('CT015');
@@ -25,8 +30,16 @@ test('CT015 - Concluir agendamento com desconto e caixinha', async ({ page }) =>
   });
 
   await test.step('✅ Agendamento aberto', async () => {
-    await page.getByText('20:00 – 21:00').click();
-    await expect(page.getByText('cliente automação')).toBeVisible();
+    const card = page.getByText('20:00 – 21:00').first();
+    const btnConcluir = page.getByRole('button', { name: /Concluir atendimento/i });
+
+    await card.click();
+    try {
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    } catch {
+      await card.click();
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('💰🎁 Desconto e caixinha aplicados', async () => {
@@ -95,8 +108,7 @@ test('CT015 - Concluir agendamento com desconto e caixinha', async ({ page }) =>
     const totalReceberCell = page.locator(
       '#dash-prof-tbody tr:first-child td.dash-prof-cell-total-receber'
     );
-    await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
-    await expect(totalReceberCell).toContainText('45');
+    await expect(totalReceberCell).toContainText('45', { timeout: 15000 });
   });
 
   await test.step('📊 Indicadores principais validados', async () => {

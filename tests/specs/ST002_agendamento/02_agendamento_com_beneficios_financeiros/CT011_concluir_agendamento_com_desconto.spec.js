@@ -3,6 +3,15 @@ const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * CT011 — v3 (2026-06-09)
+ *
+ * Mesma filosofia do CT009 v3:
+ *   - Sem gates artificiais (modal/dialog/heading/wrapper).
+ *   - Após abrir o card "20:00 – 21:00", esperamos apenas o botão
+ *     "Concluir atendimento" (elemento funcional da próxima ação).
+ *   - Retry único do click no card caso o botão não apareça em 4s.
+ */
 test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
   let dataFormatada;
   log.start('CT011');
@@ -24,8 +33,16 @@ test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento aberto', async () => {
-    await page.getByText('20:00 – 21:00').click();
-    await expect(page.getByText('cliente automação')).toBeVisible();
+    const card = page.getByText('20:00 – 21:00').first();
+    const btnConcluir = page.getByRole('button', { name: /Concluir atendimento/i });
+
+    await card.click();
+    try {
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    } catch {
+      await card.click();
+      await expect(btnConcluir).toBeVisible({ timeout: 4000 });
+    }
   });
 
   await test.step('💰 Desconto aplicado e atendimento concluído', async () => {
@@ -79,8 +96,7 @@ test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
     await aguardarValorEstavel(page, '#dash-faturamento', 70);
 
     const totalReceberCell = page.locator('#dash-prof-tbody tr:first-child td.dash-prof-cell-total-receber');
-    await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
-    await expect(totalReceberCell).toContainText('35');
+    await expect(totalReceberCell).toContainText('35', { timeout: 15000 });
   });
 
   await test.step('📊 Indicadores principais validados', async () => {
