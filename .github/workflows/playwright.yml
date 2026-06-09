@@ -1,59 +1,52 @@
-# Snippet a aplicar no workflow existente. NÃO substitua o arquivo inteiro
-# se você já tem steps adicionais (cache, artefatos, etc.) — apenas garanta
-# que estas duas variáveis estejam no `env:` do job que roda os testes.
-#
-# Por que:
-#   - TZ=America/Sao_Paulo alinha o relógio do runner Ubuntu com o app/banco.
-#     Mesmo com `timezoneId` no Playwright (que afeta só o Chromium), `TZ`
-#     no processo do Node garante que utilitários como `child_process`,
-#     loggers e qualquer `new Date()` rodado fora do browser usem SP.
-#   - LANG=pt_BR.UTF-8 alinha o locale do processo Node (toLocaleString
-#     em código de teste/helper fora do navegador).
-
-name: Playwright Tests
+name: Slotify Regression
 
 on:
-  push: { branches: [main] }
-  pull_request: { branches: [main] }
-  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-  e2e:
+  playwright:
     runs-on: ubuntu-latest
 
     env:
+      BASE_URL: https://slotify.pilotodigital.online
       TZ: America/Sao_Paulo
       LANG: pt_BR.UTF-8
       LC_ALL: pt_BR.UTF-8
       CI: 'true'
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
-      # Garante o locale pt_BR no runner Ubuntu (não vem por padrão).
-      - name: Install pt_BR locale
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y locales
-          sudo locale-gen pt_BR.UTF-8
-          sudo update-locale LANG=pt_BR.UTF-8
+      - name: Install dependencies
+        run: npm ci
 
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps
 
-      - run: npx playwright test
+      - name: Run Testes regressivos
+        run: npx playwright test specs --workers=1
         env:
           QA_SLOTIFY_USER: ${{ secrets.QA_SLOTIFY_USER }}
           QA_SLOTIFY_PASS: ${{ secrets.QA_SLOTIFY_PASS }}
 
-      - if: always()
+      - name: Upload Playwright Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: playwright-report/
-          retention-days: 14
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results/
