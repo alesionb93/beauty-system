@@ -55,7 +55,8 @@ async function loginAsMaster(page) { return login(page, USERS.master); }
 async function loginSlotify(page) {
   const LOGIN_USER = process.env.QA_SLOTIFY_USER || 'automacao';
   const LOGIN_PASS = process.env.QA_SLOTIFY_PASS || 'Aranjiex22@@';
-  const TOTAL_TIMEOUT = 15000;
+  const LOGIN_TIMEOUT =
+    process.env.CI ? 30000 : 15000;
   const t0 = Date.now();
 
   log('login iniciado');
