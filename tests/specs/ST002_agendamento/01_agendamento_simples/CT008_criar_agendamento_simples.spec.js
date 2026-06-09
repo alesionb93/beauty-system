@@ -6,45 +6,41 @@ const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/da
 /**
  * Helper local — abre o modal "Novo Agendamento" de forma robusta.
  *
- * Motivo: em Linux/headless o handler de click do botão "+ Novo" pode ser
- * ligado de forma assíncrona pela tela de Agendamentos (após hidratação dos
- * dados do dia). Se o teste clica antes do handler estar pronto, o modal não
- * abre e o próximo locator (`getByRole('tab', { name: ' Nome' })`) trava em
- * timeout porque a tab só existe DENTRO do modal.
+ * IMPORTANTE (v2 — 2026-06-09):
+ * Não validamos mais a visibilidade do container `#modal-agendamento`.
+ * Evidência da pipeline (CT012 passa com o fluxo direto, CT008 com o
+ * gate falhava): o wrapper do modal pode estar em estado considerado
+ * "hidden" pelo Playwright (ex.: container com size 0, classe `hidden`
+ * no shell ou apenas overlay com visibility:hidden) MESMO quando os
+ * elementos internos já estão montados e interativos.
  *
- * Estratégia:
- *   1. Esperar a tela de Agendamentos estar realmente pronta (header + grade
- *      do dia renderizados).
+ * Estratégia robusta:
+ *   1. Esperar a tela de Agendamentos estar pronta (heading visível).
  *   2. Clicar em "+ Novo".
- *   3. Esperar o modal aparecer; se não aparecer em 3s, repetir o click.
+ *   3. Esperar diretamente o elemento INTERNO interativo que o teste
+ *      precisa usar a seguir (tab "Nome"). É o mesmo gate de fato que
+ *      o auto-wait do Playwright aplica no CT012.
+ *   4. Retry único do click se o tab não aparecer em 4s.
  */
 async function abrirNovoAgendamento(page) {
-  // 1) Tela de Agendamentos pronta
   await expect(page.getByRole('heading', { name: 'Agendamentos' })).toBeVisible();
 
   const botaoNovo = page.getByRole('button', { name: '+ Novo' });
   await expect(botaoNovo).toBeVisible();
   await expect(botaoNovo).toBeEnabled();
 
-  // Locator do modal — qualquer um dos seletores conhecidos do app
-  const dialog = page.locator(
-    '#modal-agendamento, #modal-novo-agendamento, .modal-agendamento, [role="dialog"]'
-  ).first();
+  // Alvo real: a tab "Nome" só existe DENTRO do modal aberto.
+  // Se ela ficou visível, o modal está usável — não importa o estado
+  // do container externo.
+  const tabNome = page.getByRole('tab', { name: /Nome/ });
 
-  // 2) + 3) click com retry uma única vez
   for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
-    await botaoNovo.click({ trial: false });
+    await botaoNovo.click();
     try {
-      await expect(dialog).toBeVisible({ timeout: 3500 });
-      // Garantir que o conteúdo interno (tabs) já está montado antes de prosseguir
-      await expect(
-        page.getByRole('tab', { name: /Nome/ })
-          .or(page.locator('.tab-cliente-nome, [data-tab="nome"]'))
-      ).toBeVisible({ timeout: 5000 });
+      await expect(tabNome).toBeVisible({ timeout: 4000 });
       return;
     } catch (err) {
       if (tentativa === 2) throw err;
-      // Pequena espera antes do retry — handler pode estar a poucos ms de ligar
       await page.waitForTimeout(400);
     }
   }

@@ -3,6 +3,38 @@ const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * Helper local — abre o card do agendamento de forma resiliente.
+ *
+ * IMPORTANTE (v2 — 2026-06-09):
+ * Igual ao CT008, NÃO validamos mais o container `#modal-detalhe-agendamento`.
+ * O wrapper pode estar em estado "hidden" para o Playwright mesmo quando o
+ * conteúdo interno já está usável. Esperamos diretamente o elemento real
+ * que vai ser interagido logo a seguir (texto "cliente automação" ou o
+ * botão "Concluir atendimento").
+ */
+async function abrirCardAgendamento(page, textoHorario) {
+  await expect(page.getByRole('heading', { name: 'Agendamentos' })).toBeVisible();
+
+  const card = page.getByText(textoHorario).first();
+  await expect(card).toBeVisible({ timeout: 10000 });
+
+  // Alvo real: conteúdo dentro do modal de detalhes
+  const conteudoModal = page.getByText('cliente automação').first()
+    .or(page.getByRole('button', { name: /Concluir atendimento/i }));
+
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    await card.click();
+    try {
+      await expect(conteudoModal).toBeVisible({ timeout: 4000 });
+      return;
+    } catch (err) {
+      if (tentativa === 2) throw err;
+      await page.waitForTimeout(400);
+    }
+  }
+}
+
 test('CT009 - Concluir agendamento simples', async ({ page }) => {
   let dataFormatada;
   log.start('CT009');
@@ -24,13 +56,15 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento aberto', async () => {
-    await page.getByText('20:00 – 21:00').click();
-    await expect(page.getByText('cliente automação')).toBeVisible();
+    await abrirCardAgendamento(page, '20:00 – 21:00');
   });
 
   await test.step('✅ Atendimento concluído', async () => {
     await page.getByRole('button', { name: /Concluir atendimento/i }).click();
-    await page.locator('#btn-confirmar-concluir-atendimento').click();
+
+    const btnConfirmar = page.locator('#btn-confirmar-concluir-atendimento');
+    await expect(btnConfirmar).toBeVisible({ timeout: 10000 });
+    await btnConfirmar.click();
 
     // Sincroniza com a persistência REAL do pagamento (sem waitForTimeout).
     const respPag = page.waitForResponse(
@@ -38,7 +72,9 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
       { timeout: 15000 }
     ).catch(() => null);
 
-    await page.getByRole('spinbutton').fill('80');
+    const valorInput = page.getByRole('spinbutton');
+    await expect(valorInput).toBeVisible({ timeout: 10000 });
+    await valorInput.fill('80');
     await page.getByRole('button', { name: /Confirmar e concluir/i }).click();
     await respPag;
     log.payment('80,00');
