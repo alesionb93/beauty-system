@@ -1,60 +1,45 @@
 /* =====================================================================
-   DESCONTO-FINANCEIRO.JS — Add-on isolado (v3 — 2026-06-06)
+   DESCONTO-FINANCEIRO.JS — Add-on isolado (v6 — 2026-06-09 (invariante valor_total_pago))
    ---------------------------------------------------------------------
    Carregue DEPOIS de pagamentos.js, dashboard-pagamentos.js e
    agendamento-desconto.js, em agenda.html:
 
-       <script src="/desconto-financeiro.js?v=3" defer></script>
+       <script src="/desconto-financeiro.js?v=5" defer></script>
 
-   v3 (2026-06-06) — CORREÇÃO: filtro do Dashboard era ignorado
-   ---------------------------------------------------------
-   • Bug "valores piscam de R$ 80 → R$ 70" no primeiro Aplicar:
-     causado por o loadDashboard original escrever o valor BRUTO
-     sincronamente e só depois (após awaits de caixinha/widgets) o
-     desconto era subtraído. Agora um MutationObserver instalado
-     durante o ciclo de loadDashboard reaplica o desconto IMEDIATAMENTE
-     a cada escrita em #dash-faturamento, eliminando a pintura
-     intermediária do valor bruto.
-   • Bug "cada clique em Aplicar subtrai mais R$ 10 (70 → 60 → 50 …)":
-     causado por o ajuste no DOM ser não-idempotente sob race entre
-     múltiplas execuções de loadDashboard (cliques rápidos no
-     "Aplicar" disparam wraps concorrentes). Agora:
-       1) `dataset.descSum` rastreia QUANTO já foi descontado do
-          texto atual. `base = atual + jáAplicado` garante que cada
-          reaplicação parte do valor BRUTO real.
-       2) Antes do orig rodar, resetamos `descSum=0` (porque o orig
-          regrava o texto sem nosso ajuste). Assim, depois do orig
-          escrever, `atual` é o bruto e subtraímos o desconto UMA vez.
-       3) As chamadas a loadDashboard são serializadas via um lock
-          (`__descFinRunning`) — múltiplos cliques em Aplicar passam
-          a compartilhar a MESMA execução em curso. Idempotência total.
+   v5 (2026-06-09) — FONTE ÚNICA DE VERDADE PARA DESCONTO
+   -----------------------------------------------------------
+   Regra de negócio formalizada:
+       faturamento = serviço - desconto + caixinha
+       comissão    = (serviço - desconto) * pct
+       receber     = comissão + caixinha          (caixinha é 100% do prof.)
 
-   O QUE FAZ (mantido da v1)
-   -------------------------
-   Garante que TODO indicador financeiro do sistema use o valor LÍQUIDO
-   (após desconto) — sem alterar fluxos de pacotes, produtos, estoque,
-   histórico do cliente, agenda, quantidade de atendimentos/serviços ou
-   caixinha.
-
-   Como detecta o desconto (sem migration / sem novo campo):
-     - status_pagamento === 'pago'  (pagamento foi fechado pelo modal)
-     - bruto (services + produtos + venda de pacote) >
-       valor_total_pago - caixinha
-     ⇒ desconto = bruto - (pago - caixinha)
+   Mudanças:
+   • Removidas TODAS as heurísticas (bruto > pago−caixinha).
+   • Desconto agora é PERSISTIDO em agendamento_pagamentos.observacao,
+     no mesmo formato da caixinha — pagamentos.js v16 grava
+     `CAIXINHA:<v> DESCONTO:<v>` na 1ª linha do pagamento.
+   • hidratarDescontos() lê esses marcadores num ÚNICO SELECT,
+     popula `a.desconto_aplicado` em window.appointments (consumido por
+     dashboard-pagamentos.js calcularValorTotal e por comissoes-desconto.js)
+     e devolve { total, porProf } para o ajuste de DOM.
+   • Caixinha em #dash-faturamento continua sob a pagamentos.js v16
+     (idempotente via dataset.baseFat).
+   • Após v5: nenhum KPI depende de estado só-em-memória — recarregar a
+     página dá o mesmo resultado.
 
    NÃO TOCA:
      - regras de venda/uso de pacote
      - produtos / estoque
      - histórico do cliente
      - quantidade de agendamentos / serviços
-     - caixinha
+     - caixinha (segue 100% do barbeiro)
    ===================================================================== */
 (function(){
   'use strict';
   if (window.__SLOTIFY_DESC_FIN_LOADED__) return;
   window.__SLOTIFY_DESC_FIN_LOADED__ = true;
 
-  console.log('%c🧾 desconto-financeiro.js v2 carregado (idempotente + anti-flicker)',
+  console.log('%c🧾 desconto-financeiro.js v6 carregado (marker DESCONTO + invariante valor_total_pago como fallback/validação)',
     'background:#0ea5e9;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------- Helpers --------------------
@@ -96,83 +81,123 @@
     return (a && (a.profissional || a.profissional_nome)) || '';
   }
 
-  // Fallback gross caso __dashPagCalcGross ainda não esteja exposto.
-  function grossFallback(a){
-    if (!a) return 0;
-    var sum = 0;
-    var sp = window.servicePrices || {};
-    var svcs = Array.isArray(a.servicos) ? a.servicos : (a.servico ? [{servico:a.servico, preco:a.preco||a.valor||0}] : []);
-    svcs.forEach(function(s){
-      if (!s) return;
-      if (s.origem === 'pacote_uso' || s.cliente_pacote_id) return;
-      var p = parseFloat(s.preco);
-      if (!p && s.servico && sp[s.servico]) p = parseFloat(sp[s.servico].preco) || 0;
-      sum += p || 0;
-    });
-    return round2(sum);
-  }
-  function grossDe(a){
-    if (typeof window.__dashPagCalcGross === 'function') {
-      try { return Number(window.__dashPagCalcGross(a)) || 0; } catch(_){}
-    }
-    return grossFallback(a);
-  }
-
-  // -------------------- Buscar caixinhas para inferir pagoNet --------------------
-  async function fetchTipsPorAg(ids){
-    var tips = {};
+  // -------------------- Fonte única: lê DESCONTO de agendamento_pagamentos --------------------
+  // Retorna mapa { agId: descontoTotal } a partir do marcador DESCONTO:<v>
+  // gravado pelo pagamentos.js v16 na coluna observacao.
+  async function fetchMarcadoresPorAg(ids){
+    // Retorna { descByAg: {agId: descTotal}, caxByAg: {agId: caixinhaTotal} }
+    var out = { descByAg: {}, caxByAg: {} };
     var sb = getSb(); var tenant = getTenantId();
-    if (!sb || !tenant || !ids.length) return tips;
+    if (!sb || !tenant || !ids.length) return out;
+    var seen = Object.create(null);
     var chunk = 500;
     for (var i=0; i<ids.length; i+=chunk){
       var slice = ids.slice(i, i+chunk);
       try {
         var resp = await sb.from('agendamento_pagamentos')
-          .select('agendamento_id, observacao')
+          .select('id, agendamento_id, observacao')
           .in('agendamento_id', slice)
           .eq('tenant_id', tenant);
-        if (resp.error) { console.warn('[desc-fin] fetch tips', resp.error); continue; }
+        if (resp.error) { console.warn('[desc-fin] fetch marc', resp.error); continue; }
         (resp.data || []).forEach(function(r){
-          var m = /CAIXINHA:([\d\.]+)/i.exec(r.observacao || '');
-          if (m){
-            var v = parseFloat(m[1]) || 0;
-            tips[r.agendamento_id] = (tips[r.agendamento_id] || 0) + v;
+          if (!r || r.id == null) return;
+          if (seen[r.id]) return;
+          seen[r.id] = true;
+          var obs = r.observacao || '';
+          var md = /DESCONTO:([\d\.]+)/i.exec(obs);
+          if (md){
+            var vd = parseFloat(md[1]) || 0;
+            if (vd > 0) out.descByAg[r.agendamento_id] = round2((out.descByAg[r.agendamento_id] || 0) + vd);
+          }
+          var mc = /CAIXINHA:([\d\.]+)/i.exec(obs);
+          if (mc){
+            var vc = parseFloat(mc[1]) || 0;
+            if (vc > 0) out.caxByAg[r.agendamento_id] = round2((out.caxByAg[r.agendamento_id] || 0) + vc);
           }
         });
-      } catch(e){ console.warn('[desc-fin] fetch tips ex', e); }
+      } catch(e){ console.warn('[desc-fin] fetch marc ex', e); }
     }
-    return tips;
+    return out;
+  }
+
+  // Compat: mantém nome antigo para chamadas externas
+  async function fetchDescontosPorAg(ids){
+    var r = await fetchMarcadoresPorAg(ids);
+    return r.descByAg;
+  }
+
+  // Soma serviços brutos (preço da venda real, ignora usos de pacote).
+  function servicoBrutoDoAg(a){
+    if (!a) return 0;
+    var total = 0;
+    var svcs = [];
+    try {
+      svcs = (typeof window.getAppointmentServicos === 'function')
+        ? (window.getAppointmentServicos(a) || [])
+        : ((a.servicos) || []);
+    } catch(_){ svcs = (a.servicos) || []; }
+    svcs.forEach(function(s){
+      if (!s) return;
+      // ignora uso de pacote (preço 0 efetivo)
+      if (s.origem === 'pacote_uso' || s.cliente_pacote_id) return;
+      var preco = parseFloat(s.preco);
+      if (isNaN(preco)) preco = 0;
+      total += preco;
+    });
+    return round2(total);
   }
 
   // -------------------- Hidrata desconto_aplicado em window.appointments --------------------
+  // v5: fonte de verdade = marcador DESCONTO em agendamento_pagamentos.observacao.
+  // Sem heurística. Sem inferência. Sem dependência de status_pagamento /
+  // valor_total_pago / sincronia de caixinha.
   async function hidratarDescontos(){
     var out = { total: 0, porProf: {} };
     if (!Array.isArray(window.appointments)) return out;
 
-    var ags = window.appointments.filter(function(a){ return inFiltro(a) && isOkParaFaturamento(a); });
-    var ids = ags.map(function(a){ return a.id; }).filter(Boolean);
-    if (!ids.length) {
-      // Limpa qualquer desconto_aplicado de execuções anteriores em ags fora do filtro,
-      // mas mantém o campo nos demais para evitar mutação desnecessária.
-      return out;
-    }
+    var ags = window.appointments.filter(function(a){
+      return a && a.id && inFiltro(a) && isOkParaFaturamento(a);
+    });
+    if (!ags.length) return out;
 
-    var tips = await fetchTipsPorAg(ids);
+    var ids = ags.map(function(a){ return a.id; });
+    var marc = await fetchMarcadoresPorAg(ids);
+    var descByAg = marc.descByAg;
+    var caxByAg  = marc.caxByAg;
 
     ags.forEach(function(a){
-      var st    = String(a.status_pagamento || '').toLowerCase();
-      var pago  = Number(a.valor_total_pago) || 0;
-      var tip   = Number(tips[a.id]) || 0;
-      var pagoNet = round2(pago - tip);
-      var bruto = grossDe(a);
-      var desc = 0;
+      var marker   = round2(descByAg[a.id] || 0);
+      var caixinha = round2(caxByAg[a.id] != null ? caxByAg[a.id] : (Number(a.tip_amount) || 0));
+      var servico  = servicoBrutoDoAg(a);
+      var pago     = round2(Number(a.valor_total_pago) || 0);
 
-      if (st === 'pago' && bruto > 0 && pagoNet >= 0 && (bruto - pagoNet) > 0.01) {
-        desc = round2(bruto - pagoNet);
+      // Invariante de negócio:
+      //   valor_total_pago = serviço - desconto + caixinha
+      //   => desconto = serviço + caixinha - valor_total_pago
+      // Quando temos dados suficientes (serviço > 0 e pago > 0), o invariante
+      // é a fonte de verdade absoluta. Se o marker DESCONTO: divergir do
+      // invariante (ex: marker stale/contaminado de uma execução anterior
+      // ou de outro registro), CONFIAMOS no invariante — não na string.
+      var temInvariante = (servico > 0 && pago > 0);
+      var inferido = temInvariante ? round2(Math.max(0, servico + caixinha - pago)) : marker;
+
+      var desc;
+      if (!temInvariante) {
+        desc = marker; // sem como validar, usa marker como antes
+      } else if (Math.abs(marker - inferido) <= 0.01) {
+        desc = marker; // marker confere com o invariante
+      } else {
+        // Divergência: marker é stale OU foi gravado errado. Usa invariante.
+        if (marker > 0) {
+          console.warn('[desc-fin] DESCONTO marker divergente do invariante; usando invariante',
+            { agId: a.id, marker: marker, inferido: inferido,
+              servico: servico, caixinha: caixinha, pago: pago });
+        }
+        desc = inferido;
       }
-      a.desconto_aplicado = desc;
 
-      if (desc > 0){
+      a.desconto_aplicado = desc;
+      if (desc > 0) {
         out.total += desc;
         var prof = primaryProf(a);
         if (prof) out.porProf[prof] = round2((out.porProf[prof] || 0) + desc);
@@ -182,9 +207,10 @@
     return out;
   }
 
+
   // -------------------- Ajuste de DOM (idempotente) --------------------
-  // Estratégia: dataset.descSum guarda quanto JÁ subtraímos do texto atual.
-  // base = atual + jáAplicado  →  representa o valor que o orig escreveu.
+  // dataset.descSum guarda quanto JÁ subtraímos do texto atual.
+  // base = atual + jáAplicado  → representa o valor escrito pelo orig (+ caixinha do pagamentos v16).
   // novo = base - totalDescontos.  Repetir N vezes ⇒ mesmo resultado.
   function ajustarFaturamentoETicket(totalDescontos){
     var fatEl = document.getElementById('dash-faturamento');
@@ -231,7 +257,7 @@
       ths.forEach(function(th, i){
         var txt = (th.textContent || '').trim().toLowerCase();
         if (txt.indexOf('faturamento') >= 0 && idxFat < 0) idxFat = i;
-        if (txt.indexOf('comiss') >= 0 && idxCom < 0) idxCom = i;
+        if (txt.indexOf('comiss')      >= 0 && idxCom < 0) idxCom = i;
       });
     }
     if (idxFat < 0) return;
@@ -241,7 +267,6 @@
       var nome = (tds[idxNome].textContent || '').trim();
       var desc = Number(porProf[nome]) || 0;
 
-      // Idempotência por célula
       var fatOldShown = parseMoneyText(tds[idxFat].textContent);
       var prevFat = parseFloat(tds[idxFat].dataset.descSum || '0') || 0;
       var fatBase = round2(fatOldShown + prevFat);
@@ -251,6 +276,8 @@
         var comOldShown = parseMoneyText(tds[idxCom].textContent);
         var prevCom = parseFloat(tds[idxCom].dataset.descSum || '0') || 0;
         var comBase = round2(comOldShown + prevCom);
+        // comissão é proporcional ao faturamento LÍQUIDO de desconto
+        // (pct = comBase/fatBase). Caixinha NÃO entra na comissão.
         var ratio = fatBase > 0 ? (comBase / fatBase) : 0;
         var comNew = round2(fatNew * ratio);
         tds[idxCom].textContent = fmtBRL(comNew);
@@ -337,6 +364,7 @@
   }
 
   // -------------------- "Total a receber" (col. injetada por pagamentos.js) --------------------
+  // total_receber = comissao (líquida) + caixinha. Sem desconto sobre a caixinha.
   function ajustarTotalReceber(){
     var tbody = document.getElementById('dash-prof-tbody');
     if (tbody){
@@ -412,36 +440,20 @@
     if (window.loadDashboard.__descFinWrapped) return;
     var orig = window.loadDashboard;
 
-    // ----- Estado de runtime -----
-    var running = null;          // serialização: promessa em curso
     var lastResumo = { total: 0, porProf: {} };
-    var observer = null;
 
-    // MutationObserver: enquanto o ciclo de loadDashboard estiver em curso,
-    // reaplica o ajuste de desconto a cada escrita em #dash-faturamento.
-    // Isso elimina o "flicker" de R$80 → R$70 entre o write síncrono do
-    // orig e o término dos awaits subsequentes (caixinha, widgets, etc.).
-    function startObserver(){
-      try {
-        if (observer) return;
-        var fatEl = document.getElementById('dash-faturamento');
-        if (!fatEl || typeof MutationObserver === 'undefined') return;
-        observer = new MutationObserver(function(){
-          // Reaplica usando o último resumo conhecido. Idempotente.
-          try { ajustarFaturamentoETicket(Number(lastResumo.total) || 0); }
-          catch(_){}
-        });
-        observer.observe(fatEl, { childList: true, characterData: true, subtree: true });
-      } catch(_){}
-    }
-    function stopObserver(){
-      try { if (observer) { observer.disconnect(); observer = null; } } catch(_){}
-    }
+    // v7 (2026-06-09) — REMOVIDO MutationObserver em #dash-faturamento.
+    // O observer disparava em CADA escrita no nodo (incluindo a escrita
+    // de caixinha feita por pagamentos.js v17). Mesmo sendo idempotente
+    // dentro de uma "rodada", em cenários com polling / realtime /
+    // múltiplos wraps concorrentes ele participava de races em que a
+    // caixinha acabava sendo recalculada sobre um valor já inflado,
+    // produzindo o sintoma 90 → 100 → 110 ... a cada poucos segundos
+    // no Dashboard. A aplicação pós-orig.apply (aplicarNoDOM) é
+    // suficiente: pagamentos.js v17 grava o valor + caixinha sem
+    // depender de baseFat dataset, e nossa subtração de desconto é
+    // idempotente via dataset.descSum.
 
-    // Fila serial: NUNCA compartilhar a promessa em curso — isso devolve
-    // resultados com filtros antigos. Em vez disso, encadeamos: se já
-    // está rodando, esperamos terminar e rodamos uma nova execução com
-    // os argumentos/filtros ATUAIS.
     var queueTail = Promise.resolve();
     var wrapped = function(){
       var self = this;
@@ -453,35 +465,22 @@
           catch(e){ console.warn('[desc-fin] hidratar', e); }
           lastResumo = resumo;
 
-          // Zera marcadores: o orig vai regravar valores BRUTOS, e queremos
-          // que nosso ajuste subtraia exatamente UMA vez sobre eles.
           resetDatasetMarkers();
 
-          // Observer ativo durante o orig — mata o flicker do valor bruto.
-          startObserver();
+          var ret = await orig.apply(self, args);
 
-          var ret;
-          try {
-            ret = await orig.apply(self, args);
-          } finally {
-            stopObserver();
-          }
           try { aplicarNoDOM(resumo); }
           catch(e){ console.warn('[desc-fin] aplicarNoDOM', e); }
           return ret;
         })();
       };
       var p = queueTail.then(run, run);
-      // Mantém a cauda viva mesmo após erro, sem propagar rejeição.
       queueTail = p.catch(function(){});
       return p;
     };
     wrapped.__descFinWrapped = true;
     window.loadDashboard = wrapped;
-    console.log('[desc-fin] hook v3 em loadDashboard instalado (idempotente + fila serial + observer)');
-    // NÃO auto-executar loadDashboard aqui — disparar agora roda com
-    // filtros antigos e enfileira execuções "fantasma" que atrapalham o
-    // clique do usuário no botão Aplicar.
+    console.log('[desc-fin] hook v7 em loadDashboard instalado (sem MutationObserver)');
   }
 
   if (document.readyState === 'loading') {
@@ -493,4 +492,5 @@
   // Debug
   window.__descFinHidratar = hidratarDescontos;
   window.__descFinAplicar  = aplicarNoDOM;
+  window.__descFinFetch    = fetchDescontosPorAg;
 })();

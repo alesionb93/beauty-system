@@ -26,7 +26,7 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
-  console.log('%c💳 pagamentos.js v11 (caixinha idempotente + anti-flicker no dashboard) carregado', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c💳 pagamentos.js v18 (caixinha dashboard idempotente mesmo quando loadDashboard não reescreve KPIs)', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
 
 
@@ -907,6 +907,14 @@
     var sb = getSb(); var tenantId = getTenantId();
     if (!sb || !tenantId) throw new Error('Supabase/tenant indisponível');
     var tip = Number(__ctx && __ctx.tipAmount) || 0;
+    // v16: persiste DESCONTO na mesma observacao. O modal de desconto chama
+    // __pagSetExtraTotal(-N) → __ctx.extraTotal = -N. Aqui materializamos
+    // esse desconto como marcador DESCONTO:<valor> em agendamento_pagamentos.
+    // Assim a reidratação no dashboard (desconto-financeiro.js v5 e
+    // comissoes-desconto.js) lê desconto e caixinha da MESMA fonte —
+    // nunca mais heurística, nunca mais estado só-em-memória.
+    var extra = Number(__ctx && __ctx.extraTotal) || 0;
+    var desc  = extra < 0 ? Math.abs(extra) : 0;
     var rows = pagamentos.map(function(p, idx){
       var row = {
         tenant_id: tenantId,
@@ -915,9 +923,12 @@
         valor: p.valor,
         parcelas: p.parcelas || 1
       };
-      // Marca metadado de caixinha na 1ª linha (sem alterar schema)
-      if (idx === 0 && tip > 0) {
-        row.observacao = 'CAIXINHA:' + tip.toFixed(2);
+      // Marca metadados de caixinha + desconto na 1ª linha (sem alterar schema)
+      if (idx === 0) {
+        var marks = [];
+        if (tip > 0)  marks.push('CAIXINHA:' + tip.toFixed(2));
+        if (desc > 0) marks.push('DESCONTO:' + desc.toFixed(2));
+        if (marks.length) row.observacao = marks.join(' ');
       }
       return row;
     });
@@ -1366,31 +1377,148 @@
   // CONCLUÍDOS no range filtrado e acrescenta ao card "Faturamento Total".
   // Também recalcula o Ticket Médio para refletir o novo total.
   // ------------------------------------------------------------------
+  // v13 — instrumentação ampla para rastrear quem reaplica a caixinha.
+  var __pagDashTipBootTs = Date.now();
+  function dashTipElapsed(){
+    return ((Date.now() - __pagDashTipBootTs) / 1000).toFixed(3) + 's';
+  }
+  function dashTipNowIso(){
+    try { return new Date().toISOString(); } catch(_) { return String(Date.now()); }
+  }
+  function dashTipStack(skip){
+    var st = '';
+    try { throw new Error('dash-tip-trace'); } catch (e) { st = String((e && e.stack) || ''); }
+    if (!skip) return st;
+    var lines = st.split('\n');
+    return [lines[0]].concat(lines.slice(1 + skip)).join('\n');
+  }
+  function dashTipOriginFromStack(stack){
+    var lines = String(stack || '').split('\n').map(function(line){ return String(line || '').trim(); }).filter(Boolean);
+    var firstPag = '';
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.indexOf('at ') !== 0) continue;
+      if (/dashTip(Elapsed|NowIso|Stack|OriginFromStack|KpiSnapshot|Log|CaptureMeta|InstallKpiSetterTrace)/.test(line)) continue;
+      if (line.indexOf('pagamentos.js') >= 0) {
+        if (!firstPag) firstPag = line;
+        continue;
+      }
+      return line;
+    }
+    return firstPag || lines[1] || lines[0] || '(sem stack)';
+  }
+  function dashTipKpiSnapshot(){
+    var fatEl = document.getElementById('dash-faturamento');
+    var tickEl = document.getElementById('dash-ticket');
+    var totAgEl = document.getElementById('dash-total-ag');
+    return {
+      faturamento: fatEl ? fatEl.textContent : null,
+      ticket: tickEl ? tickEl.textContent : null,
+      totalAg: totAgEl ? totAgEl.textContent : null,
+      baseFat: fatEl ? (fatEl.dataset.baseFat || null) : null,
+      tipSum: fatEl ? (fatEl.dataset.tipSum || null) : null,
+      prodSum: fatEl ? (fatEl.dataset.prodSum || null) : null,
+      filtrosAplicados: (typeof window.filtrosAplicados !== 'undefined' && window.filtrosAplicados)
+        ? {
+            dataInicio: window.filtrosAplicados.dataInicio || null,
+            dataFim: window.filtrosAplicados.dataFim || null,
+            profissionalId: window.filtrosAplicados.profissionalId || null
+          }
+        : null
+    };
+  }
+  function dashTipLog(evento, payload){
+    var data = {
+      ts: dashTipNowIso(),
+      elapsed: dashTipElapsed(),
+      evento: evento
+    };
+    if (payload && typeof payload === 'object') {
+      Object.keys(payload).forEach(function(k){ data[k] = payload[k]; });
+    }
+    try { console.log('[pag][dash-tip][trace]', data); } catch(_) {}
+  }
+  function dashTipCaptureMeta(source, extra){
+    var stack = dashTipStack(1);
+    var meta = {
+      source: source || 'desconhecida',
+      origin: dashTipOriginFromStack(stack),
+      stackTrace: stack,
+      capturedAt: dashTipNowIso(),
+      elapsed: dashTipElapsed()
+    };
+    if (extra && typeof extra === 'object') {
+      Object.keys(extra).forEach(function(k){ meta[k] = extra[k]; });
+    }
+    return meta;
+  }
+  function dashTipInstallKpiSetterTrace(){
+    if (window.__pagDashTipKpiSetterInstalled) return;
+    var desc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+    if (!desc || typeof desc.get !== 'function' || typeof desc.set !== 'function') {
+      dashTipLog('boot:kpi-setter-unavailable', {});
+      return;
+    }
+    var alvoIds = { 'dash-ticket': true, 'dash-faturamento': true, 'dash-total-ag': true };
+    Object.defineProperty(Node.prototype, 'textContent', {
+      configurable: true,
+      enumerable: desc.enumerable,
+      get: function(){
+        return desc.get.call(this);
+      },
+      set: function(v){
+        var isTarget = !!(this && this.nodeType === 1 && this.id && alvoIds[this.id]);
+        var prev = isTarget ? desc.get.call(this) : undefined;
+        var stack = isTarget ? dashTipStack(1) : '';
+        var origin = isTarget ? dashTipOriginFromStack(stack) : '';
+        if (isTarget) {
+          window.__pagDashTipKpiWriteSeq = (window.__pagDashTipKpiWriteSeq || 0) + 1;
+          if (this.id === 'dash-faturamento') {
+            window.__pagDashTipFatWriteSeq = (window.__pagDashTipFatWriteSeq || 0) + 1;
+          }
+          dashTipLog('kpi-write:before', {
+            kpi: this.id,
+            previousValue: prev,
+            nextValue: String(v),
+            origin: origin,
+            stackTrace: stack,
+            activeSource: window.__pagDashTipActiveSource || null,
+            writeSeq: window.__pagDashTipKpiWriteSeq || 0,
+            fatWriteSeq: window.__pagDashTipFatWriteSeq || 0,
+            snapshot: dashTipKpiSnapshot()
+          });
+        }
+        var ret = desc.set.call(this, v);
+        if (isTarget) {
+          dashTipLog('kpi-write:after', {
+            kpi: this.id,
+            previousValue: prev,
+            nextValue: desc.get.call(this),
+            origin: origin,
+            stackTrace: stack,
+            activeSource: window.__pagDashTipActiveSource || null,
+            snapshot: dashTipKpiSnapshot()
+          });
+        }
+        return ret;
+      }
+    });
+    window.__pagDashTipKpiSetterInstalled = true;
+    dashTipLog('boot:kpi-setter-installed', { origin: 'Node.prototype.textContent' });
+  }
+
+  // v12 — SEM MutationObserver (causava acumulação +10/+10 em race).
+  // Estratégia idempotente baseada em dataset.baseFat (valor SEM caixinha
+  // capturado após o original do loadDashboard rodar). Cada apply
+  // recalcula novo = baseFat + caixinha, então N chamadas produzem o
+  // mesmo resultado — independente do que o realtime/products faça no meio.
   function instalarHookDashboardCaixinha() {
+    dashTipInstallKpiSetterTrace();
     var tries = 0;
     var iv = setInterval(function(){
       if (typeof window.loadDashboard === 'function' && !window.loadDashboard.__pagTipWrapped) {
         clearInterval(iv);
         var original = window.loadDashboard;
-        var lastTipResumo = { total: 0, porProf: {} };
-        var observer = null;
-
-        function startTipObserver(){
-          try {
-            if (observer) return;
-            var fatEl = document.getElementById('dash-faturamento');
-            if (!fatEl || typeof MutationObserver === 'undefined') return;
-            observer = new MutationObserver(function(){
-              try { aplicarResumoCaixinhaNoDOM(lastTipResumo, true); }
-              catch(_){}
-            });
-            observer.observe(fatEl, { childList: true, characterData: true, subtree: true });
-          } catch(_){}
-        }
-
-        function stopTipObserver(){
-          try { if (observer) { observer.disconnect(); observer = null; } } catch(_){}
-        }
 
         // Fila serial: garante que cliques rápidos no "Aplicar" não
         // sobreponham execuções e causem oscilação dos valores.
@@ -1398,20 +1526,105 @@
         var wrapped = function(){
           var self = this, args = arguments;
           var run = async function(){
+            var callMeta = dashTipCaptureMeta('window.loadDashboard wrapped');
+            window.__pagDashTipActiveSource = callMeta.origin;
+            dashTipLog('loadDashboard:wrapped:start', {
+              source: callMeta.source,
+              origin: callMeta.origin,
+              stackTrace: callMeta.stackTrace,
+              snapshot: dashTipKpiSnapshot()
+            });
             var resumo = { total: 0, porProf: {} };
-            try { resumo = await calcularResumoCaixinhasDashboard(); }
+            try {
+              resumo = await calcularResumoCaixinhasDashboard(callMeta);
+              dashTipLog('loadDashboard:wrapped:resumo', {
+                source: callMeta.source,
+                origin: callMeta.origin,
+                resumoTotal: resumo && resumo.total,
+                resumoPorProfKeys: resumo && resumo.porProf ? Object.keys(resumo.porProf) : [],
+                snapshot: dashTipKpiSnapshot()
+              });
+            }
             catch(e){ console.warn('[pag][dash-tip] calcular resumo', e); }
-            lastTipResumo = resumo;
-            // Reseta marcador ANTES do original rodar para garantir
-            // idempotência: o original reescreve o valor bruto, e nós
-            // precisamos saber que ainda não aplicamos caixinha alguma.
-            resetTipMarker();
-            startTipObserver();
+
+            // v18 — NÃO zerar tipSum antes do original.
+            // O bug regressivo acontecia quando loadDashboard era chamado por
+            // polling/debug/realtime, mas o original não reescrevia os KPIs
+            // (ex.: retorno 300/early-return). Como v17 zerava tipSum antes,
+            // a aplicação seguinte via o display já com caixinha como se fosse
+            // base limpa: 90 -> +10 = 100 -> +10 = 110...
+            // Agora preservamos a caixinha anterior até saber se o original
+            // realmente tocou em #dash-faturamento.
+            var fatPre = document.getElementById('dash-faturamento');
+            var fatBeforeOriginal = fatPre ? parseMoneyText(fatPre.textContent) : 0;
+            var tipBeforeOriginal = fatPre ? (parseFloat(fatPre.dataset.tipSum || '0') || 0) : 0;
+            var fatWriteSeqBefore = window.__pagDashTipFatWriteSeq || 0;
+            if (fatPre) {
+              dashTipLog('loadDashboard:wrapped:pre-state', {
+                source: callMeta.source,
+                origin: callMeta.origin,
+                fatBeforeOriginal: fatBeforeOriginal,
+                tipBeforeOriginal: tipBeforeOriginal,
+                fatWriteSeqBefore: fatWriteSeqBefore,
+                snapshot: dashTipKpiSnapshot()
+              });
+            }
+
             var ret;
-            try { ret = await original.apply(self, args); }
-            finally { stopTipObserver(); }
-            try { aplicarResumoCaixinhaNoDOM(resumo, false); }
-            catch(e){ console.warn('[pag][dash-tip]', e); }
+            try {
+              ret = await original.apply(self, args);
+              dashTipLog('loadDashboard:wrapped:after-original', {
+                source: callMeta.source,
+                origin: callMeta.origin,
+                snapshot: dashTipKpiSnapshot()
+              });
+            }
+            catch(e){ console.warn('[pag][dash-tip] original loadDashboard', e); throw e; }
+
+            // Decide a base de forma segura:
+            // - se o original REESCREVEU #dash-faturamento, o texto atual é a
+            //   base limpa e tipSum deve voltar a 0;
+            // - se o original NÃO reescreveu, o texto atual ainda contém a
+            //   caixinha anterior e tipSum precisa ser preservado para que
+            //   aplicarResumoCaixinhaNoDOM subtraia antes de reaplicar.
+            var fatPost = document.getElementById('dash-faturamento');
+            if (fatPost) {
+              var fatWriteSeqAfter = window.__pagDashTipFatWriteSeq || 0;
+              var fatAfterOriginal = parseMoneyText(fatPost.textContent);
+              var originalTocouFaturamento = fatWriteSeqAfter !== fatWriteSeqBefore;
+              if (!originalTocouFaturamento && Math.abs(fatAfterOriginal - fatBeforeOriginal) > 0.005) {
+                originalTocouFaturamento = true;
+              }
+              if (originalTocouFaturamento) {
+                fatPost.dataset.tipSum = '0';
+                fatPost.dataset.baseFat = String(fatAfterOriginal);
+              } else {
+                fatPost.dataset.tipSum = String(tipBeforeOriginal);
+                fatPost.dataset.baseFat = String(Math.max(0, round2(fatAfterOriginal - tipBeforeOriginal)));
+              }
+              dashTipLog('loadDashboard:wrapped:base-captured-v18', {
+                source: callMeta.source,
+                origin: callMeta.origin,
+                originalTocouFaturamento: originalTocouFaturamento,
+                fatWriteSeqBefore: fatWriteSeqBefore,
+                fatWriteSeqAfter: fatWriteSeqAfter,
+                fatBeforeOriginal: fatBeforeOriginal,
+                fatAfterOriginal: fatAfterOriginal,
+                tipBeforeOriginal: tipBeforeOriginal,
+                baseFat: fatPost.dataset.baseFat,
+                tipSumPreservadoParaApply: fatPost.dataset.tipSum,
+                snapshot: dashTipKpiSnapshot()
+              });
+            }
+
+            try { aplicarResumoCaixinhaNoDOM(resumo, false, callMeta); }
+            catch(e){ console.warn('[pag][dash-tip] apply', e); }
+            dashTipLog('loadDashboard:wrapped:end', {
+              source: callMeta.source,
+              origin: callMeta.origin,
+              snapshot: dashTipKpiSnapshot()
+            });
+            window.__pagDashTipActiveSource = null;
             return ret;
           };
           var p = queueTail.then(run, run);
@@ -1420,16 +1633,13 @@
         };
         wrapped.__pagTipWrapped = true;
         window.loadDashboard = wrapped;
-        console.log('[pag] hook de caixinha no dashboard instalado (v3 idempotente + fila serial + observer)');
+        console.log('[pag] hook de caixinha no dashboard instalado (v18 — preserva tipSum quando loadDashboard não reescreve KPI)');
+        dashTipLog('boot:hook-installed', { source: 'instalarHookDashboardCaixinha', snapshot: dashTipKpiSnapshot() });
       } else if (++tries > 50) {
         clearInterval(iv);
+        dashTipLog('boot:hook-timeout', { tries: tries });
       }
     }, 200);
-  }
-
-  function resetTipMarker(){
-    var fatEl = document.getElementById('dash-faturamento');
-    if (fatEl) fatEl.dataset.tipSum = '0';
   }
 
   function parseMoneyText(txt){
@@ -1438,7 +1648,7 @@
     return isNaN(v) ? 0 : v;
   }
 
-  async function calcularResumoCaixinhasDashboard(){
+  async function calcularResumoCaixinhasDashboard(callMeta){
     var sb = getSb(); var tenantId = getTenantId();
     var vazio = { total: 0, porProf: {} };
     if (!sb || !tenantId) return vazio;
@@ -1452,8 +1662,10 @@
     var fFim = (typeof window.filtrosAplicados !== 'undefined' && window.filtrosAplicados && window.filtrosAplicados.dataFim)
       ? window.filtrosAplicados.dataFim : (range ? range.end : null);
 
-    // Filtra agendamentos: dentro do range, NÃO cancelados, concluídos
-    var idsValidos = [];
+    // Filtra agendamentos: dentro do range, NÃO cancelados, concluídos.
+    // Usamos um Set para garantir unicidade (defesa contra duplicatas em
+    // window.appointments que dobrariam o sum por reentrância).
+    var idsSet = Object.create(null);
     window.appointments.forEach(function(a){
       if (!a || !a.id) return;
       if (typeof window.isAppointmentCancelled === 'function' && window.isAppointmentCancelled(a)) return;
@@ -1461,26 +1673,44 @@
       if (fIni && fFim && a.data) {
         if (a.data < fIni || a.data > fFim) return;
       }
-      idsValidos.push(a.id);
+      idsSet[a.id] = true;
     });
-    if (!idsValidos.length) {
-      return vazio;
-    }
+    var idsValidos = Object.keys(idsSet);
+    if (!idsValidos.length) return vazio;
+    dashTipLog('resumo:ids-validos', {
+      source: callMeta && callMeta.source,
+      origin: callMeta && callMeta.origin,
+      qtdAgendamentos: idsValidos.length,
+      agendamentoIds: idsValidos,
+      snapshot: dashTipKpiSnapshot()
+    });
 
-    // Busca observacoes em lote
+    // Busca observacoes em lote — dedup por id de pagamento, defesa contra
+    // qualquer eventual duplicata vinda do banco/realtime.
     var totalCaixinha = 0;
     var tipPorAgendamento = {};
+    var seenPagId = Object.create(null);
     try {
-      // Supabase aceita .in() com até ~1000 ids; quebrar em chunks por segurança
       var chunk = 500;
       for (var i = 0; i < idsValidos.length; i += chunk) {
         var slice = idsValidos.slice(i, i + chunk);
         var resp = await sb.from('agendamento_pagamentos')
-          .select('agendamento_id, observacao')
+          .select('id, agendamento_id, observacao')
           .in('agendamento_id', slice)
           .eq('tenant_id', tenantId);
         if (resp.error) throw resp.error;
+        dashTipLog('resumo:pagamentos-lote', {
+          source: callMeta && callMeta.source,
+          origin: callMeta && callMeta.origin,
+          loteAgendamentoIds: slice,
+          qtdPagamentosNoLote: (resp.data || []).length,
+          pagamentoIds: (resp.data || []).map(function(r){ return r && r.id; }).filter(Boolean),
+          snapshot: dashTipKpiSnapshot()
+        });
         (resp.data || []).forEach(function(r){
+          if (!r || r.id == null) return;
+          if (seenPagId[r.id]) return;          // 🛡️ dedup por id
+          seenPagId[r.id] = true;
           var m = /CAIXINHA:([\d\.]+)/i.exec(r.observacao || '');
           if (m) {
             var v = parseFloat(m[1]) || 0;
@@ -1494,10 +1724,14 @@
       return vazio;
     }
 
-    // Caixinha por profissional (usa o profissional principal do agendamento)
+    // Caixinha por profissional (usa o profissional principal do agendamento).
+    // Iteramos sobre ids únicos para nunca contar o mesmo agendamento 2x.
     var tipPorProf = {};
+    var seenAgProf = Object.create(null);
     window.appointments.forEach(function(a){
       if (!a || !a.id) return;
+      if (seenAgProf[a.id]) return;
+      seenAgProf[a.id] = true;
       var tip = tipPorAgendamento[a.id];
       if (!tip) return;
       var profs = (typeof window.getAppointmentProfessionals === 'function')
@@ -1508,27 +1742,70 @@
     });
 
     totalCaixinha = round2(totalCaixinha);
+    dashTipLog('resumo:final', {
+      source: callMeta && callMeta.source,
+      origin: callMeta && callMeta.origin,
+      totalCaixinha: totalCaixinha,
+      qtdAgendamentosComCaixinha: Object.keys(tipPorAgendamento).length,
+      agendamentoIdsComCaixinha: Object.keys(tipPorAgendamento),
+      pagamentoIdsConsiderados: Object.keys(seenPagId),
+      tipPorAgendamento: tipPorAgendamento,
+      tipPorProf: tipPorProf,
+      snapshot: dashTipKpiSnapshot()
+    });
     return { total: totalCaixinha, porProf: tipPorProf };
   }
 
-  function aplicarResumoCaixinhaNoDOM(resumo, apenasCard){
+  function aplicarResumoCaixinhaNoDOM(resumo, apenasCard, callMeta){
     resumo = resumo || { total: 0, porProf: {} };
     var totalCaixinha = round2(Number(resumo.total) || 0);
     var fatEl = document.getElementById('dash-faturamento');
+    var meta = callMeta || dashTipCaptureMeta('aplicarResumoCaixinhaNoDOM');
+    window.__pagDashTipActiveSource = meta.origin;
+
     if (fatEl) {
-      // ===== IDEMPOTÊNCIA =====
-      // Em vez de "atual + totalCaixinha" (que acumula a cada chamada),
-      // calculamos: base = valor_atual - caixinha_já_aplicada, e depois
-      // novo = base + totalCaixinha. Assim, chamar N vezes produz o
-      // mesmo resultado — sem oscilar entre 80 e 90 em cliques rápidos.
-      var prevApplied = parseFloat(fatEl.dataset.tipSum || '0') || 0;
-      var atual = parseMoneyText(fatEl.textContent);
-      var base = round2(atual - prevApplied);
-      var novo = round2(base + totalCaixinha);
-      if (Math.abs(novo - atual) > 0.005) {
-        fatEl.textContent = fmtBRL(novo);
+      // ===== v18 (2026-06-09): CORRIGE ACUMULAÇÃO +caixinha REGRESSIVA =====
+      // A versão v15 confiava em `dataset.baseFat` como verdade absoluta.
+      // Se algo (polling, realtime, hook concorrente, MutationObserver de
+      // outro módulo) chamava esta função SEM passar pelo wrap de
+      // loadDashboard, ou se baseFat era inadvertidamente deletado mas o
+      // display continuava com a caixinha aplicada, o cálculo virava:
+      //    novo = display_atual + caixinha   (em vez de base + caixinha)
+      // produzindo o sintoma 90 → 100 → 110 ... a cada gatilho.
+      //
+      // v17 — INVARIANTE IDEMPOTENTE FORTE:
+      //    base   = display_atual − caixinha_previa
+      //    novo   = base + caixinha_atual
+      // Como `dataset.tipSum` registra EXATAMENTE quanto foi adicionado da
+      // última vez, qualquer reexecução produz o mesmo resultado.
+      // Repetir a função N vezes com a MESMA resumo ⇒ valor estável.
+      // dataset.baseFat continua sendo gravado (debug/observabilidade)
+      // mas NÃO é mais a fonte da verdade.
+      var atualNum = parseMoneyText(fatEl.textContent);
+      var prevTip  = parseFloat(fatEl.dataset.tipSum || '0') || 0;
+      var baseFat  = round2(atualNum - prevTip);
+      if (baseFat < 0) baseFat = 0;
+
+      var novoFat = round2(baseFat + totalCaixinha);
+      if (Math.abs(novoFat - atualNum) > 0.005) {
+        fatEl.textContent = fmtBRL(novoFat);
       }
-      fatEl.dataset.tipSum = String(totalCaixinha);
+      fatEl.dataset.baseFat = String(baseFat);
+      fatEl.dataset.tipSum  = String(totalCaixinha);
+
+      // Ticket médio acompanha o faturamento líquido (mesmo nº de atendimentos)
+      var tickEl  = document.getElementById('dash-ticket');
+      var totAgEl = document.getElementById('dash-total-ag');
+      if (tickEl && totAgEl) {
+        var qtd = parseInt(String(totAgEl.textContent).replace(/\D/g, ''), 10) || 0;
+        if (qtd > 0) {
+          var novoTicket = round2(novoFat / qtd);
+          if (Math.abs(novoTicket - parseMoneyText(tickEl.textContent)) > 0.005) {
+            tickEl.textContent = fmtBRL(novoTicket);
+          }
+        }
+      }
+
       var prodTitle = fatEl.dataset.prodSum && parseFloat(fatEl.dataset.prodSum) > 0
         ? ('Inclui ' + fmtBRL(parseFloat(fatEl.dataset.prodSum)) + ' em produtos vendidos')
         : '';
@@ -1536,30 +1813,62 @@
         ? ('Inclui ' + fmtBRL(totalCaixinha) + ' em caixinhas (gorjetas)')
         : '';
       fatEl.title = [prodTitle, tipTitle].filter(Boolean).join(' · ');
-      var tickEl = document.getElementById('dash-ticket');
-      var totAgEl = document.getElementById('dash-total-ag');
-      if (tickEl && totAgEl) {
-        var qtd = parseInt(String(totAgEl.textContent).replace(/\D/g,''), 10) || 0;
-        if (qtd > 0) tickEl.textContent = fmtBRL(round2(novo / qtd));
-      }
+
+      dashTipLog('apply:kpi-write-v17', {
+        source: meta.source,
+        origin: meta.origin,
+        atualAntes: atualNum,
+        prevTip: prevTip,
+        baseFat: baseFat,
+        caixinha: totalCaixinha,
+        novoFat: novoFat,
+        snapshot: dashTipKpiSnapshot()
+      });
     }
 
     if (!apenasCard) {
-      // Injeta colunas "Caixinha" e "Total a receber" na tabela "Por Profissional"
       injetarColunasCaixinhaNaTabela(resumo.porProf || {});
     }
 
-    console.log('[pag][dash-tip] caixinha aplicada (idempotente):', totalCaixinha);
+    console.log('[pag][dash-tip] caixinha aplicada (idempotente v18):',
+      {
+        timestamp: dashTipNowIso(),
+        elapsed: dashTipElapsed(),
+        source: meta.source,
+        origin: meta.origin,
+        caixinha: totalCaixinha,
+        baseFat: fatEl && fatEl.dataset.baseFat,
+        valorFinalCalculado: fatEl ? parseMoneyText(fatEl.textContent) : null,
+        snapshot: dashTipKpiSnapshot()
+      });
+    window.__pagDashTipActiveSource = null;
   }
 
   async function aplicarCaixinhaNoDashboard(){
-    var resumo = await calcularResumoCaixinhasDashboard();
-    aplicarResumoCaixinhaNoDOM(resumo, false);
+    var meta = dashTipCaptureMeta('aplicarCaixinhaNoDashboard');
+    dashTipLog('api:aplicarCaixinhaNoDashboard:start', {
+      source: meta.source,
+      origin: meta.origin,
+      stackTrace: meta.stackTrace,
+      snapshot: dashTipKpiSnapshot()
+    });
+    var resumo = await calcularResumoCaixinhasDashboard(meta);
+    aplicarResumoCaixinhaNoDOM(resumo, false, meta);
   }
 
   function limparMarcadorTip(){
     var fatEl = document.getElementById('dash-faturamento');
-    if (fatEl) { fatEl.dataset.tipSum = '0'; }
+    if (fatEl) {
+      var meta = dashTipCaptureMeta('limparMarcadorTip');
+      dashTipLog('marker:clear', {
+        source: meta.source,
+        origin: meta.origin,
+        stackTrace: meta.stackTrace,
+        snapshot: dashTipKpiSnapshot()
+      });
+      fatEl.dataset.tipSum = '0';
+      delete fatEl.dataset.baseFat;
+    }
   }
 
   // ------------------------------------------------------------------

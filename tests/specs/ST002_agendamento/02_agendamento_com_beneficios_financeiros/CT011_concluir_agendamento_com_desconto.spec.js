@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
+const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
   let dataFormatada;
@@ -49,9 +50,15 @@ test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
     await expect(page.locator('#pag-desc-val')).toContainText('10');
     await expect(page.locator('#pag-total')).toContainText('70');
 
+    // Sincroniza com a persistência REAL do pagamento (sem waitForTimeout cego).
+    const respPag = page.waitForResponse(
+      (r) => /agendamento_pagamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
+
     await page.getByRole('spinbutton').fill('70');
     await page.getByRole('button', { name: /Confirmar e concluir/i }).click();
-    await page.waitForTimeout(3000);
+    await respPag;
     log.payment('70,00');
   });
 
@@ -60,18 +67,20 @@ test('CT011 - Concluir agendamento com desconto', async ({ page }) => {
       try { localStorage.setItem('ff_comissoes_ativo', '1'); } catch (_) {}
     });
     await page.locator('button[data-page="dashboard"]').click();
-    await page.waitForTimeout(1500);
+    await aguardarDashboard(page);
   });
 
   await test.step('✅ Filtro de data aplicado e render estabilizado', async () => {
     await page.locator('#dash-inicio').fill(dataFormatada);
     await page.locator('#dash-fim').fill(dataFormatada);
     await page.locator('.btn-dash-apply').click();
+    await aguardarDashboard(page);
+
+    await aguardarValorEstavel(page, '#dash-faturamento', 70);
 
     const totalReceberCell = page.locator('#dash-prof-tbody tr:first-child td.dash-prof-cell-total-receber');
     await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
     await expect(totalReceberCell).toContainText('35');
-    await page.waitForTimeout(2000);
   });
 
   await test.step('📊 Indicadores principais validados', async () => {

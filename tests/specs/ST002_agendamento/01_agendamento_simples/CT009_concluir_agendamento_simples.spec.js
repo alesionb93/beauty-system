@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
-const { aguardarDashboard } = require('../../../helpers/dashboard');
+const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 test('CT009 - Concluir agendamento simples', async ({ page }) => {
   let dataFormatada;
@@ -31,8 +31,16 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
   await test.step('✅ Atendimento concluído', async () => {
     await page.getByRole('button', { name: /Concluir atendimento/i }).click();
     await page.locator('#btn-confirmar-concluir-atendimento').click();
+
+    // Sincroniza com a persistência REAL do pagamento (sem waitForTimeout).
+    const respPag = page.waitForResponse(
+      (r) => /agendamento_pagamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
+
     await page.getByRole('spinbutton').fill('80');
     await page.getByRole('button', { name: /Confirmar e concluir/i }).click();
+    await respPag;
     log.payment('80,00');
   });
 
@@ -50,8 +58,10 @@ test('CT009 - Concluir agendamento simples', async ({ page }) => {
     await page.locator('.btn-dash-apply').click();
     await aguardarDashboard(page);
 
+    await aguardarValorEstavel(page, '#dash-faturamento', 80);
+
     const totalReceberCell = page.locator('#dash-prof-tbody tr:first-child td.dash-prof-cell-total-receber');
-    await expect(totalReceberCell).toBeVisible();
+    await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
     await expect(totalReceberCell).toContainText('40,00');
   });
 

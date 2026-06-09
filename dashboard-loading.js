@@ -1,11 +1,11 @@
 /* =====================================================================
-   DASHBOARD-LOADING.JS  (v4 — 2026-06-08)
+   DASHBOARD-LOADING.JS  (v5 — 2026-06-09)
    ---------------------------------------------------------------------
    Add-on isolado. Carregue DEPOIS de script.js, pagamentos.js,
    dashboard-pagamentos.js, comissoes-desconto.js, etc.:
 
        <link rel="stylesheet" href="/dashboard-loading.css?v=2">
-       <script src="/dashboard-loading.js?v=4" defer></script>
+       <script src="/dashboard-loading.js?v=5" defer></script>
 
    O QUE FAZ
    ---------
@@ -43,15 +43,23 @@
   if (window.__SLOTIFY_DASH_LOADING_LOADED__) return;
   window.__SLOTIFY_DASH_LOADING_LOADED__ = true;
 
-   console.log('%c⏳ dashboard-loading.js v4 carregado (gate explícito sem duplicidade)',
+   console.log('%c⏳ dashboard-loading.js v5 carregado (gate externo aguardando hooks financeiros)',
     'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ---------- Configuração ----------
-  var STABLE_MS = 650;          // tempo sem mutações para considerar pronto
-  var MAX_SETTLE_MS = 3200;     // espera máxima pelos add-ons pós-loadDashboard
+  var STABLE_MS = 900;          // tempo sem mutações para considerar pronto
+  var MAX_SETTLE_MS = 5200;     // espera máxima pelos add-ons pós-loadDashboard
   var HARD_TIMEOUT_MS = 9000;   // saída absoluta de segurança do overlay
   var APPLY_FALLBACK_MS = 3500; // se Aplicar não disparar loadDashboard, libera a tela
   var MIN_SHOW_MS = 250;        // mostra o overlay por pelo menos isso (anti-flash)
+
+  // v5: este add-on precisa ficar POR FORA da cadeia de wrappers financeiros.
+  // pagamentos.js, dashboard-pagamentos.js e desconto-financeiro.js instalam
+  // hooks assíncronos em momentos diferentes. Se o loading envolver cedo demais,
+  // ele esconde a tela no valor bruto (ex.: 80) e a automação lê antes de a
+  // caixinha/desconto finalizar (valor correto: 90). Por isso aguardamos uma
+  // janela curta antes de envolver loadDashboard.
+  var FINANCIAL_HOOK_SETTLE_MS = 2600;
 
   // Janela na qual uma ação explícita (entrar na tela / clicar Aplicar)
   // autoriza chamadas a loadDashboard. Depois disso o gate fecha de novo.
@@ -220,6 +228,8 @@
       cycle += 1;
       openedAt = Date.now();
       isOpen = true;
+      window.__slotifyDashboardReady = false;
+      pageEl.setAttribute('data-dashboard-ready', 'false');
       pageEl.classList.add('is-recalculating');
 
       clearTimer('hard');
@@ -250,6 +260,8 @@
       if (!pageEl) return;
       isOpen = false;
       runningLoads = 0;
+      window.__slotifyDashboardReady = true;
+      pageEl.setAttribute('data-dashboard-ready', 'true');
       pageEl.classList.remove('is-recalculating');
       setStep('');
       clearTimer('hide');
@@ -332,6 +344,9 @@
       var fn = window.loadDashboard;
 
       if (typeof fn === 'function' && !fn.__dashLoadingWrapped) {
+        if (!window.__dashLoadingCanWrapAt) window.__dashLoadingCanWrapAt = Date.now() + FINANCIAL_HOOK_SETTLE_MS;
+        if (Date.now() < window.__dashLoadingCanWrapAt) return;
+
         clearInterval(iv);
 
         var original = fn;
@@ -390,8 +405,8 @@
         } catch (_) {}
 
         window.loadDashboard = wrapped;
-        console.log('[dash-loading] loadDashboard envolvido (com gate explícito)');
-      } else if (++tries > 80) {
+        console.log('[dash-loading] loadDashboard envolvido por fora dos hooks financeiros');
+      } else if (++tries > 100) {
         clearInterval(iv);
       }
     }, 150);
@@ -530,7 +545,7 @@
     // legitimamente forçar um refresh (raro). Use com parcimônia.
     window.__dashLoading = {
       grant: function (reason) { grantExplicit(reason || 'manual-api'); },
-      version: 3
+      version: 5
     };
   }
 

@@ -36,7 +36,7 @@
   if (window.__SLOTIFY_COM_DESC_LOADED__) return;
   window.__SLOTIFY_COM_DESC_LOADED__ = true;
 
-  console.log('%c🧾 comissoes-desconto.js v1 carregado',
+  console.log('%c🧾 comissoes-desconto.js v2 carregado (lê DESCONTO: em observacao — sem heurística)',
     'background:#16a34a;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------- Helpers --------------------
@@ -84,30 +84,42 @@
     return grossFallback(a);
   }
 
-  // -------------------- Caixinhas (para inferir pagoNet) --------------------
-  async function fetchTipsPorAg(ids){
-    var tips = {};
+  // -------------------- Caixinhas + Descontos (mesma observacao, 1 SELECT) --------------------
+  // v2: agora também extrai DESCONTO:<v>, gravado pelo pagamentos.js v16.
+  // Retorna { tips: {agId: caxTotal}, descs: {agId: descTotal} } — fonte única.
+  async function fetchTipsEDescPorAg(ids){
+    var tips = {}, descs = {};
     var sb = getSb(); var tenant = getTenantId();
-    if (!sb || !tenant || !ids.length) return tips;
+    if (!sb || !tenant || !ids.length) return { tips: tips, descs: descs };
+    var seen = Object.create(null);
     var chunk = 500;
     for (var i=0; i<ids.length; i+=chunk){
       var slice = ids.slice(i, i+chunk);
       try {
         var resp = await sb.from('agendamento_pagamentos')
-          .select('agendamento_id, observacao')
+          .select('id, agendamento_id, observacao')
           .in('agendamento_id', slice)
           .eq('tenant_id', tenant);
-        if (resp.error) { console.warn('[com-desc] tips', resp.error); continue; }
+        if (resp.error) { console.warn('[com-desc] obs', resp.error); continue; }
         (resp.data || []).forEach(function(r){
-          var m = /CAIXINHA:([\d\.]+)/i.exec(r.observacao || '');
-          if (m){
-            var v = parseFloat(m[1]) || 0;
-            tips[r.agendamento_id] = (tips[r.agendamento_id] || 0) + v;
+          if (!r || r.id == null) return;
+          if (seen[r.id]) return;
+          seen[r.id] = true;
+          var obs = r.observacao || '';
+          var mC = /CAIXINHA:([\d\.]+)/i.exec(obs);
+          if (mC){
+            var vC = parseFloat(mC[1]) || 0;
+            if (vC > 0) tips[r.agendamento_id] = round2((tips[r.agendamento_id] || 0) + vC);
+          }
+          var mD = /DESCONTO:([\d\.]+)/i.exec(obs);
+          if (mD){
+            var vD = parseFloat(mD[1]) || 0;
+            if (vD > 0) descs[r.agendamento_id] = round2((descs[r.agendamento_id] || 0) + vD);
           }
         });
-      } catch(e){ console.warn('[com-desc] tips ex', e); }
+      } catch(e){ console.warn('[com-desc] obs ex', e); }
     }
-    return tips;
+    return { tips: tips, descs: descs };
   }
 
   // -------------------- Nome do profissional do colaborador --------------------
@@ -129,15 +141,12 @@
     } catch(_) { _profNomeCache = ''; return ''; }
   }
 
-  // -------------------- Detecta desconto por agendamento --------------------
-  function detectaDesconto(a, tip){
-    var st    = String(a.status_pagamento || '').toLowerCase();
-    var pago  = Number(a.valor_total_pago) || 0;
-    var pagoNet = round2(pago - (Number(tip)||0));
+  // -------------------- Detecta desconto por agendamento (FONTE ÚNICA) --------------------
+  // v2: sem heurística. Lê DESCONTO direto da observacao (já carregado em descByAg).
+  function detectaDesconto(a, descAplicado){
     var bruto = grossDe(a);
-    if (st === 'pago' && bruto > 0 && pagoNet >= 0 && (bruto - pagoNet) > 0.01) {
-      return { bruto: bruto, desc: round2(bruto - pagoNet) };
-    }
+    var d = round2(Number(descAplicado) || 0);
+    if (d > 0 && bruto > 0) return { bruto: bruto, desc: d };
     return { bruto: bruto, desc: 0 };
   }
 
@@ -197,12 +206,13 @@
     if (!ags.length) return data;
 
     var ids = ags.map(function(a){ return a.id; }).filter(Boolean);
-    var tips = await fetchTipsPorAg(ids);
+    var obs = await fetchTipsEDescPorAg(ids);
+    var descByAg = obs.descs || {};
 
-    // pré-calcula desconto por appt
+    // pré-calcula desconto por appt — fonte única (DESCONTO: em observacao)
     var descByAppt = new Map();
     ags.forEach(function(a){
-      var d = detectaDesconto(a, tips[a.id] || 0);
+      var d = detectaDesconto(a, descByAg[a.id] || 0);
       if (d.desc > 0 && d.bruto > 0) descByAppt.set(a, d);
     });
 

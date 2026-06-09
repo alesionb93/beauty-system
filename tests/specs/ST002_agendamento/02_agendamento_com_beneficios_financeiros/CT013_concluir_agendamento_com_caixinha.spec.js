@@ -1,10 +1,51 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
+const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
+
+/**
+ * Espera o tbody de profissionais ter pelo menos `min` linhas e que a contagem
+ * fique estável por `stableMs` ms (evita capturar estado entre dois re-renders).
+ */
+async function aguardarTbodyEstavel(page, selector = '#dash-prof-tbody', min = 1, stableMs = 600, timeout = 15000) {
+  await page.waitForFunction(
+    ({ selector, min, stableMs }) => {
+      const tbody = document.querySelector(selector);
+      if (!tbody) return false;
+      const count = tbody.querySelectorAll('tr').length;
+      if (count < min) { window.__tbodyStableSince = 0; return false; }
+      const now = Date.now();
+      if (!window.__tbodyLastCount || window.__tbodyLastCount !== count) {
+        window.__tbodyLastCount = count;
+        window.__tbodyStableSince = now;
+        return false;
+      }
+      return now - window.__tbodyStableSince >= stableMs;
+    },
+    { selector, min, stableMs },
+    { timeout, polling: 100 }
+  );
+}
 
 test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
   let dataFormatada;
   log.start('CT013');
+
+  // ---- Forward dos logs do debug-ct013.js para o terminal ----
+  page.on('console', (msg) => {
+    const t = msg.text();
+
+    if (
+      t.includes('[CT013]') ||
+      t.includes('[CT013-TICKET]')
+    ) {
+      console.log('BROWSER>', msg.type().toUpperCase(), t);
+    }
+  });
+  page.on('pageerror', (err) => {
+    // eslint-disable-next-line no-console
+    console.log('BROWSER> PAGEERROR', err.message);
+  });
 
   await test.step('✅ Login realizado', async () => {
     await loginSlotify(page);
@@ -45,18 +86,23 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
     await expect(page.locator('.pag-tip-row')).toContainText('10');
     await expect(page.locator('#pag-total')).toContainText('90');
 
+    const respPag = page.waitForResponse(
+      (r) => /agendamento_pagamentos/.test(r.url()) && r.request().method() !== 'GET',
+      { timeout: 15000 }
+    ).catch(() => null);
+
     await page.getByRole('spinbutton').fill('90');
     await page.getByRole('button', { name: /Confirmar e concluir/i }).click();
-    await page.waitForTimeout(3000);
+    await respPag;
     log.payment('90,00');
   });
 
   await test.step('📊 Dashboard acessado', async () => {
     await page.evaluate(() => {
-      try { localStorage.setItem('ff_comissoes_ativo', '1'); } catch (_) {}
+      try { localStorage.setItem('ff_comissoes_ativo', '1'); } catch (_) { }
     });
     await page.locator('button[data-page="dashboard"]').click();
-    await page.waitForTimeout(1500);
+    await aguardarDashboard(page);
   });
 
   await test.step('✅ Filtro de data aplicado e render estabilizado', async () => {
@@ -64,17 +110,31 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
     await page.locator('#dash-fim').fill(dataFormatada);
     await page.locator('.btn-dash-apply').click();
 
-    const totalReceberCell = page.locator('#dash-prof-tbody tr:first-child td.dash-prof-cell-total-receber');
+    await aguardarDashboard(page);
+    await aguardarValorEstavel(page, '#dash-faturamento', 90);
+
+    // 1) Espera o tbody ter ao menos 1 linha E ficar estável (sem re-render por 600ms)
+    await aguardarTbodyEstavel(page, '#dash-prof-tbody', 1, 600, 20000);
+
+    // 2) Re-resolve o locator AGORA (depois do tbody estabilizar)
+    const linha = page.locator('#dash-prof-tbody tr').first();
+    const totalReceberCell = linha.locator('td.dash-prof-cell-total-receber');
+
+    // 3) Espera a célula renderizar com o texto esperado (retry built-in)
     await expect(totalReceberCell).toBeVisible({ timeout: 15000 });
+    await expect(totalReceberCell).toContainText('50', { timeout: 15000 });
 
-    const colsCount = await page.locator('#dash-prof-tbody tr:first-child td').count();
-    if (colsCount < 7) {
-      await page.locator('.btn-dash-apply').click();
-      await page.waitForTimeout(800);
-    }
-
-    await expect(totalReceberCell).toContainText('50');
-    await page.waitForTimeout(2000);
+    // ---- Debug opcional ----
+    console.log('================ DEBUG CT013 ================');
+    console.log('Data filtro:', dataFormatada);
+    console.log('Faturamento:', await page.locator('#dash-faturamento').textContent());
+    console.log('Profissional:', await linha.locator('td:nth-child(1)').textContent());
+    console.log('Atendimentos:', await linha.locator('td:nth-child(2)').textContent());
+    console.log('Serviços:', await linha.locator('td:nth-child(4)').textContent());
+    console.log('Comissão:', await linha.locator('td:nth-child(5)').textContent());
+    console.log('Caixinha:', await linha.locator('td.dash-prof-cell-caixinha').textContent());
+    console.log('Total Receber:', await totalReceberCell.textContent());
+    console.log('=============================================');
   });
 
   await test.step('📊 Indicadores principais validados', async () => {
@@ -90,6 +150,8 @@ test('CT013 - Concluir agendamento com caixinha', async ({ page }) => {
   });
 
   await test.step('📊 Profissional Daryl validado', async () => {
+    // Re-estabiliza antes da validação final (loadDashboard pode ter rodado de novo)
+    await aguardarTbodyEstavel(page, '#dash-prof-tbody', 1, 600, 15000);
     const linhaDaryl = page.locator('#dash-prof-tbody tr').first();
     await expect(linhaDaryl.locator('td:nth-child(1)')).toHaveText('Daryl');
     await expect(linhaDaryl.locator('td:nth-child(2)')).toHaveText('1');

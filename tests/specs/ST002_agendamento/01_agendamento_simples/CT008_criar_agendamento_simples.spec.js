@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
-const { aguardarDashboard } = require('../../../helpers/dashboard');
+const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 test('CT008 - Criar agendamento simples', async ({ page }) => {
   let dataFormatada;
@@ -59,6 +59,8 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
     await page.locator('#dash-fim').fill(dataFormatada);
     await page.locator('.btn-dash-apply').click();
     await aguardarDashboard(page);
+    await aguardarValorEstavel(page, '#dash-faturamento', 0);
+    await aguardarValorEstavel(page, '#dash-pag-pendente', 80);
   });
 
   await test.step('📊 Indicadores principais validados', async () => {

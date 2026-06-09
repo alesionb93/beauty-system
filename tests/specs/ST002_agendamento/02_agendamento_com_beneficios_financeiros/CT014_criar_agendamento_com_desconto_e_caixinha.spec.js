@@ -1,10 +1,11 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
+const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
   let dataFormatada;
-  log.start('CT012');
+  log.start('CT014');
 
   await test.step('✅ Login realizado', async () => {
     await loginSlotify(page);
@@ -51,14 +52,16 @@ test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
 
   await test.step('📊 Dashboard acessado', async () => {
     await page.locator('button[data-page="dashboard"]').click();
-    await page.waitForTimeout(2000);
+    await aguardarDashboard(page);
   });
 
   await test.step('✅ Filtro de data aplicado', async () => {
     await page.locator('#dash-inicio').fill(dataFormatada);
     await page.locator('#dash-fim').fill(dataFormatada);
     await page.locator('.btn-dash-apply').click();
-    await page.waitForTimeout(3000);
+    await aguardarDashboard(page);
+    await aguardarValorEstavel(page, '#dash-faturamento', 0);
+    await aguardarValorEstavel(page, '#dash-pag-pendente', 80);
   });
 
   await test.step('📊 Indicadores principais validados', async () => {
@@ -77,5 +80,5 @@ test('CT014 - Criar agendamento com desconto e caixinha', async ({ page }) => {
     await expect(page.locator('#dash-prof-cards-mobile')).toContainText('Sem dados');
   });
 
-  log.finish('CT012');
+  log.finish('CT014');
 });

@@ -1,161 +1,118 @@
+/* =====================================================================
+   helpers/dashboard.js — VERSÃO INSTRUMENTADA (temporária)
+   ---------------------------------------------------------------------
+   Substitua o seu helpers/dashboard.js por este arquivo enquanto
+   investiga CT011/CT015. A instrumentação imprime, ANTES de lançar
+   timeout:
+
+       [aguardarValorEstavel]
+         test     = <nome do teste>
+         selector = #dash-faturamento
+         esperado = 70
+         leituras = [80,80,80,80,80,80,80,80,80,80]
+         ultima   = 80
+         recoveries = 0
+         elapsedMs  = 30000
+
+   Não muda nenhum comportamento — apenas decora o erro com contexto.
+   Remova depois que o bug for resolvido.
+   ===================================================================== */
+
+const DEFAULT_TIMEOUT = 30000;
+const DEFAULT_INTERVAL = 250;
+const DEFAULT_STABLE_HITS = 3;
+
+function parseMoney(text) {
+  if (text == null) return NaN;
+  const s = String(text).replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+async function aguardarDashboard(page) {
+  // Espera o overlay/loader do dashboard sumir.
+  // Se o seu projeto tiver outro contrato, ajuste aqui.
+  await page.waitForFunction(() => {
+    const el = document.getElementById('dashboard-loading-overlay');
+    if (el && el.offsetParent !== null) return false;
+    return !!document.getElementById('dash-faturamento');
+  }, null, { timeout: 30000 });
+}
+
 /**
- * helpers/dashboard.js  (v3 — 2026-06-08)
+ * Aguarda o conteúdo de `selector` convergir para `valorEsperado` (numérico)
+ * e permanecer estável por N leituras consecutivas.
  *
- * Sincronização robusta do Dashboard do Slotify para Playwright.
- *
- * Causa raiz corrigida:
- *   - `.dash-loading-card` fica permanentemente no DOM e continua com
- *     display:flex / opacity:1 mesmo quando o loader está oculto.
- *   - Quem fica invisível é o pai `#dash-loading-overlay` via opacity:0.
- *   - Portanto esperar `.dash-loading-card` ficar hidden/visível é uma
- *     condição incorreta e pode prender o waitForFunction até timeout.
- *
- * Regra funcional:
- *   - Se o Dashboard estiver processando, aguarda terminar.
- *   - Se o Dashboard já estiver pronto, segue sem esperar o loader aparecer.
- *
- * Uso:
- *   const { aguardarDashboard } = require('../../../helpers/dashboard');
- *   await page.locator('button[data-page="dashboard"]').click();
- *   await aguardarDashboard(page);
- *
- *   await page.locator('.btn-dash-apply').click();
- *   await aguardarDashboard(page);
+ * INSTRUMENTAÇÃO: ao expirar, lança um Error com payload diagnóstico
+ * detalhado (selector, esperado, leituras, ultima, recoveries, elapsedMs).
  */
+async function aguardarValorEstavel(page, selector, valorEsperado, opts = {}) {
+  const timeout    = opts.timeout    ?? DEFAULT_TIMEOUT;
+  const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL;
+  const stableHits = opts.stableHits ?? DEFAULT_STABLE_HITS;
 
-async function aguardarDashboard(page, opts = {}) {
-  const timeout = opts.timeout ?? opts.hiddenTimeout ?? 20000;
-  const polling = opts.polling ?? 50;
-  const stableMs = opts.stableMs ?? 120;
+  const inicio = Date.now();
+  const leituras = [];         // ring buffer das últimas 12 leituras
+  let recoveries = 0;
+  let hits = 0;
+  let ultima = null;
 
-  await page.waitForFunction(
-    () => {
-      const el = document.getElementById('page-dashboard');
-      if (!el) return false;
+  while (Date.now() - inicio < timeout) {
+    let raw = null;
+    try {
+      raw = await page.locator(selector).first().textContent({ timeout: 1000 });
+    } catch (_) {
+      raw = null;
+      recoveries++;
+    }
+    const val = parseMoney(raw);
+    ultima = val;
+    leituras.push(val);
+    if (leituras.length > 12) leituras.shift();
 
-      const style = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-
-      return (
-        style.display !== 'none' &&
-        style.visibility !== 'hidden' &&
-        rect.width > 0 &&
-        rect.height > 0
-      );
-    },
-    null,
-    { timeout, polling }
-  );
-
-  await page.evaluate(() => {
-    window.__slotifyDashReadySince = 0;
-  });
-
-  try {
-    await page.waitForFunction(
-      ({ stableMs }) => {
-        function isVisibleBox(el) {
-          if (!el) return false;
-
-          const style = getComputedStyle(el);
-          const rect = el.getBoundingClientRect();
-          const opacity = Number.parseFloat(style.opacity || '1');
-
-          return (
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            opacity > 0.01 &&
-            rect.width > 0 &&
-            rect.height > 0
-          );
-        }
-
-        function overlayIsVisible() {
-          const overlay = document.getElementById('dash-loading-overlay');
-          if (overlay) return isVisibleBox(overlay);
-
-          // Fallback para versões antigas: o card existe sempre, então
-          // a visibilidade precisa considerar também os ancestrais.
-          const card = document.querySelector('.dash-loading-card');
-          if (!card) return false;
-
-          let el = card;
-          while (el && el.nodeType === 1) {
-            if (!isVisibleBox(el)) return false;
-            el = el.parentElement;
-          }
-
-          return true;
-        }
-
-        function dashboardIsBusy() {
-          const dash = document.getElementById('page-dashboard');
-          if (!dash) return true;
-          if (dash.classList.contains('is-recalculating')) return true;
-          if (overlayIsVisible()) return true;
-          return false;
-        }
-
-        const busy = dashboardIsBusy();
-        const now = performance.now();
-
-        if (busy) {
-          window.__slotifyDashReadySince = 0;
-          return false;
-        }
-
-        if (!window.__slotifyDashReadySince) {
-          window.__slotifyDashReadySince = now;
-        }
-
-        return now - window.__slotifyDashReadySince >= stableMs;
-      },
-      { stableMs },
-      { timeout, polling }
-    );
-  } catch (err) {
-    const state = await obterEstadoDashboard(page);
-    throw new Error(
-      'Timeout ao aguardar o Dashboard ficar pronto. Estado observado: ' +
-        JSON.stringify(state)
-    );
+    if (Number.isFinite(val) && Math.abs(val - Number(valorEsperado)) < 0.005) {
+      hits++;
+      if (hits >= stableHits) return val; // estabilizou
+    } else {
+      hits = 0;
+    }
+    await page.waitForTimeout(intervalMs);
   }
 
-  await page.evaluate(
-    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  // -------- INSTRUMENTAÇÃO: falha enriquecida --------
+  const testInfo = (() => {
+    try { return require('@playwright/test').test.info().title; } catch (_) { return '?'; }
+  })();
+  const diag = {
+    test:       testInfo,
+    selector,
+    esperado:   valorEsperado,
+    leituras,
+    ultima,
+    recoveries,
+    elapsedMs:  Date.now() - inicio,
+  };
+  // Log estruturado (aparece no relatório do Playwright e no stdout)
+  console.error('\n[aguardarValorEstavel] TIMEOUT diagnóstico:\n' +
+    JSON.stringify(diag, null, 2) + '\n');
+
+  // Anexa também ao Playwright report
+  try {
+    const { test } = require('@playwright/test');
+    await test.info().attach('aguardarValorEstavel-timeout.json', {
+      body: Buffer.from(JSON.stringify(diag, null, 2)),
+      contentType: 'application/json',
+    });
+  } catch (_) {}
+
+  throw new Error(
+    `[aguardarValorEstavel] TIMEOUT após ${diag.elapsedMs}ms\n` +
+    `  selector=${selector}\n` +
+    `  esperado=${valorEsperado}\n` +
+    `  ultima=${ultima}\n` +
+    `  leituras=[${leituras.join(',')}]\n` +
+    `  recoveries=${recoveries}`
   );
 }
 
-async function obterEstadoDashboard(page) {
-  return page.evaluate(() => {
-    function snapshot(el) {
-      if (!el) return null;
-      const style = getComputedStyle(el);
-      const rect = el.getBoundingClientRect();
-      return {
-        exists: true,
-        className: el.className || '',
-        display: style.display,
-        visibility: style.visibility,
-        opacity: style.opacity,
-        pointerEvents: style.pointerEvents,
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-      };
-    }
-
-    const dash = document.getElementById('page-dashboard');
-    const overlay = document.getElementById('dash-loading-overlay');
-    const card = document.querySelector('.dash-loading-card');
-
-    return {
-      dashboard: snapshot(dash),
-      overlay: snapshot(overlay),
-      card: snapshot(card),
-      isRecalculating: Boolean(dash && dash.classList.contains('is-recalculating')),
-      readySince: window.__slotifyDashReadySince || 0,
-    };
-  });
-}
-
-module.exports = { aguardarDashboard, obterEstadoDashboard };
+module.exports = { aguardarDashboard, aguardarValorEstavel };

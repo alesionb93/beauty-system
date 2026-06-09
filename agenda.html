@@ -3338,24 +3338,34 @@
   </div>
 
   <!-- NOVA FEATURE DE PAGAMENTOS -->
-<script src="/pagamentos.js?v=10" defer></script>
-   <script src="/agendamento-prepago.js?v=6" defer></script>
+  <script src="/pagamentos.js?v=16" defer></script>
+  <script src="/agendamento-prepago.js?v=6" defer></script>
   <script src="/dashboard-pagamentos.js?v=1" defer></script>
   <script src="/analytics-cancelamentos.js?v=1" defer></script>
   <script src="/analytics-produtos.js?v=2" defer></script>
   <script src="/cancelamento-auth.js?v=5" defer></script>
-  <!-- DESCONTO (ordem obrigatória: auth ANTES de agendamento-desconto; financeiro DEPOIS) -->
+
+  <!-- DESCONTO -->
   <script src="/desconto-auth.js?v=1" defer onerror="this.onerror=null;this.src='desconto-auth.js?v=1'"></script>
   <script src="/agendamento-desconto.js?v=2" defer onerror="this.onerror=null;this.src='agendamento-desconto.js?v=2'"></script>
-  <script src="/desconto-financeiro.js?v=1" defer onerror="this.onerror=null;this.src='desconto-financeiro.js?v=1'"></script>
-   <script src="/import-clientes.js?v=1" defer onerror="this.onerror=null;this.src='import-clientes.js?v=1'"></script>
-   <script src="comissoes.js?v=3" defer onerror="this.onerror=null;this.src='comissoes.js?v=3'"></script>
-   <script src="/comissoes-desconto.js?v=1" defer onerror="this.onerror=null;this.src='comissoes-desconto.js?v=1'"></script>
-   <script src="/bloqueio-colaborador-concluido.js?v=7" defer onerror="this.onerror=null;this.src='bloqueio-colaborador-concluido.js?v=7'"></script>
 
+  <!-- ALTERADO -->
+  <script src="/desconto-financeiro.js?v=5" defer onerror="this.onerror=null;this.src='desconto-financeiro.js?v=5'"></script>
+
+  <script src="/import-clientes.js?v=1" defer onerror="this.onerror=null;this.src='import-clientes.js?v=1'"></script>
+  <script src="comissoes.js?v=3" defer onerror="this.onerror=null;this.src='comissoes.js?v=3'"></script>
+
+  <!-- ALTERADO -->
+  <script src="/comissoes-desconto.js?v=2" defer onerror="this.onerror=null;this.src='comissoes-desconto.js?v=2'"></script>
+
+  <script src="/bloqueio-colaborador-concluido.js?v=7" defer onerror="this.onerror=null;this.src='bloqueio-colaborador-concluido.js?v=7'"></script>
   <!-- QR Code de Agendamento (add-on isolado) -->
   <script src="/qrcode-agendamento.js?v=1" defer></script>
-  <script src="/dashboard-loading.js?v=4" defer onerror="this.onerror=null;this.src='dashboard-loading.js?v=4'"></script>
+  <script src="/dashboard-loading.js?v=5" defer onerror="this.onerror=null;this.src='dashboard-loading.js?v=5'"></script>
+
+  <script src="/debug-ct013.js?v=1" defer></script>
+  <script src="/debug-ct013-ticket.js?v=1" defer></script>
+
 </body>
 </html>
 
