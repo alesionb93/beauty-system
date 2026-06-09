@@ -3,6 +3,53 @@ const { loginSlotify } = require('../../../helpers/auth');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * Helper local — abre o modal "Novo Agendamento" de forma robusta.
+ *
+ * Motivo: em Linux/headless o handler de click do botão "+ Novo" pode ser
+ * ligado de forma assíncrona pela tela de Agendamentos (após hidratação dos
+ * dados do dia). Se o teste clica antes do handler estar pronto, o modal não
+ * abre e o próximo locator (`getByRole('tab', { name: ' Nome' })`) trava em
+ * timeout porque a tab só existe DENTRO do modal.
+ *
+ * Estratégia:
+ *   1. Esperar a tela de Agendamentos estar realmente pronta (header + grade
+ *      do dia renderizados).
+ *   2. Clicar em "+ Novo".
+ *   3. Esperar o modal aparecer; se não aparecer em 3s, repetir o click.
+ */
+async function abrirNovoAgendamento(page) {
+  // 1) Tela de Agendamentos pronta
+  await expect(page.getByRole('heading', { name: 'Agendamentos' })).toBeVisible();
+
+  const botaoNovo = page.getByRole('button', { name: '+ Novo' });
+  await expect(botaoNovo).toBeVisible();
+  await expect(botaoNovo).toBeEnabled();
+
+  // Locator do modal — qualquer um dos seletores conhecidos do app
+  const dialog = page.locator(
+    '#modal-agendamento, #modal-novo-agendamento, .modal-agendamento, [role="dialog"]'
+  ).first();
+
+  // 2) + 3) click com retry uma única vez
+  for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+    await botaoNovo.click({ trial: false });
+    try {
+      await expect(dialog).toBeVisible({ timeout: 3500 });
+      // Garantir que o conteúdo interno (tabs) já está montado antes de prosseguir
+      await expect(
+        page.getByRole('tab', { name: /Nome/ })
+          .or(page.locator('.tab-cliente-nome, [data-tab="nome"]'))
+      ).toBeVisible({ timeout: 5000 });
+      return;
+    } catch (err) {
+      if (tentativa === 2) throw err;
+      // Pequena espera antes do retry — handler pode estar a poucos ms de ligar
+      await page.waitForTimeout(400);
+    }
+  }
+}
+
 test('CT008 - Criar agendamento simples', async ({ page }) => {
   let dataFormatada;
   log.start('CT008');
@@ -12,7 +59,7 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    await page.getByRole('button', { name: '+ Novo' }).click();
+    await abrirNovoAgendamento(page);
   });
 
   await test.step('✅ Cliente selecionado', async () => {
@@ -45,7 +92,15 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Agendamento salvo', async () => {
+    // Sincroniza com a persistência real para evitar race no Dashboard
+    const respCriacao = page.waitForResponse(
+      (r) => /agendamentos?($|\?|\/)/.test(r.url())
+        && ['POST', 'PATCH', 'PUT'].includes(r.request().method()),
+      { timeout: 15000 }
+    ).catch(() => null);
+
     await page.getByRole('button', { name: 'Salvar' }).click();
+    await respCriacao;
     await expect(page.getByText('Alesio Barreiro').first()).toBeVisible();
   });
 
