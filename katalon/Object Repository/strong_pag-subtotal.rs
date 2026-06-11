@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_pag-subtotal</name>
+   <tag></tag>
+   <elementGuidId>207bde43-64f0-46da-8bb2-a842588f63eb</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#pag-subtotal</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'pag-subtotal']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'pag-subtotal' and (text() = 'R$ 80,00' or . = 'R$ 80,00')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#pag-subtotal</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>4a9458d0-edbe-46e1-b1e2-7fd1718a3472</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>pag-subtotal</value>
+      <webElementGuid>1484719a-0554-483d-b1b0-421c7ec5a10e</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 80,00</value>
+      <webElementGuid>b221ad67-570c-4d74-82b2-929456c9df3c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-0b4a7d25461dee946b3f678d1eeb9891</value>
+      <webElementGuid>42f6cd73-6631-45c0-809d-0e201e92cdb0</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-subtotal']</value>
+      <webElementGuid>b9748933-5fef-456b-b39f-b7e206406a76</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-subtotal']</value>
+      <webElementGuid>5090d40c-9c54-45df-99c9-9a27b9751cc4</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'pag-subtotal' and (text() = 'R$ 80,00' or . = 'R$ 80,00')]</value>
+      <webElementGuid>0569e1d3-cfc0-4f2b-a913-9c9fcfa151b2</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

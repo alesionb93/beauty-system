@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT001_login_master_admin_sucesso</name>
+   <tag></tag>
+   <comment></comment>
+   <origin>WEB_RECORDER</origin>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>f522034c-20d9-4a3e-9e0b-1c3d65dc2a32</testCaseGuid>
+</TestCaseEntity>

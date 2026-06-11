@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>button_desc-apply-btn</name>
+   <tag></tag>
+   <elementGuidId>7f681f90-47b7-4f6e-a172-e03e1d24cfbb</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'desc-apply-btn']</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#desc-apply-btn</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=button[name=&quot; Aplicar desconto ›&quot;i]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>bbbc2407-e3cb-40dd-994a-c81427241a48</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>37203635-3f0f-4047-ba79-e75d9968d559</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>desc-apply-btn</value>
+      <webElementGuid>85106311-d861-4a96-8c50-c95959033322</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>desc-apply-btn</value>
+      <webElementGuid>10a85133-cd2d-414b-940f-08cab0c5a58b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-desc-action</name>
+      <type>Main</type>
+      <value>open-apply</value>
+      <webElementGuid>a1327754-a5d7-4c74-a735-7ed5fb7ac683</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value> Aplicar desconto</value>
+      <webElementGuid>9014919a-83f1-412e-a115-9d33dea119aa</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-7a8a1520cbc6126aa5688a9fd2b46397</value>
+      <webElementGuid>2616e3aa-b9c5-4724-ac14-2a216f371a1e</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-apply-btn']</value>
+      <webElementGuid>fd39d433-fa02-4281-b52e-cf93ba674f15</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-apply-btn']</value>
+      <webElementGuid>a2badc28-5267-48f8-97ea-b503753b3aad</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//button[@type = 'button' and @id = 'desc-apply-btn' and (text() = ' Aplicar desconto' or . = ' Aplicar desconto')]</value>
+      <webElementGuid>4cceccba-61d9-44f6-b1e0-58207672e6e7</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT009_concluir_agendamento_simples</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>a0c4eeb1-c9cf-46d6-ba2f-962044d84e05</testCaseGuid>
+</TestCaseEntity>

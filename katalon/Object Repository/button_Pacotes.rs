@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>button_Pacotes</name>
+   <tag></tag>
+   <elementGuidId>45c67a2a-daea-46da-b9ba-4af74188d69e</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>[onclick=&quot;switchHistTab\(this\,\'pacotes\'\)&quot;]</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@onclick = 'switchHistTab(this,'pacotes')']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=button[name=&quot; Pacotes&quot;i]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>bb7058b0-cfd7-44b5-91a4-225fb6f2e64e</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>13300ad7-6baa-4b64-ad34-9335367e2241</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>hist-tab-btn</value>
+      <webElementGuid>2f715d83-0bac-4448-b83a-cc969f6b3545</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-hist-tab</name>
+      <type>Main</type>
+      <value>pacotes</value>
+      <webElementGuid>3e745b5c-2416-4b12-ae3e-6b085f7838f2</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>onclick</name>
+      <type>Main</type>
+      <value>switchHistTab(this,'pacotes')</value>
+      <webElementGuid>eb07c780-b7f5-4388-bcd1-2d5e2e129e1e</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value> Pacotes</value>
+      <webElementGuid>37b41188-3cef-406b-b008-da1983566883</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-8b94089a1807f61debb0f9107aa67b4a</value>
+      <webElementGuid>9f731576-e9b6-4114-a998-3395df902498</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@onclick = 'switchHistTab(this,'pacotes')']</value>
+      <webElementGuid>92f9ef42-e1b8-4ab7-be51-f1af2e3fe136</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@onclick = 'switchHistTab(this,'pacotes')']</value>
+      <webElementGuid>35a575a8-d8ac-484c-a85f-f29682d247a1</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//button[@type = 'button' and (text() = ' Pacotes' or . = ' Pacotes')]</value>
+      <webElementGuid>68dd160f-2ca0-49b9-a5b5-772d5b5e8880</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

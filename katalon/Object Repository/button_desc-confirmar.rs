@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>button_desc-confirmar</name>
+   <tag></tag>
+   <elementGuidId>2a7061b6-2073-4101-9578-481419c366b9</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'desc-confirmar']</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#desc-confirmar</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=button[name=&quot; Aplicar desconto&quot;s]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>e838d397-e4b3-42ec-8ec6-2e939a43aa75</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>cdc5fe0b-89af-4de9-a92d-d6cea1f0179f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>btn-submit</value>
+      <webElementGuid>6975d596-8c30-4dc3-8733-c1b85f46e6e7</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>desc-confirmar</value>
+      <webElementGuid>054cf7e3-faae-4c6f-ba86-67b88900ba0b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value> Aplicar desconto</value>
+      <webElementGuid>b4a906c0-40d4-4c9e-a859-a2946eb24932</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-a6f5babb2cf6cbde00f94b8fc4679517</value>
+      <webElementGuid>b6162b1f-cf69-47f8-aa49-14813ea7d68a</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-confirmar']</value>
+      <webElementGuid>f4381d4c-9b01-40bb-9f82-f0ae7b19d169</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-confirmar']</value>
+      <webElementGuid>465f1a1c-f40d-46af-96a2-619409b85506</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//button[@type = 'button' and @id = 'desc-confirmar' and (text() = ' Aplicar desconto' or . = ' Aplicar desconto')]</value>
+      <webElementGuid>a8b57c86-477f-48e3-8cb4-1fcebd57ee9a</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

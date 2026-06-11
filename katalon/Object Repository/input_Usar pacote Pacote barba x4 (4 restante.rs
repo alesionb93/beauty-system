@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>input_Usar pacote Pacote barba x4 (4 restante</name>
+   <tag></tag>
+   <elementGuidId>8deb0531-5d57-469e-9b8a-f12a70569000</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>[data-pacote-acao=&quot;usar&quot;]</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@data-pacote-acao = 'usar']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:label=&quot;Usar pacote Pacote barba x4 (4 restantes | R$ 37,50 por uso | expira em 22/07/2026)&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>input</value>
+      <webElementGuid>a5cd7acb-2d75-49c5-b66b-e042ce2b67dd</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>checkbox</value>
+      <webElementGuid>b729c04f-80dd-475c-83fd-9b8dc8417f3b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>pacote-checkbox</value>
+      <webElementGuid>b46d30a0-119a-4c82-8db0-cf2ba4002c87</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-pacote-acao</name>
+      <type>Main</type>
+      <value>usar</value>
+      <webElementGuid>b734f0f6-3232-4980-9c23-dfd376223b48</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-cliente-pacote-id</name>
+      <type>Main</type>
+      <value>4eb0f157-a3d3-4382-a557-41736d0c8661</value>
+      <webElementGuid>440dba87-0a44-4a13-8e67-549ae2b5e9f2</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>onchange</name>
+      <type>Main</type>
+      <value>pacoteDesmarcarOutrasOpcoes(this)</value>
+      <webElementGuid>8338a511-8061-4f06-8d6f-80fe0657fdd4</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-3c4e09621ac7731f78b00c32365050f2</value>
+      <webElementGuid>4fe37e12-539d-476e-bf29-3077b2d4062a</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@data-pacote-acao = 'usar']</value>
+      <webElementGuid>ef94aa17-3459-4102-a5c0-f380b89c754e</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@data-pacote-acao = 'usar']</value>
+      <webElementGuid>4b76bd08-1844-4e95-82ea-ab8f1df47f74</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//input[@type = 'checkbox']</value>
+      <webElementGuid>d1bb89c8-41ec-4474-9123-e7d62dcd5c36</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

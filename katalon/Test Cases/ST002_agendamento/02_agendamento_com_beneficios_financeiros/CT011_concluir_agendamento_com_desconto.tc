@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT011_concluir_agendamento_com_desconto</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>a474d8f3-d400-4e51-89eb-4957a7a77561</testCaseGuid>
+</TestCaseEntity>

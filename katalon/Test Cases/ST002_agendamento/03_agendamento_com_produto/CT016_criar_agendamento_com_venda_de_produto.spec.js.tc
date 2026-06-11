@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT016_criar_agendamento_com_venda_de_produto.spec.js</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>125450b7-3b5d-44b7-86f8-d70e2b63b469</testCaseGuid>
+</TestCaseEntity>

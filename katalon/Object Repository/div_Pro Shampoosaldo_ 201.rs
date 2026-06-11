@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>div_Pro Shampoosaldo_ 201</name>
+   <tag></tag>
+   <elementGuidId>7c09502c-510c-4ac9-bcca-6ac488652927</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>.prodag-combo-item:nth-child(2)</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' prodag-combo-item ') and (position() = 2)]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=option[name=&quot;Pro Shampoo saldo: 201&quot;i]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>div</value>
+      <webElementGuid>f4888199-fdbd-417e-bd7c-535d6da568f8</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>prodag-combo-item</value>
+      <webElementGuid>4d4756b9-0f9a-4648-9038-949e65261a2f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-prod-id</name>
+      <type>Main</type>
+      <value>4f036f5a-5a8f-4465-9240-3a97715fa65c</value>
+      <webElementGuid>9993106d-d936-4b63-9a69-bd808e71b38b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>role</name>
+      <type>Main</type>
+      <value>option</value>
+      <webElementGuid>4ca3b4ba-5bb7-4822-90ac-96b6f6a014dc</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>Pro Shampoosaldo: 201</value>
+      <webElementGuid>fc09b697-816d-47e8-b18f-02551e4c57c9</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-a261c373b3c23be3db0db559069c5632</value>
+      <webElementGuid>1dcfe265-ce82-44d2-99fb-1b8508cc793a</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' prodag-combo-item ') and (position() = 2)]</value>
+      <webElementGuid>6892260a-9813-4aa1-b3b6-74d0e3fe46c8</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' prodag-combo-item ') and (position() = 2)]</value>
+      <webElementGuid>181f6270-108c-4184-bd36-cabbc274653b</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//div[(text() = 'Pro Shampoosaldo: 201' or . = 'Pro Shampoosaldo: 201')]</value>
+      <webElementGuid>4506abf2-63f3-4212-a490-6116731b4eec</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

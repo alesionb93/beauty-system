@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>span_dash-pag-recebido</name>
+   <tag></tag>
+   <elementGuidId>7db2598d-2974-498c-b6be-58718d896d77</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#dash-pag-recebido</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'dash-pag-recebido']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'dash-pag-recebido' and (text() = 'R$ 0,00' or . = 'R$ 0,00')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#dash-pag-recebido</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>span</value>
+      <webElementGuid>d32e8a35-f1a6-4efc-b10a-cf5b30dbe4eb</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>dash-pag-rp-val</value>
+      <webElementGuid>54e5a4e0-dd08-43da-ae29-f11ccceb8cd5</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>dash-pag-recebido</value>
+      <webElementGuid>b4b6d081-4450-4848-bd67-32cc94051572</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 0,00</value>
+      <webElementGuid>df7bded9-f7a2-453c-ac76-cdc81a01fd6c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-01396bdff4d70ed78da54dcb62542275</value>
+      <webElementGuid>72c575de-8890-44f8-90b4-b65ba2375cc2</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-pag-recebido']</value>
+      <webElementGuid>1199015a-aa30-4fae-bedb-d23e3a49889c</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-pag-recebido']</value>
+      <webElementGuid>a1a1db18-c292-4de7-a86a-896987da92fd</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'dash-pag-recebido' and (text() = 'R$ 0,00' or . = 'R$ 0,00')]</value>
+      <webElementGuid>1d31628e-5ad9-411b-9fa0-a296a16c9974</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

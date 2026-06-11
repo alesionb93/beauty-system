@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>div_dash-total-servicos</name>
+   <tag></tag>
+   <elementGuidId>23de7f94-3686-475f-bf08-57d24e5a0e72</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#dash-total-servicos</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'dash-total-servicos']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'dash-total-servicos' and (text() = '0' or . = '0')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#dash-total-servicos</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>div</value>
+      <webElementGuid>6ba5e852-36c1-456c-8840-c056700239ff</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>dash-card-value</value>
+      <webElementGuid>1854d7c4-3983-4009-80f5-30070a8259aa</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>dash-total-servicos</value>
+      <webElementGuid>78e9b76a-f250-4c99-bfe2-b3a2ba4a7656</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>0</value>
+      <webElementGuid>b5d95818-e149-4862-b137-02e6b5fe1c4c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-8a07fda8528090004a5831f9747f90f4</value>
+      <webElementGuid>eceec806-3ffc-4976-b5ab-d2cab4a0ac70</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-total-servicos']</value>
+      <webElementGuid>f51c630a-3e2f-4114-b615-087c285ddcec</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-total-servicos']</value>
+      <webElementGuid>13db929a-e1fb-438f-ba6d-158f396832f2</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//div[@id = 'dash-total-servicos' and (text() = '0' or . = '0')]</value>
+      <webElementGuid>494496be-5132-45e4-85e9-02de2c01fc02</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

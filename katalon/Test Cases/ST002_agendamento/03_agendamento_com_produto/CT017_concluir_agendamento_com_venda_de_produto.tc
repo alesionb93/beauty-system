@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT017_concluir_agendamento_com_venda_de_produto</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>ceb14863-b387-4a9f-9990-de90f8478e00</testCaseGuid>
+</TestCaseEntity>

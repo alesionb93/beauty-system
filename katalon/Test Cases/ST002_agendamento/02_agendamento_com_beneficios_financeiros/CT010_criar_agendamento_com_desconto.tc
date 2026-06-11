@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT010_criar_agendamento_com_desconto</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>a0a9e3dc-ad75-4ea3-847a-3a51764a85e2</testCaseGuid>
+</TestCaseEntity>

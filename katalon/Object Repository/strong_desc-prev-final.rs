@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_desc-prev-final</name>
+   <tag></tag>
+   <elementGuidId>4e2eb4e8-e12a-44d4-b9b9-ebe4a59a766f</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'desc-prev-final']</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#desc-prev-final</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#desc-prev-final</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>7e2cbfe4-9105-4b99-8c1f-64f18187c29f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>desc-prev-final</value>
+      <webElementGuid>ec7cbd46-ad54-461a-b5fc-e4317bb0a924</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 80,00</value>
+      <webElementGuid>7bd793ca-07da-4e7d-a11b-de82a7afccdc</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-c6d5b1b43a96d4537d4d8cbf6964ed4c</value>
+      <webElementGuid>27ca5dce-4677-4d98-950f-96a12f7a4d6f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-prev-final']</value>
+      <webElementGuid>36eec8c3-1351-4814-9ea6-88eb91b584a7</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'desc-prev-final']</value>
+      <webElementGuid>91ea0710-b695-49a0-96f5-a6e609197283</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'desc-prev-final' and (text() = 'R$ 80,00' or . = 'R$ 80,00')]</value>
+      <webElementGuid>992ae92a-4cd5-4269-9d27-d7402ed1d6b4</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

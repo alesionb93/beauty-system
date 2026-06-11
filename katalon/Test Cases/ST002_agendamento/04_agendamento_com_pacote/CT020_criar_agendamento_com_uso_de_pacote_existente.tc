@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT020_criar_agendamento_com_uso_de_pacote_existente</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>4f4b1c79-c7ac-488a-8677-8611c0dc5f7e</testCaseGuid>
+</TestCaseEntity>

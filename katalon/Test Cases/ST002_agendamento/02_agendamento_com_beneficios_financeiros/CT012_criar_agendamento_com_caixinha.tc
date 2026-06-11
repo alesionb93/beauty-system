@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT012_criar_agendamento_com_caixinha</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>a43ed6e8-0252-4d2f-bfac-ed6cf0b57877</testCaseGuid>
+</TestCaseEntity>
