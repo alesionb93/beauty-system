@@ -1,0 +1,50 @@
+name: Katalon Regression
+
+on:
+  workflow_dispatch:
+
+jobs:
+  katalon-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Katalon Studio Engine
+        shell: powershell
+        run: |
+          Invoke-WebRequest `
+            -Uri "https://download.katalon.com/11.2.0/Katalon_Studio_Engine_Windows_64-11.2.0.zip" `
+            -OutFile "katalon.zip"
+
+          Expand-Archive `
+            -Path "katalon.zip" `
+            -DestinationPath "katalon-engine"
+
+      - name: Execute Regression
+        shell: powershell
+        run: |
+          $katalon = Get-ChildItem -Path ".\katalon-engine" -Filter "katalonc.exe" -Recurse | Select-Object -First 1
+
+          & $katalon.FullName `
+            -noSplash `
+            -runMode=console `
+            -projectPath="${{ github.workspace }}\katalon\Slotify.prj" `
+            -retry=0 `
+            -testSuiteCollectionPath="Test Suites/Regressivo_completo" `
+            -apiKey="${{ secrets.KATALON_API_KEY }}" `
+            --config `
+            -proxy.auth.option=NO_PROXY `
+            -proxy.system.option=NO_PROXY `
+            -proxy.system.applyToDesiredCapabilities=true `
+            -webui.autoUpdateDrivers=true `
+            -ai.provider="katalon_ai"
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: katalon-reports
+          path: |
+            katalon/Reports/**
