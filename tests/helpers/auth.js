@@ -77,10 +77,18 @@ async function loginSlotify(page) {
   const tentarLogin = async () => {
     await campoLogin.fill('');
     await campoLogin.fill(LOGIN_USER);
+
     await campoSenha.fill('');
     await campoSenha.fill(LOGIN_PASS);
-    log('credenciais preenchidas');
+
+    log(`usuario usado: ${LOGIN_USER}`);
+    log(`senha length: ${LOGIN_PASS.length}`);
+
+    log(`valor login: "${await campoLogin.inputValue()}"`);
+    log(`senha preenchida: ${(await campoSenha.inputValue()).length} chars`);
+
     await btnEntrar.click();
+
     log('clique em Entrar');
   };
 

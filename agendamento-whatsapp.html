@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Agendamento</title>
+
+    <!-- Font Awesome (usado pela tela de seleção de unidades do grupo) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <!-- CSS do agendamento compartilhado (tela "Rede de Unidades") -->
+    <link rel="stylesheet" href="/agendamento-compartilhado.css?v=3" onerror="this.onerror=null;this.href='agendamento-compartilhado.css?v=3'">
+
     <style>
       /* Casca mínima — o restante vem do shell injetado de agendamento-cliente.html */
       html, body { margin: 0; padding: 0; background: #0b0b0c; color: #fff; }
@@ -27,6 +33,13 @@
       }
       #aw-invalid h1 { font-size: 20px; margin: 0; }
       #aw-invalid p { margin: 0; opacity: .8; max-width: 420px; }
+
+      /* Quando a tela de seleção de unidades (grupo) estiver ativa, o body
+         passa a ter fundo claro como na página pública. */
+      html[data-wa-grouppick="1"], html[data-wa-grouppick="1"] body {
+        background: #f8f8f6 !important;
+        color: #1a1a2e !important;
+      }
 
       /*
         MAGIC LINK — esconder por completo a etapa de identificação manual.
@@ -65,6 +78,6 @@
     </script>
 
     <!-- Bootstrap do fluxo mágico (injeta o shell legado e dispara identificação automática) -->
-    <script src="/agendamento-whatsapp.js?v=4" defer></script>
+    <script src="/agendamento-whatsapp.js?v=9" defer></script>
   </body>
 </html>

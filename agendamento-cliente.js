@@ -598,32 +598,42 @@
     async buscarPorTelefone(tenantId, telefone) {
       var sb = initSupabase();
       if (!sb || !tenantId) return { found: false };
-      var telDigits = onlyDigits(telefone);
-      if (telDigits.length < 10) return { found: false };
+      var telDigitsRaw = onlyDigits(telefone);
+      if (telDigitsRaw.length < 10) return { found: false };
 
-      // 1) RPC pública (preferida — anon-friendly)
-      try {
-        var rpc = await withTimeout(
-          sb.rpc('get_public_cliente_by_telefone', {
-            _tenant_id: tenantId, _telefone_digits: telDigits
-          }),
-          REQ_TIMEOUT, 'rpc:get_public_cliente_by_telefone'
-        );
-        if (!rpc.error && rpc.data) {
-          var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
-          if (row && row.id) return { found: true, cliente: { id: row.id, nome: row.nome, telefone: row.telefone } };
-          return { found: false };
-        }
-      } catch(e) { /* fallback abaixo */ }
+      // PADRÃO OFICIAL: clientes são persistidos com prefixo 55 (ex.: 5548996311212).
+      // Geramos variantes para casar tanto registros antigos (sem 55) quanto novos (com 55).
+      var telWith55    = onlyDigits(normalizeTelefoneBR(telefone));            // 5548996311212
+      var telWithout55 = telWith55.replace(/^55/, '');                          // 48996311212
+      var variants = Array.from(new Set([telWith55, telWithout55, telDigitsRaw].filter(Boolean)));
 
-      // 2) Fallback: SELECT direto. Compara por dígitos no client.
+      // 1) RPC pública (preferida — anon-friendly). A RPC compara dígitos exatos,
+      //    então tentamos as variantes na ordem (com 55 primeiro = padrão atual).
+      for (var i = 0; i < variants.length; i++) {
+        try {
+          var rpc = await withTimeout(
+            sb.rpc('get_public_cliente_by_telefone', {
+              _tenant_id: tenantId, _telefone_digits: variants[i]
+            }),
+            REQ_TIMEOUT, 'rpc:get_public_cliente_by_telefone'
+          );
+          if (!rpc.error && rpc.data) {
+            var row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data;
+            if (row && row.id) return { found: true, cliente: { id: row.id, nome: row.nome, telefone: row.telefone } };
+          }
+        } catch(e) { /* tenta próxima variante / fallback abaixo */ }
+      }
+
+      // 2) Fallback: SELECT direto. Compara ignorando prefixo 55 dos dois lados.
       try {
         var resp = await withTimeout(
           sb.from('clientes').select('id, nome, telefone').eq('tenant_id', tenantId),
           REQ_TIMEOUT, 'clientes-by-tenant'
         );
         if (resp.error || !resp.data) return { found: false };
-        var hit = resp.data.find(function(c){ return onlyDigits(c.telefone) === telDigits; });
+        var hit = resp.data.find(function(c){
+          return onlyDigits(c.telefone).replace(/^55/, '') === telWithout55;
+        });
         return hit ? { found: true, cliente: hit } : { found: false };
       } catch(e) { return { found: false }; }
     },

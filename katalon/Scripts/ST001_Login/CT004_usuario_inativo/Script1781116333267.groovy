@@ -1,33 +1,36 @@
-import static com.kms.katalon.core.checkpoint.CheckpointFactory.findCheckpoint
-import static com.kms.katalon.core.testcase.TestCaseFactory.findTestCase
-import static com.kms.katalon.core.testdata.TestDataFactory.findTestData
 import static com.kms.katalon.core.testobject.ObjectRepository.findTestObject
-import static com.kms.katalon.core.testobject.ObjectRepository.findWindowsObject
-import com.kms.katalon.core.checkpoint.Checkpoint as Checkpoint
-import com.kms.katalon.core.cucumber.keyword.CucumberBuiltinKeywords as CucumberKW
-import com.kms.katalon.core.mobile.keyword.MobileBuiltInKeywords as Mobile
-import com.kms.katalon.core.model.FailureHandling as FailureHandling
-import com.kms.katalon.core.testcase.TestCase as TestCase
-import com.kms.katalon.core.testdata.TestData as TestData
-import com.kms.katalon.core.testng.keyword.TestNGBuiltinKeywords as TestNGKW
-import com.kms.katalon.core.testobject.TestObject as TestObject
-import com.kms.katalon.core.webservice.keyword.WSBuiltInKeywords as WS
 import com.kms.katalon.core.webui.keyword.WebUiBuiltInKeywords as WebUI
-import com.kms.katalon.core.windows.keyword.WindowsBuiltinKeywords as Windows
-import internal.GlobalVariable as GlobalVariable
-import org.openqa.selenium.Keys as Keys
 
-WebUI.openBrowser(null)
+int TIMEOUT = 20
 
-WebUI.navigateToUrl('https://slotify.pilotodigital.online/')
+try {
+    WebUI.openBrowser('')
+    WebUI.maximizeWindow()
+    WebUI.navigateToUrl('https://slotify.pilotodigital.online/')
+    WebUI.waitForPageLoad(TIMEOUT)
 
-WebUI.setText(findTestObject('Page_Slotify - Login/input_Login ou e-mail'), 'colabuser@gmail.com')
+    def loginField = findTestObject('Page_Slotify - Login/input_Login ou e-mail')
+    def senhaField = findTestObject('Page_Slotify - Login/input_Senha')
+    def btnLogin   = findTestObject('Page_Slotify - Login/button_btn-login')
+    def erro       = findTestObject('Page_Slotify - Login/p_login-error')
 
-WebUI.setEncryptedText(findTestObject('Page_Slotify - Login/input_Senha'), 'Rwhbk+ysi2qFpO8ST+6qJw==')
+    WebUI.waitForElementVisible(loginField, TIMEOUT)
+    WebUI.click(loginField)
+    WebUI.setText(loginField, 'colabuser@gmail.com')
 
-WebUI.click(findTestObject('Page_Slotify - Login/button_btn-login'))
+    WebUI.waitForElementVisible(senhaField, TIMEOUT)
+    WebUI.click(senhaField)
+    WebUI.setEncryptedText(senhaField, 'Rwhbk+ysi2qFpO8ST+6qJw==')
 
-WebUI.waitForElementPresent(findTestObject('Page_Slotify - Login/p_login-error'), 0)
+    WebUI.waitForElementClickable(btnLogin, TIMEOUT)
+    try { WebUI.click(btnLogin) }
+    catch (Throwable t) {
+        WebUI.executeJavaScript('arguments[0].click();', Arrays.asList(WebUI.findWebElement(btnLogin, TIMEOUT)))
+    }
 
-WebUI.closeBrowser()
-
+    WebUI.waitForElementPresent(erro, TIMEOUT)
+    WebUI.waitForElementVisible(erro, TIMEOUT)
+    WebUI.verifyElementVisible(erro)
+} finally {
+    WebUI.closeBrowser()
+}

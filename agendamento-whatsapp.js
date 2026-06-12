@@ -1,22 +1,25 @@
 /* =========================================================================
- * agendamento-whatsapp.js  (v8 — carrega notifyWhatsapp.js + config.js antes do engine)
+ * agendamento-whatsapp.js  (v9 — suporte a Grupo de Unidades)
  * -------------------------------------------------------------------------
- * Mudanças vs v6:
- *   - FIX 1 (UX): O modal de confirmação agora abre SOMENTE após:
- *       1) shell do agendamento-cliente.html injetado
- *       2) motor legado carregado
- *       3) auto-identificação concluída
- *       4) loaders removidos
- *       5) tela de serviços (Step 2) realmente renderizada
- *     Antes, o modal abria sobre a tela preta "Carregando sua agenda".
+ * Mudanças vs v8:
+ *   - NOVO: Quando o tenant da sessão WhatsApp pertence a um Grupo de
+ *     Unidades, o cliente vê PRIMEIRO a tela "Rede de Unidades"
+ *     (mesma experiência do QR Compartilhado) e SÓ DEPOIS de escolher
+ *     a unidade é que a identificação automática acontece.
  *
- *   - FIX 2 (Telefone): Normalização BR remove o country code `55`
- *     ANTES de aplicar a máscara. Entrada `+55 48 9120-3769` agora
- *     exibe corretamente `(48) 9120-3769` (antes virava `(54) 89120-3769`).
+ *   - A escolha da unidade redefine o `tenant_id` ativo da sessão
+ *     em memória. A sessão original no banco continua intacta —
+ *     apenas o destino do agendamento muda.
  *
- *   - Edição de nome/telefone continua atualizando o MESMO cadastro
- *     (best-effort em `clientes`).
- *   - 100% reutiliza o motor legado /agendamento-cliente.js.
+ *   - Reaproveita 100% o CSS de /agendamento-compartilhado.css (.gp-*).
+ *
+ *   - Tenants SEM grupo continuam exatamente com o fluxo antigo
+ *     (auto-identificação imediata, sem alterações).
+ *
+ * Mantém também:
+ *   - Modal de confirmação que abre SOMENTE após serviços renderizados.
+ *   - Normalização BR do telefone (remove country code 55).
+ *   - Carregamento de config.js + notifyWhatsapp.js antes do engine.
  * ========================================================================= */
 (function () {
   'use strict';
@@ -577,6 +580,182 @@
     return false;
   }
 
+  // ---------- Grupo de Unidades ----------
+  /**
+   * Verifica se o tenant da sessão participa de algum Grupo de Unidades.
+   * Retorna { group_name, slug, banner_image_url, ... } ou null.
+   */
+  async function fetchTenantGroup(tenantId) {
+    try {
+      const sb = getSupabase(); if (!sb) return null;
+      const r = await sb.rpc('get_tenant_group', { _tenant_id: tenantId });
+      if (r.error) { warn('get_tenant_group erro:', r.error); return null; }
+      if (r.data && r.data.length) return r.data[0];
+      return null;
+    } catch (e) { warn('fetchTenantGroup falhou:', e); return null; }
+  }
+
+  /**
+   * Carrega as unidades de um grupo via RPC pública.
+   */
+  async function fetchGroupUnits(group) {
+    const sb = getSupabase(); if (!sb) return [];
+    try {
+      if (group.slug) {
+        const r = await sb.rpc('get_public_group_units', { _slug: group.slug });
+        if (!r.error && r.data) return r.data;
+      }
+      // Fallback: tenta pelo group_id
+      if (group.group_id || group.id) {
+        const gid = group.group_id || group.id;
+        const r2 = await sb
+          .from('tenant_group_tenants')
+          .select('tenant_id, tenant_groups!inner(id,name,slug,active,banner_image_url), tenants!inner(id,nome,nome_fantasia,cidade,estado,logo_url)')
+          .eq('group_id', gid)
+          .eq('tenant_groups.active', true);
+        if (!r2.error && r2.data) {
+          return r2.data.map((row) => ({
+            group_id:         row.tenant_groups.id,
+            group_name:       row.tenant_groups.name,
+            group_banner_url: row.tenant_groups.banner_image_url,
+            tenant_id:        row.tenants.id,
+            nome:             row.tenants.nome_fantasia || row.tenants.nome,
+            cidade:           row.tenants.cidade,
+            estado:           row.tenants.estado,
+            logo_url:         row.tenants.logo_url,
+            cover_image_url:  null,
+          }));
+        }
+      }
+    } catch (e) { warn('fetchGroupUnits falhou:', e); }
+    return [];
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]
+    ));
+  }
+  function escapeAttr(s) { return escapeHtml(s); }
+
+  /**
+   * Renderiza a tela "Rede de Unidades" (mesma do agendamento-compartilhado)
+   * e resolve a Promise com o tenant_id escolhido pelo usuário.
+   *
+   * Não modifica a URL nem dá reload — mantém a sessão WhatsApp em memória.
+   */
+  function showGroupPicker(group, units) {
+    return new Promise((resolve) => {
+      // Esconde o loader inicial e prepara o body
+      const boot = qs('#aw-boot'); if (boot) boot.style.display = 'none';
+      document.documentElement.setAttribute('data-wa-grouppick', '1');
+
+      const screen = document.createElement('div');
+      screen.className = 'gp-screen';
+      screen.id = 'wa-group-picker';
+
+      const groupName   = group.group_name || (units[0] && units[0].group_name) || 'Rede';
+      const groupBanner = group.banner_image_url
+        || (units[0] && (units[0].group_banner_url || units[0].cover_image_url))
+        || null;
+
+      let heroLogo = null;
+      for (let j = 0; j < units.length && !heroLogo; j++) {
+        if (units[j].logo_url) heroLogo = units[j].logo_url;
+      }
+
+      screen.innerHTML =
+        '<div class="gp-hero-wrap">' +
+          '<span class="gp-eyebrow-fixed"><i class="fa-regular fa-building"></i> Rede de Unidades</span>' +
+          '<div class="gp-hero" id="wa-gp-hero">' +
+            (groupBanner
+              ? '<img src="' + escapeAttr(groupBanner) + '" alt="">'
+              : '<div class="gp-hero-fallback">' + escapeHtml(groupName) + '</div>') +
+          '</div>' +
+          '<div class="gp-logo-wrap" id="wa-gp-logo">' +
+            (heroLogo
+              ? '<img src="' + escapeAttr(heroLogo) + '" alt="">'
+              : '<span class="gp-logo-fb"><i class="fa-solid fa-store"></i></span>') +
+          '</div>' +
+        '</div>' +
+        '<div class="gp-headline">' +
+          '<h1>' + escapeHtml(groupName) + '</h1>' +
+          '<p>Selecione abaixo onde você deseja ser atendido.</p>' +
+          '<span class="gp-underline"></span>' +
+        '</div>' +
+        '<div class="gp-list" id="wa-gp-list" aria-live="polite"></div>' +
+        '<div class="gp-info">' +
+          '<div class="gp-info-inner">' +
+            '<i class="fa-solid fa-users"></i>' +
+            '<p>Você está acessando a rede de unidades da <b>' + escapeHtml(groupName) + '</b>.<br>' +
+            'Escolha a unidade para visualizar profissionais, serviços e horários disponíveis.</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="gp-footer">' +
+          '<i class="fa-solid fa-store"></i>' +
+          '<div class="gp-footer-meta">' +
+            '<span><b>' + units.length + '</b> unidades disponíveis</span>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(screen);
+
+      const list = screen.querySelector('#wa-gp-list');
+      units.forEach((u) => {
+        const cover = u.cover_image_url || groupBanner;
+        const local = [u.cidade, u.estado].filter(Boolean).join(' / ');
+        const card  = document.createElement('div');
+        card.className = 'gp-card';
+        card.innerHTML =
+          '<div class="gp-card-cover">' +
+            (cover
+              ? '<img src="' + escapeAttr(cover) + '" alt="">'
+              : '<div class="gp-hero-fallback">' + escapeHtml(u.nome) + '</div>') +
+          '</div>' +
+          '<div class="gp-card-head">' +
+            '<div class="gp-card-logo">' +
+              (u.logo_url
+                ? '<img src="' + escapeAttr(u.logo_url) + '" alt="">'
+                : '<i class="fa-solid fa-store"></i>') +
+            '</div>' +
+            '<div class="gp-card-titles">' +
+              '<span class="gp-card-brand">' + escapeHtml(groupName) + '</span>' +
+              '<span class="gp-card-unit">' + escapeHtml(u.nome) + '</span>' +
+            '</div>' +
+          '</div>' +
+          (local ?
+            '<div class="gp-card-meta"><i class="fa-solid fa-location-dot"></i> ' + escapeHtml(local) + '</div>'
+            : '') +
+          '<div class="gp-card-divider"></div>' +
+          '<div class="gp-card-extra">' +
+            '<span class="gp-extra-item"><i class="fa-regular fa-circle-check"></i> Disponível para agendamento</span>' +
+          '</div>' +
+          '<button type="button" class="gp-card-cta">' +
+            '<i class="fa-regular fa-calendar"></i> Selecionar unidade ' +
+            '<i class="fa-solid fa-arrow-right gp-cta-arrow"></i>' +
+          '</button>';
+
+        const pick = () => {
+          // Trava cliques duplos
+          screen.style.pointerEvents = 'none';
+          screen.style.opacity = '0.5';
+          // Remove a tela e devolve o estado escuro do magic link
+          setTimeout(() => {
+            try { screen.remove(); } catch (_) {}
+            document.documentElement.removeAttribute('data-wa-grouppick');
+            const b = qs('#aw-boot'); if (b) b.style.display = '';
+          }, 50);
+          resolve(u.tenant_id);
+        };
+        card.querySelector('.gp-card-cta').addEventListener('click', pick);
+        card.addEventListener('click', (ev) => {
+          if (ev.target.closest('.gp-card-cta')) return;
+          pick();
+        });
+        list.appendChild(card);
+      });
+    });
+  }
+
   // ---------- Main ----------
   async function boot() {
     try {
@@ -585,6 +764,31 @@
 
       const session = await resolveSession(token);
       log('sessão OK', { tenant: session.tenant_id, phone: session.phone_e164 });
+
+      // ===== NOVO: verifica se o tenant pertence a um Grupo de Unidades =====
+      const group = await fetchTenantGroup(session.tenant_id);
+      if (group) {
+        log('tenant pertence ao grupo:', group.group_name || group.slug);
+        const units = await fetchGroupUnits(group);
+        if (units && units.length > 0) {
+          // Mostra a tela da rede e espera a escolha do cliente.
+          // A identificação automática NÃO acontece antes disso.
+          const chosenTenantId = await showGroupPicker(group, units);
+          log('unidade escolhida pelo cliente:', chosenTenantId);
+
+          // Redefine o tenant ativo da sessão em memória.
+          session.tenant_id = chosenTenantId;
+          // Mantém a URL coerente para o motor legado.
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('tenantId', chosenTenantId);
+            window.history.replaceState({}, '', url);
+          } catch (_) {}
+        } else {
+          warn('grupo encontrado mas sem unidades — seguindo com o tenant da sessão');
+        }
+      }
+      // ===== FIM grupo =====
 
       // Normalização: remove country code 55 já aqui.
       const initialPhone = normalizePhoneBR(session.phone_e164);
@@ -601,7 +805,7 @@
       await injectClientShell();
       await loadEngine();
 
-      // 1) Auto-identifica PRIMEIRO usando os dados do WhatsApp.
+      // 1) Auto-identifica PRIMEIRO usando os dados do WhatsApp (já no tenant escolhido).
       //    Isso faz o motor avançar para a tela de serviços (Step 2).
       const result = await autoIdentify(initialName, initialPhone);
       log('autoIdentify:', result);
@@ -653,3 +857,4 @@
     boot();
   }
 })();
+

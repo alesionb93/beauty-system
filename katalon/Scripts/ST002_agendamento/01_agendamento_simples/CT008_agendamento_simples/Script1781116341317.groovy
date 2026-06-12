@@ -1,196 +1,197 @@
 import java.time.LocalDate as LocalDate
 import java.time.format.DateTimeFormatter as DateTimeFormatter
 import java.util.Arrays as Arrays
+
 import static com.kms.katalon.core.testobject.ObjectRepository.findTestObject
+
 import com.kms.katalon.core.model.FailureHandling as FailureHandling
+import com.kms.katalon.core.testobject.ConditionType as ConditionType
+import com.kms.katalon.core.testobject.TestObject as TestObject
 import com.kms.katalon.core.webui.common.WebUiCommonHelper as WebUiCommonHelper
 import com.kms.katalon.core.webui.keyword.WebUiBuiltInKeywords as WebUI
-import com.kms.katalon.core.testobject.TestObject as TestObject
-import com.kms.katalon.core.testobject.ConditionType as ConditionType
 
-// ========================================
-// HELPER
-// ========================================
-// ========================================
-// LOGIN
-// ========================================
-WebUI.openBrowser('')
+import org.openqa.selenium.WebElement
+import org.openqa.selenium.StaleElementReferenceException
+import org.openqa.selenium.ElementClickInterceptedException
+import org.openqa.selenium.ElementNotInteractableException
 
-WebUI.navigateToUrl('https://slotify.pilotodigital.online/agenda.html')
+// =========================================================
+// CONFIG
+// =========================================================
+int TIMEOUT       = 20
+int TIMEOUT_SHORT = 8
+int TIMEOUT_LONG  = 40
 
-WebUI.setText(findTestObject('input_Login ou e-mail'), 'automacao')
-
-WebUI.setEncryptedText(findTestObject('input_Senha'), 'Rwhbk+ysi2qFpO8ST+6qJw==')
-
-WebUI.click(findTestObject('button_btn-login'))
-
-WebUI.waitForElementVisible(findTestObject('span_Dom'), 30)
-
-// ========================================
-// DESABILITA SMART WAIT
-// ========================================
-WebUI.disableSmartWait()
-
-// ========================================
-// DATA +7 DIAS
-// ========================================
-String dataFormatada = LocalDate.now().plusDays(7).format(DateTimeFormatter.ofPattern('yyyy-MM-dd'))
-
-println('Data utilizada: ' + dataFormatada)
-
-// ========================================
-// NOVO AGENDAMENTO
-// ========================================
-WebUI.click(findTestObject('button_btn-novo-agendamento'))
-
-boolean abaNomeVisivel = WebUI.waitForElementVisible(findTestObject('button_Nome'), 4, FailureHandling.OPTIONAL)
-
-if (!(abaNomeVisivel)) {
-    println('Aba Nome não apareceu. Tentando novamente...')
-
-    WebUI.click(findTestObject('button_btn-novo-agendamento'))
-
-    WebUI.waitForElementVisible(findTestObject('button_Nome'), 4)
+// =========================================================
+// HELPERS (CI/CD HARDENING)
+// =========================================================
+def safeClick = { TestObject to, int t = TIMEOUT ->
+    int attempts = 3
+    Throwable last = null
+    for (int i = 0; i < attempts; i++) {
+        try {
+            WebUI.waitForElementPresent(to, t)
+            WebUI.waitForElementVisible(to, t)
+            WebUI.scrollToElement(to, t)
+            WebUI.waitForElementClickable(to, t)
+            try {
+                WebUI.click(to)
+            } catch (ElementClickInterceptedException | ElementNotInteractableException ignored) {
+                WebUI.comment('[safeClick] Fallback JS click')
+                WebElement el = WebUiCommonHelper.findWebElement(to, t)
+                WebUI.executeJavaScript('arguments[0].click();', Arrays.asList(el))
+            }
+            return
+        } catch (StaleElementReferenceException sere) {
+            last = sere
+            WebUI.comment('[safeClick] Stale, retry ' + (i + 1))
+            WebUI.delay(1)
+        } catch (Throwable th) {
+            last = th
+            WebUI.comment('[safeClick] retry ' + (i + 1) + ' -> ' + th.getClass().getSimpleName())
+            WebUI.delay(1)
+        }
+    }
+    throw last
 }
 
-WebUI.click(findTestObject('button_Nome'))
+def safeSetText = { TestObject to, String value, int t = TIMEOUT ->
+    WebUI.waitForElementPresent(to, t)
+    WebUI.waitForElementVisible(to, t)
+    WebUI.scrollToElement(to, t)
+    try { WebUI.click(to) } catch (Throwable ignored) {}
+    try {
+        WebUI.clearText(to, FailureHandling.OPTIONAL)
+        WebUI.setText(to, value)
+    } catch (Throwable th) {
+        WebUI.comment('[safeSetText] Fallback JS -> ' + th.getClass().getSimpleName())
+        WebElement el = WebUiCommonHelper.findWebElement(to, t)
+        WebUI.executeJavaScript(
+            'arguments[0].value = arguments[1];' +
+            'arguments[0].dispatchEvent(new Event("input",{bubbles:true}));' +
+            'arguments[0].dispatchEvent(new Event("change",{bubbles:true}));',
+            Arrays.asList(el, value))
+    }
+}
 
-// ========================================
-// CLIENTE
-// ========================================
-WebUI.waitForElementVisible(findTestObject('input_Digite o nome (ex_ Maria)'), 10)
+def safeSetEncrypted = { TestObject to, String value, int t = TIMEOUT ->
+    WebUI.waitForElementPresent(to, t)
+    WebUI.waitForElementVisible(to, t)
+    WebUI.scrollToElement(to, t)
+    try { WebUI.click(to) } catch (Throwable ignored) {}
+    WebUI.setEncryptedText(to, value)
+}
 
-WebUI.setText(findTestObject('input_Digite o nome (ex_ Maria)'), 'automacao')
+def setDateJS = { TestObject to, String value, int t = TIMEOUT ->
+    WebUI.waitForElementPresent(to, t)
+    WebElement el = WebUiCommonHelper.findWebElement(to, t)
+    WebUI.executeJavaScript(
+        'arguments[0].value = arguments[1];' +
+        'arguments[0].dispatchEvent(new Event("input",{bubbles:true}));' +
+        'arguments[0].dispatchEvent(new Event("change",{bubbles:true}));',
+        Arrays.asList(el, value))
+}
 
-WebUI.click(findTestObject('button_Selecionar'))
-
-// ========================================
-// PROFISSIONAL
-// ========================================
-WebUI.waitForElementClickable(findTestObject('div_Selecione'), 10)
-
-WebUI.click(findTestObject('div_Selecione'))
-
-WebUI.waitForElementClickable(findTestObject('div_Daryl'), 10)
-
-WebUI.click(findTestObject('div_Daryl'))
-
-// ========================================
-// SERVIÇO
-// ========================================
-WebUI.selectOptionByLabel(findTestObject('select_Selecione.Barba CompletaBarba TerapiaCo'), 'Barba Terapia', false)
-
-// ========================================
-// DATA AGENDAMENTO
-// ========================================
-def campoData = WebUiCommonHelper.findWebElement(findTestObject('input_ag-data'), 10)
-
-WebUI.executeJavaScript('\n\targuments[0].value = arguments[1];\n\targuments[0].dispatchEvent(new Event(\'input\', { bubbles: true }));\n\targuments[0].dispatchEvent(new Event(\'change\', { bubbles: true }));\n\t', 
-    Arrays.asList(campoData, dataFormatada))
-
-// ========================================
-// HORA
-// ========================================
-WebUI.selectOptionByValue(findTestObject('select_ag-hora-h'), '20', false)
-
-// ========================================
-// SALVAR
-// ========================================
-WebUI.click(findTestObject('button_Salvar'))
-
-WebUI.delay(2)
-
-// ========================================
-// DASHBOARD
-// ========================================
-WebUI.click(findTestObject('button_Dashboard'))
-
-WebUI.waitForElementVisible(findTestObject('input_dash-inicio'), 10)
-
-// ========================================
-// DATA INÍCIO
-// ========================================
-def dashInicio = WebUiCommonHelper.findWebElement(findTestObject('input_dash-inicio'), 10)
-
-WebUI.executeJavaScript('\n\targuments[0].value = arguments[1];\n\targuments[0].dispatchEvent(new Event(\'input\', { bubbles: true }));\n\targuments[0].dispatchEvent(new Event(\'change\', { bubbles: true }));\n\t', 
-    Arrays.asList(dashInicio, dataFormatada))
-
-// ========================================
-// DATA FIM
-// ========================================
-def dashFim = WebUiCommonHelper.findWebElement(findTestObject('input_dash-fim'), 10)
-
-WebUI.executeJavaScript('\n\targuments[0].value = arguments[1];\n\targuments[0].dispatchEvent(new Event(\'input\', { bubbles: true }));\n\targuments[0].dispatchEvent(new Event(\'change\', { bubbles: true }));\n\t', 
-    Arrays.asList(dashFim, dataFormatada))
-
-// ========================================
-// APLICAR FILTRO
-// ========================================
-WebUI.click(findTestObject('button_Aplicar'))
-
-// ========================================
-// AGUARDAR DASHBOARD
-// ========================================
-WebUI.delay(3)
-
-// ========================================
-// VALIDAÇÕES CT008
-// ========================================
-String totalAg = WebUI.getText(byId('dash-total-ag'))
-
-println('TOTAL AGENDAMENTOS = ' + totalAg)
-
-assert totalAg.trim() == '0'
-
-String ticket = WebUI.getText(byId('dash-ticket'))
-
-println('TICKET MÉDIO = ' + ticket)
-
-assert ticket.contains('0')
-
-String totalServicos = WebUI.getText(byId('dash-total-servicos'))
-
-println('TOTAL SERVIÇOS = ' + totalServicos)
-
-assert totalServicos.trim() == '0'
-
-String faturamento = WebUI.getText(byId('dash-faturamento'))
-
-println('FATURAMENTO = ' + faturamento)
-
-assert faturamento.contains('0')
-
-String recebido = WebUI.getText(byId('dash-pag-recebido'))
-
-println('RECEBIDO = ' + recebido)
-
-assert recebido.contains('0')
-
-String pendente = WebUI.getText(byId('dash-pag-pendente'))
-
-println('PENDENTE = ' + pendente)
-
-assert pendente.contains('80')
-
-String semDados = WebUI.getText(
-    byId('dash-prof-cards-mobile')
-)
-
-println('PROFISSIONAIS = [' + semDados + ']')
-
-// A UI atual não exibe mais "Sem dados".
-// Validamos que não existe conteúdo de profissionais.
-
-assert semDados != null
-assert semDados.trim().isEmpty()
-
-println('Teste finalizado com sucesso.')
-
-TestObject byId(String id) {
+def byId = { String id ->
     TestObject to = new TestObject(id)
-
     to.addProperty('id', ConditionType.EQUALS, id)
-
     return to
 }
 
+// =========================================================
+// EXECUTION
+// =========================================================
+try {
+    WebUI.openBrowser('')
+    WebUI.maximizeWindow()
+    WebUI.navigateToUrl('https://slotify.pilotodigital.online/agenda.html')
+    WebUI.waitForPageLoad(TIMEOUT_LONG)
+
+    // ---------------- LOGIN ----------------
+    safeSetText(findTestObject('input_Login ou e-mail'), 'automacao')
+    safeSetEncrypted(findTestObject('input_Senha'), 'Rwhbk+ysi2qFpO8ST+6qJw==')
+    safeClick(findTestObject('button_btn-login'))
+    WebUI.waitForPageLoad(TIMEOUT_LONG)
+    WebUI.waitForElementVisible(findTestObject('span_Dom'), TIMEOUT_LONG)
+
+    WebUI.disableSmartWait()
+
+    // ---------------- DATA +7 ----------------
+    String dataFormatada = LocalDate.now().plusDays(7).format(DateTimeFormatter.ofPattern('yyyy-MM-dd'))
+    WebUI.comment('Data utilizada: ' + dataFormatada)
+
+    // ---------------- NOVO AGENDAMENTO ----------------
+    safeClick(findTestObject('button_btn-novo-agendamento'))
+    boolean abaNomeVisivel = WebUI.waitForElementVisible(
+        findTestObject('button_Nome'), TIMEOUT_SHORT, FailureHandling.OPTIONAL)
+    if (!abaNomeVisivel) {
+        WebUI.comment('Aba Nome nao apareceu. Retry.')
+        safeClick(findTestObject('button_btn-novo-agendamento'))
+        WebUI.waitForElementVisible(findTestObject('button_Nome'), TIMEOUT)
+    }
+    safeClick(findTestObject('button_Nome'))
+
+    // ---------------- CLIENTE ----------------
+    safeSetText(findTestObject('input_Digite o nome (ex_ Maria)'), 'automacao')
+    safeClick(findTestObject('button_Selecionar'))
+
+    // ---------------- PROFISSIONAL ----------------
+    safeClick(findTestObject('div_Selecione'))
+    safeClick(findTestObject('div_Daryl'))
+
+    // ---------------- SERVICO ----------------
+    WebUI.waitForElementVisible(findTestObject('select_Selecione.Barba CompletaBarba TerapiaCo'), TIMEOUT)
+    WebUI.selectOptionByLabel(findTestObject('select_Selecione.Barba CompletaBarba TerapiaCo'),
+        'Barba Terapia', false)
+
+    // ---------------- DATA / HORA ----------------
+    setDateJS(findTestObject('input_ag-data'), dataFormatada)
+    WebUI.waitForElementVisible(findTestObject('select_ag-hora-h'), TIMEOUT)
+    WebUI.selectOptionByValue(findTestObject('select_ag-hora-h'), '20', false)
+
+    // ---------------- SALVAR ----------------
+    safeClick(findTestObject('button_Salvar'))
+
+    // ---------------- DASHBOARD ----------------
+    safeClick(findTestObject('button_Dashboard'))
+    WebUI.waitForPageLoad(TIMEOUT_LONG)
+    WebUI.waitForElementVisible(findTestObject('input_dash-inicio'), TIMEOUT)
+
+    setDateJS(findTestObject('input_dash-inicio'), dataFormatada)
+    setDateJS(findTestObject('input_dash-fim'), dataFormatada)
+
+    safeClick(findTestObject('button_Aplicar'))
+    WebUI.waitForElementVisible(byId('dash-total-ag'), TIMEOUT_LONG)
+    // pequena espera para recalculo de KPIs
+    WebUI.waitForElementPresent(byId('dash-faturamento'), TIMEOUT_LONG)
+
+    // ---------------- VALIDACOES ----------------
+    String totalAg       = WebUI.getText(byId('dash-total-ag'))
+    String ticket        = WebUI.getText(byId('dash-ticket'))
+    String totalServicos = WebUI.getText(byId('dash-total-servicos'))
+    String faturamento   = WebUI.getText(byId('dash-faturamento'))
+    String recebido      = WebUI.getText(byId('dash-pag-recebido'))
+    String pendente      = WebUI.getText(byId('dash-pag-pendente'))
+    String semDados      = WebUI.getText(byId('dash-prof-cards-mobile'))
+
+    WebUI.comment('TOTAL AGENDAMENTOS = ' + totalAg)
+    WebUI.comment('TICKET MEDIO = ' + ticket)
+    WebUI.comment('TOTAL SERVICOS = ' + totalServicos)
+    WebUI.comment('FATURAMENTO = ' + faturamento)
+    WebUI.comment('RECEBIDO = ' + recebido)
+    WebUI.comment('PENDENTE = ' + pendente)
+    WebUI.comment('PROFISSIONAIS = [' + semDados + ']')
+
+    assert totalAg.trim() == '0'
+    assert ticket.contains('0')
+    assert totalServicos.trim() == '0'
+    assert faturamento.contains('0')
+    assert recebido.contains('0')
+    assert pendente.contains('80')
+    assert semDados != null
+    assert semDados.trim().isEmpty()
+
+    WebUI.comment('Teste CT008 finalizado com sucesso.')
+} finally {
+    try { WebUI.closeBrowser() } catch (Throwable ignored) {}
+}
