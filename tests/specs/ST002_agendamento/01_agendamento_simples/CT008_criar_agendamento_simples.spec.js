@@ -1,17 +1,24 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
+const {
+  abrirNovoAgendamento,
+  locTabNome,
+} = require('../../../helpers/agendamento');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
 /**
- * CT008 — v3 (2026-06-09)
+ * CT008 — v4 (2026-06-13)
  *
- * Alinhamento definitivo com CT012 e CT018 (que PASSAM na pipeline):
- *   - Sem expect de heading "Agendamentos".
- *   - Sem expect de modal/wrapper/dialog visível.
- *   - Apenas o elemento funcional que será usado a seguir (tab "Nome").
- *   - Retry único do click "+ Novo" caso a tab não apareça em 4s
- *     (cobre a janela de hidratação assíncrona no Linux/headless).
+ * Mudanças vs v3:
+ *  - Confia no novo helper abrirNovoAgendamento (v5) que valida a classe
+ *    `.active` no #modal-identificacao — o sinal real emitido por
+ *    openModal() em script.js. Sem heading-text, sem role=dialog.
+ *  - Após o modal abrir, clicamos a tab "Nome" pelo data-attribute estável
+ *    (#modal-identificacao [data-search-type="nome"]) e não mais pelo
+ *    accessible name " Nome" (que era frágil ao espaço inicial).
+ *  - Aguardamos #id-panel-nome ficar visível antes de digitar — esse é o
+ *    sinal real de que setupIdentificacaoModal trocou de painel.
  */
 test('CT008 - Criar agendamento simples', async ({ page }) => {
   let dataFormatada;
@@ -22,22 +29,17 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    const btnNovo = page.getByRole('button', { name: '+ Novo' });
-    const abaNome = page.getByRole('tab', { name: /Nome/i });
-
-    await btnNovo.click();
-    try {
-      await expect(abaNome).toBeVisible({ timeout: 4000 });
-    } catch {
-      await btnNovo.click();
-      await expect(abaNome).toBeVisible({ timeout: 4000 });
-    }
+    await abrirNovoAgendamento(page);
   });
 
   await test.step('✅ Cliente selecionado', async () => {
-    await page.getByRole('tab', { name: ' Nome' }).click();
-    await page.getByRole('textbox', { name: 'Digite o nome (ex: Maria)' }).fill('cliente');
-    await page.getByRole('button', { name: 'Selecionar' }).first().click();
+    await locTabNome(page).click();
+    await expect(page.locator('#id-panel-nome')).toBeVisible();
+    await page.locator('#id-nome').fill('cliente');
+    // O botão "Selecionar" aparece após o autocomplete retornar resultados.
+    const btnSelecionar = page.getByRole('button', { name: 'Selecionar' }).first();
+    await expect(btnSelecionar).toBeVisible({ timeout: 10000 });
+    await btnSelecionar.click();
   });
 
   await test.step('✅ Profissional selecionado: Daryl', async () => {
@@ -68,10 +70,12 @@ test('CT008 - Criar agendamento simples', async ({ page }) => {
       (r) => /agendamentos?($|\?|\/)/.test(r.url())
         && ['POST', 'PATCH', 'PUT'].includes(r.request().method()),
       { timeout: 15000 }
-    ).catch(() => null);
+    );
 
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await respCriacao;
+    const response = await respCriacao;
+    expect(response.ok()).toBeTruthy();
+    await expect(page.getByText(/20:00\s*[–-]\s*21:00/).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('Alesio Barreiro').first()).toBeVisible();
   });
 

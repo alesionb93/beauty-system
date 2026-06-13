@@ -218,12 +218,16 @@ async function loginSlotify(page) {
     await page.waitForURL(/agenda/, { timeout: 15000 }).catch(() => {});
   }
 
-  // Confirmação final — pelo menos um marcador da agenda visível.
-  await Promise.any([
-    headingAgenda.waitFor({ state: 'visible', timeout: 15000 }),
-    btnNovo.waitFor({ state: 'visible', timeout: 15000 }),
-    page.waitForURL(/agenda/, { timeout: 15000 }),
-  ]).catch(() => { /* segue — sessão já confirmada por token */ });
+  // Confirmação final — espera DURA pelo botão "+ Novo" habilitado.
+  // Antes (v5): Promise.any com .catch permissivo retornava no primeiro sinal
+  // (heading visível, URL /agenda, ou token presente), ANTES da agenda estar
+  // interagível. Isso fazia com que os specs clicassem "+ Novo" durante a
+  // janela de hidratação, abrindo um modal parcial — origem da cascata
+  // CT010/CT012/CT018.
+  // Agora só retornamos quando "+ Novo" estiver visível E enabled, garantindo
+  // que a próxima ação do spec (abrir o modal) opere em uma agenda pronta.
+  await expect(btnNovo).toBeVisible({ timeout: 15000 });
+  await expect(btnNovo).toBeEnabled({ timeout: 15000 });
 
   log(`login concluído em ${Date.now() - t0}ms — url=${page.url()} resultado=${resultado}`);
 }

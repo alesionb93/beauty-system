@@ -1,8 +1,12 @@
 import { test, expect } from '@playwright/test';
 const { loginSlotify } = require('../../../helpers/auth');
+const { abrirNovoAgendamento, locTabNome } = require('../../../helpers/agendamento');
 const { log } = require('../../../helpers/logger');
 const { aguardarDashboard, aguardarValorEstavel } = require('../../../helpers/dashboard');
 
+/**
+ * CT016 — v4 (2026-06-13) — alinhado ao helper agendamento.js v5.
+ */
 test('CT016 - Criar agendamento com venda de produto', async ({ page }) => {
   let dataFormatada;
   log.start('CT016');
@@ -12,21 +16,16 @@ test('CT016 - Criar agendamento com venda de produto', async ({ page }) => {
   });
 
   await test.step('✅ Novo agendamento aberto', async () => {
-    const btnNovo = page.getByRole('button', { name: '+ Novo' });
-    const abaNome = page.getByRole('tab', { name: ' Nome' });
-    await btnNovo.click();
-    try {
-      await expect(abaNome).toBeVisible({ timeout: 4000 });
-    } catch {
-      await btnNovo.click();
-      await expect(abaNome).toBeVisible({ timeout: 4000 });
-    }
+    await abrirNovoAgendamento(page);
   });
 
   await test.step('✅ Cliente selecionado', async () => {
-    await page.getByRole('tab', { name: ' Nome' }).click();
-    await page.getByRole('textbox', { name: 'Digite o nome (ex: Maria)' }).fill('cliente');
-    await page.getByRole('button', { name: 'Selecionar' }).first().click();
+    await locTabNome(page).click();
+    await expect(page.locator('#id-panel-nome')).toBeVisible();
+    await page.locator('#id-nome').fill('cliente');
+    const btnSelecionar = page.getByRole('button', { name: 'Selecionar' }).first();
+    await expect(btnSelecionar).toBeVisible({ timeout: 10000 });
+    await btnSelecionar.click();
   });
 
   await test.step('✅ Profissional selecionado: Daryl', async () => {
@@ -61,11 +60,13 @@ test('CT016 - Criar agendamento com venda de produto', async ({ page }) => {
 
   await test.step('✅ Agendamento salvo', async () => {
     const respAg = page.waitForResponse(
-      (r) => /agendamentos/.test(r.url()) && r.request().method() !== 'GET',
+      (r) => /agendamentos?($|\?|\/)/.test(r.url()) && ['POST', 'PATCH', 'PUT'].includes(r.request().method()),
       { timeout: 15000 }
-    ).catch(() => null);
+    );
     await page.getByRole('button', { name: 'Salvar' }).click();
-    await respAg;
+    const response = await respAg;
+    expect(response.ok()).toBeTruthy();
+    await expect(page.getByText(/20:00\s*[–-]\s*21:00/).first()).toBeVisible({ timeout: 10000 });
   });
 
   await test.step('📊 Dashboard acessado', async () => {
