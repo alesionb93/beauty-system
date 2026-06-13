@@ -5,9 +5,9 @@ on:
   # ==========================================
   # EXECUÇÃO AUTOMÁTICA (ATUAL)
   # ==========================================
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
 
   # ==========================================
   # EXECUÇÃO MANUAL (DESCOMENTE PARA USAR)
