@@ -447,28 +447,38 @@ Deno.serve(async (req) => {
   // Por isso o embed `tenant_group:tenant_groups(...)` falha no PostgREST
   // (relationship not found) e quebra a função. Buscamos o grupo em uma
   // query separada pela tabela de junção.
+  // IMPORTANTE: tenant + evolution_settings continuam em Promise.all porque
+  // são críticos. A busca do grupo é ISOLADA e blindada por try/catch — se
+  // qualquer erro (schema, permissão, PostgREST) ocorrer, apenas cairemos no
+  // fallback do nome da unidade, sem quebrar o fluxo de envio.
   const [
     { data: tenant, error: tenantErr },
     { data: evo, error: evoErr },
-    { data: groupLink, error: groupErr },
   ] = await Promise.all([
     supabase.from("tenants").select("id, nome, nome_fantasia").eq("id", tenant_id).maybeSingle(),
     supabase.from("evolution_settings").select("base_url, instance, api_key, ativo")
       .eq("tenant_id", tenant_id).maybeSingle(),
-    supabase
+  ]);
+
+  let grupoNomeResolved: string | null = null;
+  try {
+    const { data: groupLink, error: groupErr } = await supabase
       .from("tenant_group_tenants")
       .select("group:tenant_groups(id, name)")
       .eq("tenant_id", tenant_id)
       .limit(1)
-      .maybeSingle(),
-  ]);
-  if (groupErr) {
-    console.error(`${LOG_PREFIX} ${reqId} tenant_group lookup error (continuing)`, {
-      error: groupErr.message,
+      .maybeSingle();
+    if (groupErr) {
+      console.error(`${LOG_PREFIX} ${reqId} tenant_group lookup error (continuing)`, {
+        error: groupErr.message,
+      });
+    }
+    grupoNomeResolved = (groupLink as any)?.group?.name ?? null;
+  } catch (e) {
+    console.error(`${LOG_PREFIX} ${reqId} tenant_group lookup THREW (continuing)`, {
+      error: String(e),
     });
   }
-  const grupoNomeResolved: string | null =
-    (groupLink as any)?.group?.name ?? null;
   console.log(`${LOG_PREFIX} ${reqId} tenant_group resolved`, {
     tenant_id,
     grupo_nome: grupoNomeResolved,
@@ -629,13 +639,24 @@ Deno.serve(async (req) => {
 
    // ----- 6) ENVIO WHATSAPP
    let envio: any = { skipped: true };
+    // [DEBUG] Confirmação que o fluxo chegou até aqui e o objeto evo continua válido
+    console.log(`${LOG_PREFIX} ${reqId} [DEBUG] evo`, evo);
+    console.log(`${LOG_PREFIX} ${reqId} [DEBUG] pre-if evolution`, {
+      has_evo: !!evo,
+      ativo: evo?.ativo,
+      has_base_url: !!evo?.base_url,
+      has_instance: !!evo?.instance,
+      has_api_key: !!evo?.api_key,
+    });
     if (evo?.ativo && evo.base_url && evo.instance && evo.api_key) {
+      console.log(`${LOG_PREFIX} ${reqId} [DEBUG] entrando no bloco de envio`);
       const baseUrlClean = String(evo.base_url || "").replace(/\/+$/, "");
       const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
       const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
       const url = isEvolutionGo
         ? `${baseUrlClean}/send/text`
         : `${baseUrlClean}/message/sendText/${encodeURIComponent(evo.instance)}`;
+      console.log(`${LOG_PREFIX} ${reqId} [DEBUG] url`, url);
       const sendNumber = whatsappSendNumber(telefone);
       const payload = { number: sendNumber, text: mensagem, textMessage: { text: mensagem } };
       console.log(`${LOG_PREFIX} ${reqId} [GO-ROUTE] provider=${provider} url=${url}`, {
@@ -645,6 +666,7 @@ Deno.serve(async (req) => {
         base_url: evo.base_url,
         instance_present: !!evo.instance,
       });
+
 
       try {
       const sendStartedAt = Date.now();
