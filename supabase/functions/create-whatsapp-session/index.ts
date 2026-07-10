@@ -442,11 +442,37 @@ Deno.serve(async (req) => {
     tenant_id,
     instance,
   });
-  const [{ data: tenant, error: tenantErr }, { data: evo, error: evoErr }] = await Promise.all([
-    supabase.from("tenants").select("id, nome, nome_fantasia, tenant_group_id, tenant_group:tenant_groups(id, name)").eq("id", tenant_id).maybeSingle(),
+  // NOTA: `tenants` NÃO tem FK direta para `tenant_groups`.
+  // A relação é N:N via `tenant_group_tenants` (group_id, tenant_id).
+  // Por isso o embed `tenant_group:tenant_groups(...)` falha no PostgREST
+  // (relationship not found) e quebra a função. Buscamos o grupo em uma
+  // query separada pela tabela de junção.
+  const [
+    { data: tenant, error: tenantErr },
+    { data: evo, error: evoErr },
+    { data: groupLink, error: groupErr },
+  ] = await Promise.all([
+    supabase.from("tenants").select("id, nome, nome_fantasia").eq("id", tenant_id).maybeSingle(),
     supabase.from("evolution_settings").select("base_url, instance, api_key, ativo")
       .eq("tenant_id", tenant_id).maybeSingle(),
+    supabase
+      .from("tenant_group_tenants")
+      .select("group:tenant_groups(id, name)")
+      .eq("tenant_id", tenant_id)
+      .limit(1)
+      .maybeSingle(),
   ]);
+  if (groupErr) {
+    console.error(`${LOG_PREFIX} ${reqId} tenant_group lookup error (continuing)`, {
+      error: groupErr.message,
+    });
+  }
+  const grupoNomeResolved: string | null =
+    (groupLink as any)?.group?.name ?? null;
+  console.log(`${LOG_PREFIX} ${reqId} tenant_group resolved`, {
+    tenant_id,
+    grupo_nome: grupoNomeResolved,
+  });
   console.log(`${LOG_PREFIX} ${reqId} evolution settings result`, {
     found: !!evo,
     base_url: evo?.base_url,
@@ -598,8 +624,7 @@ Deno.serve(async (req) => {
   const link = `${baseUrl.replace(/\/+$/, "")}/agendamento-whatsapp.html?t=${token}`;
   // Preferir o nome do GRUPO (marca da rede) sobre o nome da unidade.
   // Fallback: nome_fantasia > nome da unidade (cenário legado sem grupo).
-  const grupoNome = (tenant as any)?.tenant_group?.name || null;
-  const tenantNome = grupoNome || tenant.nome_fantasia || tenant.nome || "nosso espaço";
+  const tenantNome = grupoNomeResolved || tenant.nome_fantasia || tenant.nome || "nosso espaço";
   const mensagem = buildMessage(nome, link, tenantNome);
 
    // ----- 6) ENVIO WHATSAPP
