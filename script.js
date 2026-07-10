@@ -357,6 +357,68 @@ var BUSINESS_HOURS_BY_DAY = [
 var BUSINESS_HOUR_START = 7;
 var BUSINESS_HOUR_END = 21;
 
+/* ============================================================
+   INTERVALO DOS AGENDAMENTOS (tenant_settings.appointment_interval_minutes)
+   Fonte única para geração de horários (interno + externo).
+   Valores aceitos: 15 (padrão) | 30. Fallback: 15.
+   ============================================================ */
+var APPOINTMENT_INTERVAL = 15;
+function getAppointmentInterval() {
+  var v = parseInt(APPOINTMENT_INTERVAL, 10);
+  return (v === 15 || v === 30) ? v : 15;
+}
+function setAppointmentInterval(v) {
+  var n = parseInt(v, 10);
+  APPOINTMENT_INTERVAL = (n === 30) ? 30 : 15;
+  try { populateAllMinuteSelects(); } catch(_) {}
+  try { renderIntervalPreview(); } catch(_) {}
+}
+/* Preenche um <select> de minutos conforme o intervalo atual, preservando valor. */
+function populateMinuteSelect(selEl, preferValue) {
+  if (!selEl) return;
+  var step = getAppointmentInterval();
+  var prev = (preferValue != null) ? String(preferValue) : selEl.value;
+  var html = '';
+  for (var m = 0; m < 60; m += step) {
+    var mm = (m < 10 ? '0' : '') + m;
+    html += '<option value="' + mm + '">' + mm + '</option>';
+  }
+  selEl.innerHTML = html;
+  // Se o valor anterior ainda é válido, mantém; senão cai para 00.
+  var keep = false;
+  for (var i = 0; i < selEl.options.length; i++) {
+    if (selEl.options[i].value === prev) { keep = true; break; }
+  }
+  selEl.value = keep ? prev : '00';
+}
+function populateAllMinuteSelects() {
+  ['ag-minuto','bloq-hora-ini-m','bloq-hora-fim-m'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) populateMinuteSelect(el, el.value || '00');
+  });
+}
+/* Renderiza o preview visual no modal Horário Comercial. */
+function renderIntervalPreview() {
+  var host = document.getElementById('hc-interval-preview-slots');
+  if (!host) return;
+  var step = getAppointmentInterval();
+  var slots = [];
+  // 6 primeiros slots começando 09:00 (apenas ilustrativo)
+  var totalMin = 9 * 60;
+  for (var i = 0; i < 6; i++) {
+    var h = Math.floor(totalMin / 60), m = totalMin % 60;
+    slots.push(((h<10?'0':'')+h) + ':' + ((m<10?'0':'')+m));
+    totalMin += step;
+  }
+  var html = slots.map(function(s){ return '<span class="pv-slot">'+s+'</span>'; }).join('');
+  html += '<span class="pv-more">...</span>';
+  host.innerHTML = html;
+}
+/* Handler do <select> de intervalo no modal Horário Comercial. */
+function onAppointmentIntervalChange(v) {
+  setAppointmentInterval(v);
+}
+
 /* Mapeia chave textual <-> índice Date#getDay() */
 var DIA_KEYS = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'];
 var DIA_LABELS = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
@@ -3355,6 +3417,8 @@ function openAgendamentoModal(agId, clienteNome, clienteTel) {
 
 /* Popula <select id="ag-hora-h"> com as horas dentro do horário comercial */
 function populateAgHoraSelect() {
+  // Também garante que o select de minutos reflita o intervalo atual.
+  try { populateAllMinuteSelects(); } catch(_) {}
   var sel = document.getElementById('ag-hora-h');
   if (!sel) return;
   var prev = sel.value;
@@ -8434,7 +8498,7 @@ async function carregarConfigGeral() {
     // + horario_inicio/horario_fim (legado, usado como fallback).
     var resp = await supabaseClient
       .from('tenant_settings')
-      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais, destacar_clientes_inativos, dias_inatividade_clientes, inactive_customer_automation_enabled, whatsapp_magic_link_enabled, exigir_senha_cancelamento')
+      .select('permitir_agendamento_cliente, horario_inicio, horario_fim, horarios_semanais, destacar_clientes_inativos, dias_inatividade_clientes, inactive_customer_automation_enabled, whatsapp_magic_link_enabled, exigir_senha_cancelamento, appointment_interval_minutes')
       .eq('tenant_id', tenantId)
       .maybeSingle();
 
@@ -8514,6 +8578,16 @@ async function carregarConfigGeral() {
     CANCELAMENTO_CFG.exigir_senha = exigirSenha;
     var chkCxa = document.getElementById('cfg-exigir-senha-cancelamento');
     if (chkCxa) chkCxa.checked = exigirSenha;
+
+    // === Intervalo dos agendamentos (fonte única) ===
+    var intervalDb = null;
+    if (resp && resp.data && resp.data.appointment_interval_minutes != null) {
+      intervalDb = parseInt(resp.data.appointment_interval_minutes, 10);
+    }
+    setAppointmentInterval(intervalDb === 30 ? 30 : 15);
+    var selInterval = document.getElementById('cfg-appointment-interval');
+    if (selInterval) selInterval.value = String(getAppointmentInterval());
+    try { renderIntervalPreview(); } catch(_) {}
 
     // Aplica horário semanal às variáveis globais (com fallback p/ legacy)
     BUSINESS_HOURS_BY_DAY = parseHorariosSemanais(horariosJsonb, hIniLegacy, hFimLegacy);
@@ -8759,6 +8833,11 @@ async function salvarHorarioComercial() {
     var update = { tenant_id: tenantId, horarios_semanais: payload };
     if (menorIni) update.horario_inicio = menorIni + ':00';
     if (maiorFim) update.horario_fim    = maiorFim + ':00';
+    // Intervalo dos agendamentos (fonte única)
+    var selInterval = document.getElementById('cfg-appointment-interval');
+    var intVal = selInterval ? parseInt(selInterval.value, 10) : getAppointmentInterval();
+    update.appointment_interval_minutes = (intVal === 30) ? 30 : 15;
+    setAppointmentInterval(update.appointment_interval_minutes);
 
     var resp = await supabaseClient
       .from('tenant_settings')

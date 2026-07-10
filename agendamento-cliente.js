@@ -828,7 +828,34 @@
 
         var rpcRow = Array.isArray(rpcResp && rpcResp.data) ? rpcResp.data[0] : (rpcResp && rpcResp.data);
         if (!rpcResp.error && rpcRow) {
-          console.log('[ac] carregarTenant: RPC pública OK');
+          console.log('[ac] carregarTenant: RPC pública OK', rpcRow);
+          // FIX SLOT INTERVAL: RPC pode ser antiga e não retornar appointment_interval_minutes.
+          // Nesse caso buscamos diretamente em tenant_settings para respeitar a config real.
+          if (rpcRow.appointment_interval_minutes == null) {
+            try {
+              var sRes = await withTimeout(
+                sb.from('tenant_settings')
+                  .select('appointment_interval_minutes, slot_minutos')
+                  .eq('tenant_id', tenantId)
+                  .maybeSingle(),
+                REQ_TIMEOUT, 'tenant_settings:interval-fallback'
+              );
+              if (sRes && sRes.data) {
+                rpcRow.appointment_interval_minutes = sRes.data.appointment_interval_minutes;
+                if (rpcRow.slot_minutos == null) rpcRow.slot_minutos = sRes.data.slot_minutos;
+                console.log('[ac] carregarTenant: interval-fallback OK', sRes.data);
+              } else {
+                console.warn('[ac] carregarTenant: interval-fallback sem retorno (RLS?)', sRes && sRes.error);
+              }
+            } catch (fbErr) {
+              console.warn('[ac] carregarTenant: interval-fallback falhou:', fbErr && fbErr.message);
+            }
+          }
+          var _slotFinal = Number(rpcRow.appointment_interval_minutes || rpcRow.slot_minutos || 15);
+          console.log('[TENANT] slot resolvido =', _slotFinal, {
+            appointment_interval_minutes: rpcRow.appointment_interval_minutes,
+            slot_minutos: rpcRow.slot_minutos
+          });
           return {
             tenant_id: rpcRow.id || tenantId,
             nome: rpcRow.nome_fantasia || rpcRow.nome || 'Estabelecimento',
@@ -847,7 +874,7 @@
             horario_fim: String(rpcRow.horario_fim || '19:00:00').slice(0, 5),
             // Novo: horários por dia da semana (jsonb). Pode vir nulo se a RPC for antiga.
             horarios_semanais: rpcRow.horarios_semanais || null,
-            slot_minutos: Number(rpcRow.slot_minutos || 15)
+            slot_minutos: _slotFinal
           };
         }
 
@@ -863,7 +890,7 @@
           ),
           withTimeout(
             sb.from('tenant_settings')
-              .select('permitir_agendamento_cliente, horario_inicio, horario_fim, slot_minutos, horarios_semanais')
+              .select('permitir_agendamento_cliente, horario_inicio, horario_fim, slot_minutos, appointment_interval_minutes, horarios_semanais')
               .eq('tenant_id', tenantId)
               .maybeSingle(),
             REQ_TIMEOUT, 'tenant_settings'
@@ -909,7 +936,7 @@
           horario_inicio: (settingsRow && String(settingsRow.horario_inicio || '09:00:00').slice(0,5)) || '09:00',
           horario_fim: (settingsRow && String(settingsRow.horario_fim || '19:00:00').slice(0,5)) || '19:00',
           horarios_semanais: (settingsRow && settingsRow.horarios_semanais) || null,
-          slot_minutos: (settingsRow && settingsRow.slot_minutos) || 15
+          slot_minutos: (settingsRow && (settingsRow.appointment_interval_minutes || settingsRow.slot_minutos)) || 15
         };
       } catch (e) {
         console.error('[ac] carregarTenant falhou:', e && e.message);
@@ -1305,6 +1332,12 @@
     var hf = parseInt(hfStr[0], 10);
     if (parseInt(hfStr[1] || '0', 10) > 0) hf = hf + 1; // engloba 18:30 → vai até 19
     var step = state.tenant.slot_minutos || 15;
+    console.log('[SLOTS]', {
+      appointment_interval_minutes: state.tenant.appointment_interval_minutes,
+      slot_minutos: state.tenant.slot_minutos,
+      step: step
+    });
+    console.log('[TENANT]', state.tenant);
     var slots = [];
     for (var h = hi; h < hf; h++) {
       for (var m = 0; m < 60; m += step) slots.push(pad(h) + ':' + pad(m));
