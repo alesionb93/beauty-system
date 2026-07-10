@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT019_concluir_agendamento_com_venda_e_uso_de_pacote</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>ad36d069-e227-452f-9d55-5dc0e711e818</testCaseGuid>
+</TestCaseEntity>

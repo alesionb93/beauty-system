@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>input_Vender pacote Pacote barba x4 (4 usos _</name>
+   <tag></tag>
+   <elementGuidId>71d968e5-79c2-4e0b-9805-29e33d68350c</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>.pacote-checkbox</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' pacote-checkbox ')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:label=&quot;Vender pacote Pacote barba x4 (4 usos | R$ 150,00 total | R$ 37,50 por uso)&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>input</value>
+      <webElementGuid>df82016c-6f32-4e15-bbcc-809b667687e6</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>checkbox</value>
+      <webElementGuid>b46c9ff0-d5f6-4bd7-a2be-7cd2e1671c04</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>pacote-checkbox</value>
+      <webElementGuid>07e05899-064f-4500-a727-de81ed3637c9</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-pacote-acao</name>
+      <type>Main</type>
+      <value>vender</value>
+      <webElementGuid>b2ec9d21-ed44-4938-85bb-6505680899e8</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-pacote-def-id</name>
+      <type>Main</type>
+      <value>f6dcc0c8-0e65-4bec-b624-a2b8fdf1ac7c</value>
+      <webElementGuid>c3e21596-15c3-4100-891c-2b06d2164857</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>onchange</name>
+      <type>Main</type>
+      <value>pacoteDesmarcarOutrasOpcoes(this)</value>
+      <webElementGuid>c0cd31cc-a033-4f42-beba-1eae44392649</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-e50324d680449e00fb98546e251ee5f2</value>
+      <webElementGuid>3750e6dd-9584-4491-941c-775b34508353</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' pacote-checkbox ')]</value>
+      <webElementGuid>6e6ff1f9-3a2f-44ef-afbb-e1be7a81525c</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' pacote-checkbox ')]</value>
+      <webElementGuid>b6ba8836-c3e8-4959-8557-c10e788ca8a4</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//input[@type = 'checkbox']</value>
+      <webElementGuid>ceb76255-8ec5-48f5-b641-6b2a387a00b3</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

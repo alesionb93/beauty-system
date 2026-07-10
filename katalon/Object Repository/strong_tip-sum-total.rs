@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_tip-sum-total</name>
+   <tag></tag>
+   <elementGuidId>d745d658-335d-46af-8525-6bf4c2c1254f</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#tip-sum-total</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'tip-sum-total']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:text=&quot;R$ 90,00&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>5e8cd800-a748-4961-b373-2a9fcf8a2b05</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>tip-sum-total</value>
+      <webElementGuid>b19feb28-4a53-4a62-9a48-8d7b65c62075</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 90,00</value>
+      <webElementGuid>33c00cf0-e4b3-4ba5-9f31-0f5e1e5c9687</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-66cc0769079c4ef28fb7643778c96d13</value>
+      <webElementGuid>cd11b8be-d818-4f0c-a5c7-6e4f00d0d808</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-total']</value>
+      <webElementGuid>66009373-dfd0-455d-a1ae-95e0d58edada</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-total']</value>
+      <webElementGuid>ab74595d-b8c6-4364-ba55-768298596cca</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'tip-sum-total' and (text() = 'R$ 90,00' or . = 'R$ 90,00')]</value>
+      <webElementGuid>9e54ebcc-0d4e-45c8-9c51-a5d3b260300f</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

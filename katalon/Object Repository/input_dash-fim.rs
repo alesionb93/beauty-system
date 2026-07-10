@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>input_dash-fim</name>
+   <tag></tag>
+   <elementGuidId>15209a0c-126d-4324-ab50-696df83d0a6e</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#dash-fim</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'dash-fim']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@type = 'date' and @id = 'dash-fim']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#dash-fim</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>input</value>
+      <webElementGuid>68248ef0-428b-4f0c-9a5a-2ec90cafe2b9</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>type</name>
+      <type>Main</type>
+      <value>date</value>
+      <webElementGuid>f48ae6c8-5e3d-4ede-9e68-06c437f272bd</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>dash-fim</value>
+      <webElementGuid>ef506b33-8610-4474-9a7d-2aaba06ed0e8</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>data-bound-filtro</name>
+      <type>Main</type>
+      <value>1</value>
+      <webElementGuid>75a85693-dd98-4be0-bdb3-8d36464b7a4b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-bf591bc5b4fce0f485715fcce4abd899</value>
+      <webElementGuid>fa614e89-5a53-47b3-8414-16ede765d048</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-fim']</value>
+      <webElementGuid>f0a31fc2-c356-42bc-a763-1814b5520957</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-fim']</value>
+      <webElementGuid>9020263b-bcb6-4be7-be39-b5eb29904f6d</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//input[@type = 'date' and @id = 'dash-fim']</value>
+      <webElementGuid>a0c70c4b-e037-460a-b0a1-aaf49937b394</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

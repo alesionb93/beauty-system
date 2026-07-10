@@ -1,0 +1,46 @@
+/* ============================================================
+ * bloqueio-colaborador-concluido.css
+ * Estilos do modo "somente leitura" para colaborador em
+ * agendamentos concluídos.
+ * ============================================================ */
+
+#modal-agendamento[data-readonly-colab="1"] .colab-readonly-aviso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 24px 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(245,158,11,0.10);
+  border-left: 3px solid #f59e0b;
+  color: #92400e;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+#modal-agendamento[data-readonly-colab="1"] .colab-readonly-aviso i {
+  color: #b45309;
+  font-size: 1rem;
+}
+
+/* Sinaliza visualmente que os campos estão travados */
+#modal-agendamento[data-readonly-colab="1"] #form-agendamento input,
+#modal-agendamento[data-readonly-colab="1"] #form-agendamento select,
+#modal-agendamento[data-readonly-colab="1"] #form-agendamento textarea {
+  background: var(--surface-input, #F9FAFB) !important;
+  color: var(--text-muted, #6B7280) !important;
+  cursor: not-allowed !important;
+  opacity: 0.92;
+}
+
+#modal-agendamento[data-readonly-colab="1"] #form-agendamento input[type="checkbox"],
+#modal-agendamento[data-readonly-colab="1"] #form-agendamento input[type="radio"] {
+  cursor: not-allowed !important;
+  opacity: 0.55;
+}
+
+/* O botão Excluir continua destacado e clicável */
+#modal-agendamento[data-readonly-colab="1"] #btn-excluir-agendamento {
+  opacity: 1 !important;
+  cursor: pointer !important;
+}

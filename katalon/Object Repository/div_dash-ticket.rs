@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>div_dash-ticket</name>
+   <tag></tag>
+   <elementGuidId>ebccd169-3b68-4fbf-a0ae-2913745a3c02</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#dash-ticket</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'dash-ticket']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'dash-ticket' and (text() = 'R$ 0,00' or . = 'R$ 0,00')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#dash-ticket</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>div</value>
+      <webElementGuid>7378ef22-c4a8-409a-9b7b-b3be641d0eec</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>dash-card-value</value>
+      <webElementGuid>59116ca9-e704-43be-98df-06dd0635a2a2</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>dash-ticket</value>
+      <webElementGuid>29f66016-445d-43f2-881e-e9e4c245b471</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 0,00</value>
+      <webElementGuid>abe94d6f-7e46-45bd-b524-8ab55aeae76e</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-dc4605b6e0c48c6de2310475e8675dd3</value>
+      <webElementGuid>2bb67587-d3ac-4e8b-a679-40285902047c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-ticket']</value>
+      <webElementGuid>86133c3f-bf02-4810-b245-0a2ba97fafdb</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-ticket']</value>
+      <webElementGuid>a9c831db-e881-4041-b4e9-9eed893585d8</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//div[@id = 'dash-ticket' and (text() = 'R$ 0,00' or . = 'R$ 0,00')]</value>
+      <webElementGuid>700b90b6-549d-4561-9332-dc9332018636</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//div[@id = 'dash-ticket' and (text() = 'R$ 86,90' or . = 'R$ 86,90')]</value>
+      <webElementGuid>b0eb73db-68b4-41fe-8201-df0d6d1d4567</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

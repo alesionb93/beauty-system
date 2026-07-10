@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>span_dash-pag-pendente</name>
+   <tag></tag>
+   <elementGuidId>f660e252-cc09-49c4-897a-059aad54bdfd</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#dash-pag-pendente</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'dash-pag-pendente']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'dash-pag-pendente' and (text() = 'R$ 150,00' or . = 'R$ 150,00')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#dash-pag-pendente</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>span</value>
+      <webElementGuid>5de6bfa8-7dca-4fb6-af16-94bbfc1b8097</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>dash-pag-rp-val</value>
+      <webElementGuid>dd2e9ab5-6427-45b2-aa7c-fadbc248765c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>dash-pag-pendente</value>
+      <webElementGuid>f7c2c185-00a6-4feb-9e88-f0b25edac69f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 150,00</value>
+      <webElementGuid>655521b0-58b8-4547-b46a-7767ad356e82</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-5d14faea55fbaeb70006b5cd4d91b07c</value>
+      <webElementGuid>16210d9e-f105-48e9-9208-567987aa9655</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-pag-pendente']</value>
+      <webElementGuid>e766eac9-0732-4c00-8ad3-5cc07c1a316b</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'dash-pag-pendente']</value>
+      <webElementGuid>12ba377a-8c93-44a0-a1b8-5929106f0eda</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'dash-pag-pendente' and (text() = 'R$ 150,00' or . = 'R$ 150,00')]</value>
+      <webElementGuid>d82262cb-9568-43c0-af12-bcf3d57cb399</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'dash-pag-pendente' and (text() = 'R$ 120,00' or . = 'R$ 120,00')]</value>
+      <webElementGuid>cdee4fa5-de42-4f06-a89e-d7c5bbbc97ce</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'dash-pag-pendente' and (text() = 'R$ 80,00' or . = 'R$ 80,00')]</value>
+      <webElementGuid>477d2dc9-8eea-4d4d-a4cf-367d7b2d112d</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

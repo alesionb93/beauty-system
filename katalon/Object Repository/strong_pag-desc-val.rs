@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_pag-desc-val</name>
+   <tag></tag>
+   <elementGuidId>02f2061a-eb5e-429f-bf34-644df09bc35f</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'pag-desc-val']</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#pag-desc-val</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#pag-desc-val</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>c9101441-2aa8-452b-8e0d-ae850e183a35</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>pag-desc-val</value>
+      <webElementGuid>5e881ab9-7e8b-4f92-8c7a-03da77366083</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>pag-v2-neg</value>
+      <webElementGuid>67ed24e8-815a-40df-a36b-6fdea8ce6cbc</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>- R$ 10,00</value>
+      <webElementGuid>813ab8ca-70bc-4e4e-9c5c-eaf41d0959ae</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-ed2ab30af9d3b15b679df8e3d79719e7</value>
+      <webElementGuid>afa7caa5-fe7e-4a21-906f-20f5ec2fb369</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-desc-val']</value>
+      <webElementGuid>40e7ffeb-84e8-45c0-b6ad-7c5a1c2deb50</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-desc-val']</value>
+      <webElementGuid>ada9a85d-53d5-4199-a7fc-7cefc56512ab</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'pag-desc-val' and (text() = '- R$ 10,00' or . = '- R$ 10,00')]</value>
+      <webElementGuid>e0ac5964-a622-47f0-b8aa-d317b1502244</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_tip-sum-tip</name>
+   <tag></tag>
+   <elementGuidId>8d7d6ea8-52f2-4631-8dc2-4b1ed5514776</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#tip-sum-tip</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'tip-sum-tip']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#tip-sum-tip</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>6499b83d-4e1d-4b2b-81c5-d3ca8a6e8b1f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>tip-sum-tip</value>
+      <webElementGuid>3ae7fd85-ed54-443b-ac18-85b97a8fbef9</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 10,00</value>
+      <webElementGuid>bdfb4302-d2f6-4991-a349-32f27ede90fb</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-285a49c254ae08e8bbbb336b6cca230a</value>
+      <webElementGuid>fe0db218-b7b0-4ad8-8bc2-1dc8eb012b87</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-tip']</value>
+      <webElementGuid>cce467cb-5e18-4b10-beae-8e1f110dbcbb</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-tip']</value>
+      <webElementGuid>ca1a1105-83ea-47c0-b5fc-8679a99e2db2</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'tip-sum-tip' and (text() = 'R$ 10,00' or . = 'R$ 10,00')]</value>
+      <webElementGuid>c9f2a43c-170f-487b-a56e-dccad49be6bb</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

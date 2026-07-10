@@ -1,0 +1,117 @@
+/* =====================================================================
+   DASHBOARD-LOADING.CSS — Overlay de carregamento do Dashboard
+   Add-on isolado. Não altera nenhum estilo existente.
+   Compatível com dashboard-loading.js v2.
+   ===================================================================== */
+
+#page-dashboard { position: relative; }
+
+/* Wrapper criado dinamicamente envolvendo todo o conteúdo abaixo dos filtros */
+#dash-content-wrap { position: relative; min-height: 120px; }
+
+/* Enquanto recalcula: esconde o conteúdo (sem reflow) */
+#page-dashboard.is-recalculating #dash-content-wrap > *:not(#dash-loading-overlay) {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Botão Aplicar desabilitado visualmente durante o cálculo */
+#page-dashboard.is-recalculating .btn-dash-apply {
+  opacity: 0.6;
+  cursor: progress !important;
+  pointer-events: none;
+}
+
+/* Overlay */
+#dash-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 60px 16px 40px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--bg, #f8f8f6) 92%, transparent) 0%,
+      color-mix(in srgb, var(--bg, #f8f8f6) 88%, transparent) 100%);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 50;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .18s ease;
+}
+
+#page-dashboard.is-recalculating #dash-loading-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dash-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 22px 28px;
+  border-radius: 14px;
+  background: var(--surface-card, var(--bg-card, #fff));
+  border: 1px solid var(--border, #e5e7eb);
+  box-shadow:
+    0 10px 30px rgba(0,0,0,.08),
+    0 2px 6px rgba(0,0,0,.04);
+  min-width: 260px;
+  max-width: 92vw;
+  text-align: center;
+}
+
+.dash-loading-spinner {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--gold, #6c3aed) 18%, transparent);
+  border-top-color: var(--gold, #6c3aed);
+  animation: dashLoadingSpin .8s linear infinite;
+}
+
+@keyframes dashLoadingSpin {
+  to { transform: rotate(360deg); }
+}
+
+.dash-loading-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text, #1a1a2e);
+  letter-spacing: .2px;
+}
+
+.dash-loading-step {
+  font-size: 12.5px;
+  color: var(--text-muted, #6b7280);
+  min-height: 18px;
+  transition: opacity .2s ease;
+}
+
+/* Dots animados */
+.dash-loading-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1ch;
+  text-align: left;
+  animation: dashLoadingDots 1.2s steps(4, end) infinite;
+}
+
+@keyframes dashLoadingDots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}
+
+/* Acessibilidade: respeita prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .dash-loading-spinner { animation-duration: 2s; }
+  .dash-loading-dots::after { animation: none; content: '...'; }
+  #dash-loading-overlay { transition: none; }
+}

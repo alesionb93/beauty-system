@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#6C3AED">
+  <title>Slotify - Selecionar Unidade</title>
+  <meta name="description" content="Slotify - Selecione a unidade que deseja acessar">
+
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+  <style>
+    :root {
+      --primary: #6C3AED;
+      --primary-dark: #5B21B6;
+      --primary-light: #EDE9FE;
+      --primary-soft: #F5F3FF;
+      --bg: linear-gradient(180deg, #F5F3FF 0%, #EDE9FE 100%);
+      --surface: #FFFFFF;
+      --text: #1A1A2E;
+      --text-muted: #6B7280;
+      --border: #E5E7EB;
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+      --shadow-md: 0 4px 16px rgba(108, 58, 237, 0.08);
+      --shadow-lg: 0 12px 32px rgba(108, 58, 237, 0.12);
+      --radius: 16px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+    }
+
+    /* ============ HEADER ============ */
+    .hero {
+      text-align: center;
+      padding: 24px 12px 32px;
+    }
+    .hero-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 18px;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      font-size: 2rem;
+    }
+    .hero h1 {
+      font-size: clamp(1.5rem, 4vw, 2rem);
+      font-weight: 800;
+      margin: 0 0 8px;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .hero p {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    /* ============ GREETING BANNER ============ */
+    .greeting {
+      background: var(--primary-light);
+      border: 1px solid rgba(108, 58, 237, 0.15);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 0 auto 24px;
+      max-width: 700px;
+      font-size: 0.95rem;
+      color: var(--text);
+      flex-wrap: wrap;
+      text-align: center;
+    }
+    .greeting-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: rgba(108, 58, 237, 0.18);
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      flex-shrink: 0;
+    }
+    .greeting b { font-weight: 700; }
+    .greeting strong { color: var(--primary); font-weight: 700; }
+
+    /* ============ TOOLBAR ============ */
+    .toolbar {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow-sm);
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    @media (min-width: 720px) {
+      .toolbar {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+    }
+    .search-box {
+      position: relative;
+    }
+    .search-box i {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+    .search-box input {
+      width: 100%;
+      padding: 12px 12px 12px 40px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      background: #F9FAFB;
+      color: var(--text);
+      outline: none;
+      transition: border-color .15s, background .15s;
+    }
+    .search-box input:focus {
+      border-color: var(--primary);
+      background: #fff;
+    }
+    .order-select {
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      font-family: inherit;
+      font-size: 0.9rem;
+      color: var(--text);
+      cursor: pointer;
+      min-width: 220px;
+    }
+
+    /* ============ GRID DE UNIDADES ============ */
+    .units-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 18px;
+    }
+    @media (min-width: 640px) {
+      .units-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (min-width: 1000px) {
+      .units-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    .unit-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 24px 20px 20px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      transition: transform .18s ease, box-shadow .18s ease;
+      border: 1px solid transparent;
+    }
+    .unit-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: rgba(108, 58, 237, 0.12);
+    }
+
+    .unit-avatar {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: #111;
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .unit-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .unit-name {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 6px;
+      line-height: 1.3;
+      min-height: 2.6em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .unit-location {
+      color: var(--primary);
+      font-size: 0.9rem;
+      margin: 0 0 18px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .unit-location i { font-size: 0.85rem; }
+
+    .unit-stats {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 14px 0;
+      border-top: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    .stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .stat-value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .stat-value i {
+      color: var(--primary);
+      font-size: 0.85rem;
+    }
+    .stat-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      letter-spacing: 0.02em;
+    }
+
+    .btn-access {
+      width: 100%;
+      padding: 12px 16px;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: background .15s ease, transform .1s ease;
+    }
+    .btn-access:hover { background: var(--primary-dark); }
+    .btn-access:active { transform: scale(0.98); }
+    .btn-access i { font-size: 0.85rem; }
+
+    /* ============ FOOTER (Sair) ============ */
+    .footer-actions {
+      display: flex;
+      justify-content: center;
+      margin-top: 32px;
+    }
+    .btn-logout {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 10px 18px;
+      border-radius: 10px;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: background .15s, color .15s;
+    }
+    .btn-logout:hover { background: #fff; color: #DC2626; border-color: #FCA5A5; }
+
+    /* ============ ESTADOS ============ */
+    .empty, .loading {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+    .empty i, .loading i {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+      display: block;
+      color: var(--primary);
+      opacity: .5;
+    }
+    .loading i { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Toast */
+    .bs-toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: #16A34A;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: .9rem;
+      font-weight: 500;
+      box-shadow: 0 10px 30px rgba(0,0,0,.25);
+      display: flex; align-items: center; gap: 10px;
+      z-index: 9999; opacity: 0;
+      transition: opacity .25s, transform .25s;
+      max-width: calc(100vw - 32px);
+    }
+    .bs-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .bs-toast.error { background: #DC2626; }
+  </style>
+</head>
+<body>
+
+  <div class="page">
+
+    <header class="hero">
+      <div class="hero-icon"><i class="fa-solid fa-shop"></i></div>
+      <h1>Selecione a unidade</h1>
+      <p>Escolha a unidade que deseja acessar para continuar</p>
+    </header>
+
+    <div class="greeting" id="greeting" style="display:none;">
+      <div class="greeting-icon"><i class="fa-solid fa-star"></i></div>
+      <div>
+        Olá, <b id="greeting-name">—</b>! Você possui acesso a
+        <strong id="greeting-count">0 unidades</strong>.
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <i class="fa-solid fa-magnifying-glass"></i>
+        <input type="text" id="search-input" placeholder="Buscar unidade..." autocomplete="off">
+      </div>
+      <select class="order-select" id="order-select">
+        <option value="nome-asc">Ordenar por: Nome A-Z</option>
+        <option value="nome-desc">Ordenar por: Nome Z-A</option>
+        <option value="recente">Ordenar por: Último acesso</option>
+      </select>
+    </div>
+
+    <div class="units-grid" id="units-grid">
+      <div class="loading"><i class="fa-solid fa-spinner"></i><div>Carregando unidades...</div></div>
+    </div>
+
+    <div class="footer-actions">
+      <button class="btn-logout" id="btn-logout">
+        <i class="fa-solid fa-right-from-bracket"></i> Sair da conta
+      </button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="supabaseClient.js"></script>
+  <script>
+    /* =====================================================================
+       SELECT-UNIDADE.JS  (v1 - 2026-06-18)
+       Tela de seleção de unidade para usuários admin/colaborador com
+       acesso a 2 ou mais tenants (via user_roles).
+       - Não toca em master_admin (esses usam select-tenant.html).
+       - Atualiza master_tenant_history a cada escolha (futuro: sugerir
+         última unidade utilizada).
+       ===================================================================== */
+    (function () {
+      'use strict';
+
+      var allUnits = [];
+      var currentUserId = null;
+      var currentUserNome = '';
+      var historyMap = {}; // tenant_id -> accessed_at
+
+      function showToast(msg, type) {
+        type = type || 'success';
+        var t = document.querySelector('.bs-toast');
+        if (t) t.remove();
+        var div = document.createElement('div');
+        div.className = 'bs-toast ' + type;
+        div.innerHTML = '<i class="fa-solid ' + (type === 'error' ? 'fa-circle-xmark' : 'fa-circle-check') + '"></i><span>' + msg + '</span>';
+        document.body.appendChild(div);
+        requestAnimationFrame(function () { div.classList.add('show'); });
+        setTimeout(function () { div.classList.remove('show'); setTimeout(function(){div.remove();}, 300); }, 3000);
+      }
+
+      function escapeHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+        });
+      }
+
+      function formatNumber(n) {
+        try { return Number(n || 0).toLocaleString('pt-BR'); } catch (_) { return String(n || 0); }
+      }
+
+      function initialOf(nome) {
+        var s = String(nome || '?').trim();
+        return s.charAt(0).toUpperCase() || '?';
+      }
+
+      function locationLabel(t) {
+        var cidade = (t.cidade || '').trim();
+        var estado = (t.estado || '').trim();
+        if (cidade && estado) return cidade + ', ' + estado;
+        if (cidade) return cidade;
+        if (estado) return estado;
+        return '—';
+      }
+
+      /* ---------------- BOOT ---------------- */
+      (async function init() {
+        var sess = await supabaseClient.auth.getSession();
+        var session = sess && sess.data ? sess.data.session : null;
+        if (!session) {
+          window.location.href = 'index.html';
+          return;
+        }
+        currentUserId = session.user.id;
+
+        // Verifica se é master_admin - se for, manda para select-tenant.html
+        var rolesResp = await supabaseClient
+          .from('user_roles')
+          .select('role, tenant_id')
+          .eq('user_id', currentUserId);
+
+        if (rolesResp.error) {
+          showToast('Erro ao buscar acessos: ' + rolesResp.error.message, 'error');
+          return;
+        }
+
+        var roles = rolesResp.data || [];
+        if (roles.some(function (r) { return r.role === 'master_admin'; })) {
+          window.location.href = 'select-tenant.html';
+          return;
+        }
+
+        /* =====================================================
+           MULTI-TENANT (v3 - 2026-06-18 - via RPC SECURITY DEFINER)
+           A RLS de tenant_group_tenants/tenants impede expansão
+           direta no client (retornava só 1 unidade). Agora usamos
+           a função SQL get_user_accessible_tenants que devolve
+           todos os tenants do grupo do usuário.
+           ===================================================== */
+        var userResp0 = await supabaseClient
+          .from('usuarios')
+          .select('nome, tenant_id')
+          .eq('id', currentUserId)
+          .maybeSingle();
+        var principalTenantId = (userResp0.data && userResp0.data.tenant_id) || null;
+        currentUserNome = (userResp0.data && userResp0.data.nome) ? userResp0.data.nome : (session.user.email || '');
+
+        if (!principalTenantId && roles.length > 0) {
+          for (var i = 0; i < roles.length; i++) {
+            if (roles[i] && roles[i].tenant_id) { principalTenantId = roles[i].tenant_id; break; }
+          }
+        }
+
+        // 1) Tenta carregar via RPC (expansão completa pelo grupo)
+        var tenantsData = [];
+        var rpcResp = await supabaseClient.rpc('get_user_accessible_tenants', { _user_id: currentUserId });
+        if (!rpcResp.error && Array.isArray(rpcResp.data)) {
+          tenantsData = rpcResp.data;
+        } else if (rpcResp.error) {
+          console.warn('[select-unidade] RPC falhou, fallback p/ user_roles:', rpcResp.error);
+        }
+
+        // 2) Fallback retrocompat: lista via user_roles + principal
+        if (tenantsData.length === 0) {
+          var fallbackIds = [];
+          roles.forEach(function (r) {
+            if (r.tenant_id && fallbackIds.indexOf(r.tenant_id) === -1) fallbackIds.push(r.tenant_id);
+          });
+          if (principalTenantId && fallbackIds.indexOf(principalTenantId) === -1) {
+            fallbackIds.push(principalTenantId);
+          }
+          if (fallbackIds.length > 0) {
+            var tResp = await supabaseClient
+              .from('tenants')
+              .select('id, nome, nome_fantasia, logo_url, cidade, estado, display_id')
+              .in('id', fallbackIds);
+            if (!tResp.error && tResp.data) tenantsData = tResp.data;
+          }
+        }
+
+        var tenantIds = tenantsData.map(function (t) { return t.id; });
+
+        if (tenantIds.length === 0) {
+          if (principalTenantId) {
+            localStorage.setItem('currentTenantId', principalTenantId);
+            await registrarHistorico(principalTenantId);
+          }
+          window.location.href = 'agenda.html';
+          return;
+        }
+
+        if (tenantIds.length === 1) {
+          localStorage.setItem('currentTenantId', tenantIds[0]);
+          await registrarHistorico(tenantIds[0]);
+          window.location.href = 'agenda.html';
+          return;
+        }
+
+        // 2+ unidades → renderiza
+        allUnits = tenantsData.map(function (t) {
+          return {
+            id: t.id,
+            nome: t.nome_fantasia || t.nome,
+            logo_url: t.logo_url || null,
+            cidade: t.cidade || '',
+            estado: t.estado || '',
+            display_id: t.display_id,
+            stats: { profissionais: '—', clientes: '—', agendamentos: '—' },
+            loaded: false
+          };
+        });
+
+        await loadHistorico();
+        loadStatsForAll();
+        renderGreeting();
+        renderUnits();
+      })();
+
+      async function loadTenants(tenantIds) {
+        // mantido por retrocompatibilidade — não utilizado no fluxo v3
+        var resp = await supabaseClient
+          .from('tenants')
+          .select('id, nome, nome_fantasia, logo_url, cidade, estado, display_id')
+          .in('id', tenantIds);
+        if (resp.error) {
+          showToast('Erro ao carregar unidades: ' + resp.error.message, 'error');
+          allUnits = [];
+          return;
+        }
+        allUnits = (resp.data || []).map(function (t) {
+          return {
+            id: t.id,
+            nome: t.nome_fantasia || t.nome,
+            logo_url: t.logo_url || null,
+            cidade: t.cidade || '',
+            estado: t.estado || '',
+            display_id: t.display_id,
+            stats: { profissionais: '—', clientes: '—', agendamentos: '—' },
+            loaded: false
+          };
+        });
+      }
+
+      async function loadHistorico() {
+        var resp = await supabaseClient
+          .from('master_tenant_history')
+          .select('tenant_id, accessed_at')
+          .eq('user_id', currentUserId)
+          .order('accessed_at', { ascending: false });
+        if (resp.error) return;
+        (resp.data || []).forEach(function (h) {
+          if (!historyMap[h.tenant_id]) historyMap[h.tenant_id] = h.accessed_at;
+        });
+      }
+
+      /* Carrega contagens (profissionais, clientes, agendamentos) de cada unidade.
+         Usa head:true para retornar somente count (RLS deve permitir SELECT). */
+      function loadStatsForAll() {
+        allUnits.forEach(function (u) { loadStats(u); });
+      }
+
+      async function loadStats(u) {
+        try {
+          var qProf = supabaseClient.from('profissionais')
+            .select('id', { count: 'exact', head: true })
+            .eq('tenant_id', u.id).eq('ativo', true);
+          var qCli = supabaseClient.from('clientes')
+            .select('id', { count: 'exact', head: true })
+            .eq('tenant_id', u.id);
+          var qAg = supabaseClient.from('agendamentos')
+            .select('id', { count: 'exact', head: true })
+            .eq('tenant_id', u.id);
+
+          var results = await Promise.all([qProf, qCli, qAg]);
+          u.stats = {
+            profissionais: results[0].error ? '—' : (results[0].count || 0),
+            clientes: results[1].error ? '—' : (results[1].count || 0),
+            agendamentos: results[2].error ? '—' : (results[2].count || 0)
+          };
+          u.loaded = true;
+          updateCardStats(u);
+        } catch (e) {
+          /* silencioso: os cards continuam funcionais sem stats */
+        }
+      }
+
+      function updateCardStats(u) {
+        var card = document.querySelector('[data-unit-id="' + u.id + '"]');
+        if (!card) return;
+        var statsEl = card.querySelector('.unit-stats');
+        if (statsEl) statsEl.innerHTML = renderStatsInner(u.stats);
+      }
+
+      function renderStatsInner(s) {
+        return (
+          '<div class="stat"><div class="stat-value"><i class="fa-solid fa-user"></i>' + formatNumber(s.profissionais) + '</div><div class="stat-label">Profissionais</div></div>' +
+          '<div class="stat"><div class="stat-value"><i class="fa-solid fa-users"></i>' + formatNumber(s.clientes) + '</div><div class="stat-label">Clientes</div></div>' +
+          '<div class="stat"><div class="stat-value"><i class="fa-solid fa-calendar-check"></i>' + formatNumber(s.agendamentos) + '</div><div class="stat-label">Agendamentos</div></div>'
+        );
+      }
+
+      function renderGreeting() {
+        var g = document.getElementById('greeting');
+        g.style.display = '';
+        var nomeCurto = (currentUserNome || '').split(' ')[0] || currentUserNome || 'usuário';
+        document.getElementById('greeting-name').textContent = nomeCurto;
+        document.getElementById('greeting-count').textContent = allUnits.length + ' unidade' + (allUnits.length === 1 ? '' : 's');
+      }
+
+      function getFiltered() {
+        var q = (document.getElementById('search-input').value || '').toLowerCase().trim();
+        var list = allUnits.slice();
+        if (q) {
+          list = list.filter(function (u) {
+            return (u.nome || '').toLowerCase().indexOf(q) >= 0
+              || (u.cidade || '').toLowerCase().indexOf(q) >= 0
+              || (u.estado || '').toLowerCase().indexOf(q) >= 0;
+          });
+        }
+        var ord = document.getElementById('order-select').value;
+        if (ord === 'nome-asc') {
+          list.sort(function (a, b) { return a.nome.localeCompare(b.nome, 'pt-BR'); });
+        } else if (ord === 'nome-desc') {
+          list.sort(function (a, b) { return b.nome.localeCompare(a.nome, 'pt-BR'); });
+        } else if (ord === 'recente') {
+          list.sort(function (a, b) {
+            var ta = historyMap[a.id] ? new Date(historyMap[a.id]).getTime() : 0;
+            var tb = historyMap[b.id] ? new Date(historyMap[b.id]).getTime() : 0;
+            return tb - ta;
+          });
+        }
+        return list;
+      }
+
+      function renderUnits() {
+        var grid = document.getElementById('units-grid');
+        var list = getFiltered();
+        if (list.length === 0) {
+          grid.innerHTML = '<div class="empty"><i class="fa-solid fa-shop"></i><div>Nenhuma unidade encontrada.</div></div>';
+          return;
+        }
+        grid.innerHTML = list.map(function (u) {
+          var avatar = u.logo_url
+            ? '<img src="' + escapeHtml(u.logo_url) + '" alt="' + escapeHtml(u.nome) + '">'
+            : escapeHtml(initialOf(u.nome));
+          return (
+            '<article class="unit-card" data-unit-id="' + escapeHtml(u.id) + '">' +
+              '<div class="unit-avatar">' + avatar + '</div>' +
+              '<h3 class="unit-name">' + escapeHtml(u.nome) + '</h3>' +
+              '<div class="unit-location"><i class="fa-solid fa-location-dot"></i>' + escapeHtml(locationLabel(u)) + '</div>' +
+              '<div class="unit-stats">' + renderStatsInner(u.stats) + '</div>' +
+              '<button class="btn-access" data-action="access" data-id="' + escapeHtml(u.id) + '" data-nome="' + escapeHtml(u.nome) + '">' +
+                'Acessar unidade <i class="fa-solid fa-arrow-right"></i>' +
+              '</button>' +
+            '</article>'
+          );
+        }).join('');
+      }
+
+      async function registrarHistorico(tenantId) {
+        try {
+          await supabaseClient.from('master_tenant_history').insert({
+            user_id: currentUserId,
+            tenant_id: tenantId,
+            accessed_at: new Date().toISOString()
+          });
+        } catch (e) { /* não crítico */ }
+      }
+
+      async function acessarUnidade(id, nome) {
+        localStorage.setItem('currentTenantId', id);
+        localStorage.setItem('currentTenantNome', nome || '');
+        await registrarHistorico(id);
+        window.location.href = 'agenda.html';
+      }
+
+      /* ---------------- EVENTOS ---------------- */
+      document.getElementById('search-input').addEventListener('input', renderUnits);
+      document.getElementById('order-select').addEventListener('change', renderUnits);
+      document.getElementById('btn-logout').addEventListener('click', async function () {
+        await supabaseClient.auth.signOut();
+        localStorage.removeItem('currentTenantId');
+        localStorage.removeItem('currentTenantNome');
+        window.location.href = 'index.html';
+      });
+
+      document.getElementById('units-grid').addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-action="access"]');
+        if (btn) {
+          acessarUnidade(btn.getAttribute('data-id'), btn.getAttribute('data-nome'));
+          return;
+        }
+        var card = e.target.closest('.unit-card');
+        if (card) {
+          var cid = card.getAttribute('data-unit-id');
+          var u = allUnits.find(function (x) { return x.id === cid; });
+          if (u) acessarUnidade(u.id, u.nome);
+        }
+      });
+    })();
+  </script>
+
+</body>
+</html>

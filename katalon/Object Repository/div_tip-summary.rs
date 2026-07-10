@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>div_tip-summary</name>
+   <tag></tag>
+   <elementGuidId>6a9b4e7e-913b-46ad-b6c8-72e5188d02bb</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#tip-summary</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'tip-summary']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:text=&quot;Total do atendimentoR$ 80,00CaixinhaR$ 0,00Total finalR$ 80,00&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>div</value>
+      <webElementGuid>c296f5ff-462f-461a-ae82-45a39fa676f0</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>tip-summary</value>
+      <webElementGuid>cadc440e-7984-4829-8d63-e2dd119ccbff</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>tip-summary</value>
+      <webElementGuid>4029fe34-dce3-42c6-97ef-d18cf26fb7a4</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>Total do atendimentoR$ 80,00CaixinhaR$ 0,00Total finalR$ 80,00</value>
+      <webElementGuid>1308e805-ca3c-4b45-9277-683e7da6aa6b</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-b696b347a025e1e366541c5b293d5771</value>
+      <webElementGuid>3dee29d9-4c91-47d1-82fa-14f1f484b330</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-summary']</value>
+      <webElementGuid>3b6b5ebd-9076-4a45-a451-d75807c85168</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-summary']</value>
+      <webElementGuid>5ea925c1-64d6-4982-b7e4-59234a8d2800</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//div[@id = 'tip-summary' and (text() = 'Total do atendimentoR$ 80,00CaixinhaR$ 0,00Total finalR$ 80,00' or . = 'Total do atendimentoR$ 80,00CaixinhaR$ 0,00Total finalR$ 80,00')]</value>
+      <webElementGuid>f40b1699-b9d9-4753-9ff0-2db9e2e168c3</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

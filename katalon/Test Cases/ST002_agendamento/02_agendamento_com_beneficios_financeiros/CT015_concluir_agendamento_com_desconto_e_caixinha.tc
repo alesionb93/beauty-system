@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT015_concluir_agendamento_com_desconto_e_caixinha</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>80bcc426-1a65-4618-9f4b-bbcf6978eef3</testCaseGuid>
+</TestCaseEntity>

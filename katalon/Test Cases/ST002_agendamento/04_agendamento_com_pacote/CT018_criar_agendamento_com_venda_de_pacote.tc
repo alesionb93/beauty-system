@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT018_criar_agendamento_com_venda_de_pacote</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>03d48280-6563-4201-8eec-68f320cb5e9f</testCaseGuid>
+</TestCaseEntity>

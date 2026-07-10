@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT002_login_sucesso</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>831b1747-36b1-48ce-9d03-1bacee988d77</testCaseGuid>
+</TestCaseEntity>

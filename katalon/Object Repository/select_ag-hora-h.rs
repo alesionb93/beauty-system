@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>select_ag-hora-h</name>
+   <tag></tag>
+   <elementGuidId>5e2f27a6-3b24-4e10-b4bc-a4a467e8454b</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#ag-hora-h</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'ag-hora-h']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'ag-hora-h' and (text() = '070809101112131415161718192021' or . = '070809101112131415161718192021')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#ag-hora-h</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>select</value>
+      <webElementGuid>e3d014c6-4c76-417a-9b28-83aa1ac2c5f1</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>ag-hora-h</value>
+      <webElementGuid>8ea64cc6-fb34-4f2f-8764-56948f8fa18a</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>070809101112131415161718192021</value>
+      <webElementGuid>7f8eb1b4-b5b8-4545-a980-45d85e930cf7</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-5dbaf378c1aeedb6194a783d52ace7b8</value>
+      <webElementGuid>a23d568d-2d7e-43a0-9801-8ac09d46d8d7</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'ag-hora-h']</value>
+      <webElementGuid>c0dc4dcd-eacf-48eb-ba53-13a864eed86e</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'ag-hora-h']</value>
+      <webElementGuid>d03280ba-81b7-490f-b3a5-096ae0fd4305</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//select[@id = 'ag-hora-h' and (text() = '070809101112131415161718192021' or . = '070809101112131415161718192021')]</value>
+      <webElementGuid>316d1ba7-de18-483b-bec7-00b895d0cf68</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

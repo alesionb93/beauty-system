@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>strong_tip-sum-atend</name>
+   <tag></tag>
+   <elementGuidId>83d01aa1-d17a-49fc-9f29-978fa85c7b7d</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#tip-sum-atend</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'tip-sum-atend']</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:label=&quot;Adicionar caixinha&quot;i >> internal:text=&quot;R$ 80,00&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>strong</value>
+      <webElementGuid>553d25b7-594d-4176-b23e-9a75d0428835</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>tip-sum-atend</value>
+      <webElementGuid>4eb0215b-7a41-4e29-abd4-07b4e75ba6f5</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 80,00</value>
+      <webElementGuid>11ff10ea-b1fd-4307-a51a-2a62304c0dd5</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-7507afd06dbca5b45150011f162ff87f</value>
+      <webElementGuid>4d8dc2bf-60d1-4aca-b42c-3c00ff850204</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-atend']</value>
+      <webElementGuid>f8364f7d-d75d-43e1-96ba-dce750fc93a2</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'tip-sum-atend']</value>
+      <webElementGuid>3d899a92-acc8-4092-9e0f-3809f11d65df</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//strong[@id = 'tip-sum-atend' and (text() = 'R$ 80,00' or . = 'R$ 80,00')]</value>
+      <webElementGuid>331e1b7c-c1e6-47ab-b3a8-369b344fa730</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

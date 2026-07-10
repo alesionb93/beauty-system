@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT021_concluir_agendamento_com_uso_de_pacote</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>6d00de96-d465-442a-8bac-9fb9e185987e</testCaseGuid>
+</TestCaseEntity>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT013_concluir_agendamento_com_caixinha</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>9754df6a-2c6e-4738-b550-0b69c6dc7341</testCaseGuid>
+</TestCaseEntity>

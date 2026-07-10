@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>p_login-error</name>
+   <tag></tag>
+   <elementGuidId>356177f9-8dc0-47b2-905a-92d5fba5b985</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'login-error']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'login-error' and (text() = 'Usuário inativo. Contate o administrador do sistema.' or . = 'Usuário inativo. Contate o administrador do sistema.')]</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#login-error</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:text=&quot;Usuário inativo. Contate o administrador do sistema.&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>p</value>
+      <webElementGuid>063f35a1-da33-4750-b910-c9ffb957d810</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>login-error</value>
+      <webElementGuid>dd8a41ff-0503-461a-ad8d-f47e4cf930e4</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>login-error</value>
+      <webElementGuid>547c50ee-f51e-4343-98b4-9cc440c951e2</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>Usuário inativo. Contate o administrador do sistema.</value>
+      <webElementGuid>0b4e09bd-8f46-4dfa-8405-86fdbe72f72f</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-1cb22841d1a38e826ccffbf5e8e9f427</value>
+      <webElementGuid>91dc3973-8eb3-4b38-96a3-8baed89937fe</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'login-error']</value>
+      <webElementGuid>c18ffe3b-2e15-4391-9612-127cd0a50dca</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'login-error']</value>
+      <webElementGuid>a968bd62-0fea-4e12-bf0a-e62047d9820c</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//p[@id = 'login-error' and (text() = 'Usuário inativo. Contate o administrador do sistema.' or . = 'Usuário inativo. Contate o administrador do sistema.')]</value>
+      <webElementGuid>6f5bb637-c00c-418f-9b38-762f6a7f283f</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//p[@id = 'login-error' and (text() = 'Login ou senha incorretos.' or . = 'Login ou senha incorretos.')]</value>
+      <webElementGuid>2be2c16d-b6f9-4fc1-bd5a-fa299897bae2</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

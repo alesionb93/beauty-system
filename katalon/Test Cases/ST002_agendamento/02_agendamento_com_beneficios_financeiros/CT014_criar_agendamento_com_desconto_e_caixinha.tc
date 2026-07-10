@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT014_criar_agendamento_com_desconto_e_caixinha</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>7c4eb8dc-f5c7-4c58-a1ac-b166606ece8e</testCaseGuid>
+</TestCaseEntity>

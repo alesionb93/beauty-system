@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT005_login_vazio</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>99f1b9ec-1b9a-4e3c-819d-08c429b0afcc</testCaseGuid>
+</TestCaseEntity>

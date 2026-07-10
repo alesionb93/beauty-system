@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>span_pag-total</name>
+   <tag></tag>
+   <elementGuidId>ffd6b3a6-3b34-437d-b5ef-480b72f84445</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>CSS</key>
+         <value>#pag-total</value>
+      </entry>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'pag-total']</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[@id = 'pag-total' and (text() = 'R$ 90,00' or . = 'R$ 90,00')]</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>#pag-total</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>span</value>
+      <webElementGuid>4f1b2954-b8e8-4bf7-8b06-babdefb6add8</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>pag-total</value>
+      <webElementGuid>94d32150-a86f-4fa8-bb90-8a49985617da</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>pag-total</value>
+      <webElementGuid>b0ea6b98-2228-4236-8a79-e6b59e71eac3</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>R$ 90,00</value>
+      <webElementGuid>c295b342-fbca-4cf6-b418-42afc9f52a83</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-5299e82d3839e76ce56211f9e99a0be1</value>
+      <webElementGuid>8cf26cd6-b451-4bb8-8a73-235ca5364c86</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-total']</value>
+      <webElementGuid>a6348edc-36db-400f-9989-6064fd2c71ae</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'pag-total']</value>
+      <webElementGuid>c2ae91e2-61f6-44ed-85ed-6185d2a12f44</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'pag-total' and (text() = 'R$ 90,00' or . = 'R$ 90,00')]</value>
+      <webElementGuid>41247633-6dfb-40d3-a54d-267ac2805a1e</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//span[@id = 'pag-total' and (text() = 'R$ 70,00' or . = 'R$ 70,00')]</value>
+      <webElementGuid>8e51f859-3b00-4251-82da-706bef4f5258</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

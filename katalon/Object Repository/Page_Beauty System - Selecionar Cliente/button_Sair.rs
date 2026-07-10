@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>button_Sair</name>
+   <tag></tag>
+   <elementGuidId>a2cb9abf-d413-44a5-962d-383420b181a5</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' btn-sair-tenant ')]</value>
+      </entry>
+      <entry>
+         <key>BASIC</key>
+         <value>//*[(text() = '
+             Sair
+          ' or . = '
+             Sair
+          ')]</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>.btn-sair-tenant</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=button[name=&quot; Sair&quot;i]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>button</value>
+      <webElementGuid>be981d10-7d0a-4e75-b4b4-7f3ac1a0c45c</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>btn-sair-tenant</value>
+      <webElementGuid>6626cb9c-7660-474a-a723-43936d9ea634</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>onclick</name>
+      <type>Main</type>
+      <value>logoutTenant()</value>
+      <webElementGuid>9a21330b-dd2b-49b0-9507-3046a1d4299a</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>
+             Sair
+          </value>
+      <webElementGuid>b2d09f85-c8cc-4633-8166-ea9cb1a79cb3</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-8687a876807a9c725fdcb05756e46c42</value>
+      <webElementGuid>8163f7a7-e41f-461b-b65a-a58d6b1b2243</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' btn-sair-tenant ')]</value>
+      <webElementGuid>0bc712ee-f79b-4abf-826c-d78ea0b41507</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@class and contains(concat(' ', normalize-space(@class), ' '), ' btn-sair-tenant ')]</value>
+      <webElementGuid>5e17a66a-38cc-4b9b-884c-54e48314f331</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//button[(text() = '
+             Sair
+          ' or . = '
+             Sair
+          ')]</value>
+      <webElementGuid>e6f839b3-b22d-492b-ba46-2d8eb3d7dd45</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>h2_Agendamentos</name>
+   <tag></tag>
+   <elementGuidId>be7a3bc5-997c-4f55-8715-6559c7e416c1</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'page-agendamentos']//h2</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#page-agendamentos h2</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:role=heading[name=&quot;Agendamentos&quot;i]</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>h2</value>
+      <webElementGuid>51650c92-47e7-477b-bd61-5b46a9b4fef6</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>Agendamentos</value>
+      <webElementGuid>25da33ab-d2ef-47c4-bdb7-49b74cb10391</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-a8160e29c49c8b7c97a7db143446c40b</value>
+      <webElementGuid>fa0dd5eb-1871-4248-bbd8-ec0b6b8e4981</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'page-agendamentos']//h2</value>
+      <webElementGuid>909a1254-d6d2-4305-bcda-05f029bb7fd8</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'page-agendamentos']//h2</value>
+      <webElementGuid>e65ce7ad-07de-4569-bd4d-4605a7117df3</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//h2[(text() = 'Agendamentos' or . = 'Agendamentos')]</value>
+      <webElementGuid>ae46acb9-8fb5-48c6-9aba-e9826b8bc0a2</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

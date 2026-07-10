@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<WebElementEntity>
+   <description></description>
+   <name>p_login-error</name>
+   <tag></tag>
+   <elementGuidId>39c68a76-048b-4523-812a-6b6968ab0573</elementGuidId>
+   <selectorCollection>
+      <entry>
+         <key>XPATH</key>
+         <value>//*[@id = 'login-error']</value>
+      </entry>
+      <entry>
+         <key>CSS</key>
+         <value>#login-error</value>
+      </entry>
+   </selectorCollection>
+   <selectorMethod>XPATH</selectorMethod>
+   <smartLocatorCollection>
+      <entry>
+         <key>SMART_LOCATOR</key>
+         <value>internal:text=&quot;Preencha login e senha.&quot;i</value>
+      </entry>
+   </smartLocatorCollection>
+   <smartLocatorEnabled>false</smartLocatorEnabled>
+   <useRalativeImagePath>true</useRalativeImagePath>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>tag</name>
+      <type>Main</type>
+      <value>p</value>
+      <webElementGuid>cb329108-96e8-447f-a230-2bda26f8692d</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>class</name>
+      <type>Main</type>
+      <value>login-error</value>
+      <webElementGuid>c45bbb80-b6bd-4bf2-94cb-8fa0567e939d</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>id</name>
+      <type>Main</type>
+      <value>login-error</value>
+      <webElementGuid>7eb6c5de-a17a-42d2-a009-feaabd0da1e5</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>true</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>text</name>
+      <type>Main</type>
+      <value>Preencha login e senha.</value>
+      <webElementGuid>0912c9a9-ab8c-4a9a-a226-d8aacbdfbda7</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>parent</name>
+      <type>Main</type>
+      <value>md5.v1-1cb22841d1a38e826ccffbf5e8e9f427</value>
+      <webElementGuid>f3a3b67c-4984-4681-a5b7-345c98489f34</webElementGuid>
+   </webElementProperties>
+   <webElementProperties>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath</name>
+      <type>Main</type>
+      <value>//*[@id = 'login-error']</value>
+      <webElementGuid>6f0b4e99-cbd3-43c4-a6e7-da8be4f1fed4</webElementGuid>
+   </webElementProperties>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:attributes</name>
+      <type>Main</type>
+      <value>//*[@id = 'login-error']</value>
+      <webElementGuid>64d8e166-2d71-42a4-956a-a521a680a23f</webElementGuid>
+   </webElementXpaths>
+   <webElementXpaths>
+      <isSelected>false</isSelected>
+      <matchCondition>equals</matchCondition>
+      <name>xpath:customAttributes</name>
+      <type>Main</type>
+      <value>//p[@id = 'login-error' and (text() = 'Preencha login e senha.' or . = 'Preencha login e senha.')]</value>
+      <webElementGuid>335a13f8-1a50-47e4-864d-648b9d46e4cd</webElementGuid>
+   </webElementXpaths>
+</WebElementEntity>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TestCaseEntity>
+   <description></description>
+   <name>CT008_agendamento_simples</name>
+   <tag></tag>
+   <comment></comment>
+   <recordOption>OTHER</recordOption>
+   <testCaseGuid>3e34af95-3102-48fb-a9df-95fa2fc39bea</testCaseGuid>
+</TestCaseEntity>
