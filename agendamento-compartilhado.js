@@ -714,7 +714,7 @@
   async function confirmBannerCropper() {
     if (!sgbCropper) return closeBannerCropper();
     var canvas = sgbCropper.getCroppedCanvas({
-      width: 1600, height: Math.round(1600 / BANNER_ASPECT),
+      width: 1200, height: Math.round(1200 / BANNER_ASPECT),
       imageSmoothingEnabled: true, imageSmoothingQuality: 'high', fillColor: '#000'
     });
     if (!canvas) return fb('Não foi possível recortar a imagem.', 'err');
@@ -722,7 +722,7 @@
       if (!blob) return fb('Falha ao gerar imagem.', 'err');
       closeBannerCropper();
       await uploadBanner(blob);
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.82);
   }
 
   async function uploadBanner(blob) {
@@ -733,7 +733,7 @@
     try {
       var path = currentGroupRef.group_id + '/banner-' + Date.now() + '.jpg';
       var up = await sb.storage.from(BANNER_BUCKET).upload(path, blob, {
-        cacheControl: '3600', upsert: false, contentType: 'image/jpeg'
+        cacheControl: '31536000', upsert: false, contentType: 'image/jpeg'
       });
       if (up.error) throw up.error;
       var pub = sb.storage.from(BANNER_BUCKET).getPublicUrl(path);

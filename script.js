@@ -5111,11 +5111,62 @@ async function executarExcluirProfissional() {
   renderProfessionals();
 }
 
+
+// ==== [Slotify] Helper cirúrgico de compressão local antes do upload ====
+// Reduz dimensões (mantendo proporção, sem ampliar) e comprime via canvas.
+// Não altera o File original. Retorna Blob no MIME solicitado ou null em falha.
+function __slotifyResizeImageToBlob(file, maxW, maxH, mime, quality) {
+  return new Promise(function(resolve){
+    try {
+      if (!file || !(file instanceof Blob)) return resolve(null);
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){
+        try {
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (!w || !h) { URL.revokeObjectURL(url); return resolve(null); }
+          var scale = Math.min(1, (maxW||w)/w, (maxH||h)/h);
+          var tw = Math.max(1, Math.round(w * scale));
+          var th = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = tw; canvas.height = th;
+          var ctx = canvas.getContext('2d');
+          if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0,0,tw,th); }
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, tw, th);
+          canvas.toBlob(function(blob){
+            URL.revokeObjectURL(url);
+            resolve(blob || null);
+          }, mime || 'image/jpeg', (typeof quality === 'number' ? quality : 0.85));
+        } catch(e){ try{URL.revokeObjectURL(url);}catch(_){} resolve(null); }
+      };
+      img.onerror = function(){ try{URL.revokeObjectURL(url);}catch(_){} resolve(null); };
+      img.src = url;
+    } catch(e){ resolve(null); }
+  });
+}
+
 async function uploadProfFoto(file, profNome) {
-  var fileExt = file.name.split('.').pop();
+  var fileExt = (file && file.name ? file.name.split('.').pop() : 'jpg');
+  var uploadBody = file;
+  var contentType = (file && file.type) || undefined;
+  try {
+    var _compressed = await __slotifyResizeImageToBlob(file, 512, 512, 'image/jpeg', 0.85);
+    if (_compressed && _compressed.type === 'image/jpeg') {
+      uploadBody = _compressed;
+      contentType = 'image/jpeg';
+      fileExt = 'jpg';
+    } else {
+      console.warn('[uploadProfFoto] compressão falhou, usando arquivo original');
+    }
+  } catch (_e) { console.warn('[uploadProfFoto] erro na compressão, usando arquivo original', _e); }
   var fileName = profNome.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now() + '.' + fileExt;
   try {
-    var resp = await supabaseClient.storage.from('profissionais').upload(fileName, file, { cacheControl: '3600', upsert: true });
+    var _opts = { cacheControl: '31536000', upsert: true };
+    if (contentType) _opts.contentType = contentType;
+    var resp = await supabaseClient.storage.from('profissionais').upload(fileName, uploadBody, _opts);
     if (resp.error) { console.warn('Storage upload falhou:', resp.error.message); return await fileToDataUrl(file); }
     var urlResp = supabaseClient.storage.from('profissionais').getPublicUrl(fileName);
     return urlResp.data.publicUrl;
@@ -9586,8 +9637,8 @@ function acceptUpsell(btn) {
   function confirmCropper() {
     if (!state.cropper) return closeCropper();
     var canvas = state.cropper.getCroppedCanvas({
-      width: 1600,
-      height: Math.round(1600 / ASPECT),
+      width: 1200,
+      height: Math.round(1200 / ASPECT),
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high',
       fillColor: '#000'
@@ -9595,11 +9646,11 @@ function acceptUpsell(btn) {
     if (!canvas) { fb('Não foi possível recortar a imagem.', 'err'); return; }
     canvas.toBlob(function (blob) {
       if (!blob) { fb('Falha ao gerar imagem.', 'err'); return; }
-      var dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
       state.pendingNew.push({ blob: blob, dataUrl: dataUrl });
       closeCropper();
       renderGrid();
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.82);
   }
 
   // ============================================================
@@ -9636,7 +9687,8 @@ function acceptUpsell(btn) {
         var path = tid + '/' + uuid() + '.jpg';
         var up = await supabaseClient.storage.from(BUCKET).upload(path, item.blob, {
           contentType: 'image/jpeg',
-          upsert: false
+          upsert: false,
+          cacheControl: '31536000'
         });
         if (up.error) throw up.error;
 
@@ -11015,7 +11067,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
   function confirmarCropProduto(){
     if (!produtoCropper) return cancelarCropProduto();
     var canvas = produtoCropper.getCroppedCanvas({
-      width: 800, height: 800,
+      width: 512, height: 512,
       imageSmoothingEnabled: true,
       imageSmoothingQuality: 'high',
       fillColor: '#fff'
@@ -11024,11 +11076,11 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
     canvas.toBlob(function(blob){
       if (!blob) { toast('Falha ao gerar imagem.', 'error'); return; }
       produtoFotoBlob = blob;
-      produtoFotoDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      produtoFotoDataUrl = canvas.toDataURL('image/jpeg', 0.85);
       produtoFotoRemovida = false;
       atualizarPreviewFoto();
       cancelarCropProduto();
-    }, 'image/jpeg', 0.9);
+    }, 'image/jpeg', 0.85);
   }
 
   function produtoCropZoom(d){ if (produtoCropper) produtoCropper.zoom(d); }
@@ -11038,7 +11090,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
     if (!blob) return null;
     var path = (tenantId || 'sem-tenant') + '/' + Date.now() + '_' + Math.random().toString(36).slice(2,9) + '.jpg';
     var up = await supabaseClient.storage.from(BUCKET_PROD).upload(path, blob, {
-      contentType: 'image/jpeg', upsert: false
+      contentType: 'image/jpeg', upsert: false, cacheControl: '31536000'
     });
     if (up.error) {
       console.error('[produtos] upload erro:', up.error);
@@ -13119,13 +13171,32 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
 
   async function uploadDcLogo(file, tenantId) {
     var fileExt = (file.name.split('.').pop() || 'png').toLowerCase();
-    var fileName = 'tenant-' + tenantId + '.' + fileExt;
+    var uploadBody = file;
+    var contentType = file.type || undefined;
     try {
-      var resp = await supabaseClient.storage.from('tenant-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      // Preserva transparência quando a origem for PNG/WebP; caso contrário, JPEG.
+      var _srcType = (file.type || '').toLowerCase();
+      var _outMime, _outExt, _quality;
+      if (_srcType === 'image/png') { _outMime = 'image/png'; _outExt = 'png'; _quality = undefined; }
+      else if (_srcType === 'image/webp') { _outMime = 'image/webp'; _outExt = 'webp'; _quality = 0.85; }
+      else { _outMime = 'image/jpeg'; _outExt = 'jpg'; _quality = 0.85; }
+      var _compressed = await __slotifyResizeImageToBlob(file, 512, 512, _outMime, _quality);
+      if (_compressed && _compressed.type === _outMime) {
+        uploadBody = _compressed;
+        contentType = _outMime;
+        fileExt = _outExt;
+      } else {
+        console.warn('[uploadDcLogo] compressão falhou, usando arquivo original');
+      }
+    } catch (_e) { console.warn('[uploadDcLogo] erro na compressão, usando arquivo original', _e); }
+    var fileName = 'tenant-' + tenantId + '-' + Date.now() + '.' + fileExt;
+    try {
+      var _opts = { cacheControl: '31536000', upsert: false };
+      if (contentType) _opts.contentType = contentType;
+      var resp = await supabaseClient.storage.from('tenant-logos').upload(fileName, uploadBody, _opts);
       if (resp.error) { console.warn('[dc] upload logo falhou:', resp.error.message); return null; }
       var urlResp = supabaseClient.storage.from('tenant-logos').getPublicUrl(fileName);
-      // cache-bust
-      return urlResp.data.publicUrl + '?t=' + Date.now();
+      return urlResp.data.publicUrl;
     } catch (err) { console.warn('[dc] erro upload logo:', err); return null; }
   }
 

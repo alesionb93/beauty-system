@@ -1,3 +1,37 @@
+
+// ==== [Slotify] Helper cirúrgico de compressão local antes do upload ====
+function __slotifyResizeThemeLogo(file, maxW, maxH, mime, quality) {
+  return new Promise(function(resolve){
+    try {
+      if (!file || !(file instanceof Blob)) return resolve(null);
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function(){
+        try {
+          var w = img.naturalWidth || img.width;
+          var h = img.naturalHeight || img.height;
+          if (!w || !h) { URL.revokeObjectURL(url); return resolve(null); }
+          var scale = Math.min(1, (maxW||w)/w, (maxH||h)/h);
+          var tw = Math.max(1, Math.round(w * scale));
+          var th = Math.max(1, Math.round(h * scale));
+          var canvas = document.createElement('canvas');
+          canvas.width = tw; canvas.height = th;
+          var ctx = canvas.getContext('2d');
+          if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0,0,tw,th); }
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, tw, th);
+          canvas.toBlob(function(blob){
+            URL.revokeObjectURL(url);
+            resolve(blob || null);
+          }, mime || 'image/jpeg', (typeof quality === 'number' ? quality : 0.85));
+        } catch(e){ try{URL.revokeObjectURL(url);}catch(_){} resolve(null); }
+      };
+      img.onerror = function(){ try{URL.revokeObjectURL(url);}catch(_){} resolve(null); };
+      img.src = url;
+    } catch(e){ resolve(null); }
+  });
+}
 (function() {
   'use strict';
 
@@ -1102,8 +1136,28 @@
     // Upload logo if needed. Se o Supabase não existir no local, mantém o dataURL como fallback local.
     if (temaLogoFile && typeof supabaseClient !== 'undefined') {
       var ext = (temaLogoFile.name.split('.').pop() || 'png').toLowerCase();
+      var uploadBody = temaLogoFile;
+      var contentType = temaLogoFile.type || undefined;
+      // Compressão local: máx 512x512 preservando transparência (PNG/WebP) ou JPEG q=0.85.
+      try {
+        var _srcType = (temaLogoFile.type || '').toLowerCase();
+        var _outMime, _outExt, _quality;
+        if (_srcType === 'image/png') { _outMime = 'image/png'; _outExt = 'png'; _quality = undefined; }
+        else if (_srcType === 'image/webp') { _outMime = 'image/webp'; _outExt = 'webp'; _quality = 0.85; }
+        else { _outMime = 'image/jpeg'; _outExt = 'jpg'; _quality = 0.85; }
+        var _compressed = await __slotifyResizeThemeLogo(temaLogoFile, 512, 512, _outMime, _quality);
+        if (_compressed && _compressed.type === _outMime) {
+          uploadBody = _compressed;
+          contentType = _outMime;
+          ext = _outExt;
+        } else {
+          console.warn('[tema logo] compressão falhou, usando arquivo original');
+        }
+      } catch (_e) { console.warn('[tema logo] erro na compressão, usando arquivo original', _e); }
       var path = 'logos/' + tenantId + '/logo_' + Date.now() + '.' + ext;
-      var uploadResp = await supabaseClient.storage.from('agenda-assets').upload(path, temaLogoFile, { upsert: true });
+      var _opts = { upsert: true, cacheControl: '31536000' };
+      if (contentType) _opts.contentType = contentType;
+      var uploadResp = await supabaseClient.storage.from('agenda-assets').upload(path, uploadBody, _opts);
       if (uploadResp.error) {
         mostrarFeedback('Erro ao fazer upload da logo: ' + uploadResp.error.message, false);
         return;
