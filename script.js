@@ -5,8 +5,8 @@
    ANTIGA em cache. Force reload (Ctrl+F5) ou suba CACHE_VERSION
    no service-worker.js.
    ============================================================ */
-window.__SCRIPT_JS_VERSION__ = 'v15-config-colaborador-meu-perfil-2026-05-13';
-console.log('%c✅ SCRIPT.JS v15 INICIOU — config colaborador restrita a Meu Perfil', 'background:#16a34a;color:#fff;padding:4px 8px;border-radius:4px;font-weight:700', window.__SCRIPT_JS_VERSION__);
+window.__SCRIPT_JS_VERSION__ = 'v16-limite-usuarios-dinamico-2026-07-30';
+console.log('%c✅ SCRIPT.JS v16 INICIOU — limite de usuários 100% dinâmico (tenants.max_active_users)', 'background:#16a34a;color:#fff;padding:4px 8px;border-radius:4px;font-weight:700', window.__SCRIPT_JS_VERSION__);
 try { document.documentElement.setAttribute('data-script-version', window.__SCRIPT_JS_VERSION__); } catch(_) {}
 try {
   if (/icons\/Beauti-System/i.test(location.pathname)) {
@@ -1163,6 +1163,9 @@ async function applyPermissions() {
       }
     }
   }
+
+  // [role-visibility] Aplica a visibilidade dos itens de menu conforme a role.
+  if (typeof window.applyMenuRoleVisibility === 'function') window.applyMenuRoleVisibility();
 
   // Mostrar/ocultar elementos master-only (ex: Tema da Agenda)
   document.querySelectorAll('.master-only-tab, .master-only-panel').forEach(function(el) {
@@ -6671,7 +6674,42 @@ function renderUsuarios() {
 /* Toggle inativar/ativar — persistência real no Supabase (usuarios.ativo) */
 var _pendingToggleUserId = null;
 var _pendingToggleAction = null; // 'ativar' | 'inativar'
-var MAX_USUARIOS_ATIVOS = 4;
+// Limite de usuários ativos vem EXCLUSIVAMENTE de tenants.max_active_users (dinâmico por tenant).
+// Nenhum valor fixo de limite existe no código; o 3 abaixo é apenas fallback se a coluna estiver ausente/inacessível.
+var DEFAULT_MAX_USUARIOS_ATIVOS = 3;
+var __maxAtivosCache = { tenantId: null, valor: null, ts: 0 };
+
+function __resolveTenantIdParaLimite(tenantId) {
+  if (tenantId) return tenantId;
+  try { if (typeof getCurrentTenantId === 'function') { var t = getCurrentTenantId(); if (t) return t; } } catch (_) {}
+  try { if (typeof currentUser !== 'undefined' && currentUser && currentUser.tenantId) return currentUser.tenantId; } catch (_) {}
+  try { if (window.currentTenantId) return window.currentTenantId; } catch (_) {}
+  try { return localStorage.getItem('currentTenantId'); } catch (_) {}
+  return null;
+}
+
+async function getMaxUsuariosAtivos(tenantId) {
+  var id = __resolveTenantIdParaLimite(tenantId);
+  if (!id) return DEFAULT_MAX_USUARIOS_ATIVOS;
+
+  var agora = Date.now();
+  if (__maxAtivosCache.tenantId === id && __maxAtivosCache.valor && (agora - __maxAtivosCache.ts) < 30000) {
+    return __maxAtivosCache.valor;
+  }
+
+  try {
+    var resp = await supabaseClient.from('tenants').select('max_active_users').eq('id', id).maybeSingle();
+    if (resp.error) { console.error('Erro ao buscar max_active_users:', resp.error); return DEFAULT_MAX_USUARIOS_ATIVOS; }
+    var v = resp.data && resp.data.max_active_users;
+    var n = typeof v === 'number' ? v : parseInt(v, 10);
+    var valor = (isFinite(n) && n > 0) ? n : DEFAULT_MAX_USUARIOS_ATIVOS;
+    __maxAtivosCache = { tenantId: id, valor: valor, ts: agora };
+    return valor;
+  } catch (e) { console.error('Falha ao buscar limite do tenant:', e); return DEFAULT_MAX_USUARIOS_ATIVOS; }
+}
+
+function invalidarCacheMaxUsuariosAtivos() { __maxAtivosCache = { tenantId: null, valor: null, ts: 0 }; }
+try { window.getMaxUsuariosAtivos = getMaxUsuariosAtivos; window.invalidarCacheMaxUsuariosAtivos = invalidarCacheMaxUsuariosAtivos; } catch (_) {}
 
 function toggleUsuarioAtivo(userId) {
   var user = (allUsuarios || []).find(function(u) { return u.id === userId; });
@@ -6707,16 +6745,16 @@ async function confirmToggleUsuarioAtivo() {
     return;
   }
 
-  // 🔒 Limite: no máximo 3 usuários ativos por tenant
+  // 🔒 Limite: usuários ativos por tenant (dinâmico, tenants.max_active_users)
   if (action === 'ativar') {
     var usuariosAtivos = (allUsuarios || []).filter(function(u) { return u.ativo !== false; }).length;
-    if (usuariosAtivos >= MAX_USUARIOS_ATIVOS) {
-      // Fecha o modal ANTES de mostrar o toast (UX consistente)
+    var maxUsuariosAtivos = await getMaxUsuariosAtivos();
+    if (usuariosAtivos >= maxUsuariosAtivos) {
       fecharModaisConfirmacao();
       _pendingToggleUserId = null;
       _pendingToggleAction = null;
       if (typeof showToast === 'function') {
-        showToast('Limite de usuários ativos atingido (' + MAX_USUARIOS_ATIVOS + '). Inative um usuário antes de ativar outro.', 'error');
+        showToast('Limite de usuários ativos atingido (' + maxUsuariosAtivos + '). Inative um usuário antes de ativar outro.', 'error');
       }
       return;
     }
@@ -13381,3 +13419,106 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
   }
 })();
 
+/* ============================================================
+   VISIBILIDADE DO MENU POR ROLE (v1 - somente UI)
+   - Dashboard legado: removido do menu (feito no HTML).
+   - Dashboard V2: apenas admin / master_admin.
+   - Comissoes: apenas colaborador.
+   Nao altera regras de negocio, rotas, RPCs ou componentes:
+   apenas oculta/exibe os botoes do menu lateral.
+   Reutiliza a role ja carregada em currentUser.role (getUserRole).
+   ============================================================ */
+(function () {
+  var DASH_V2_PAGES = ['dashboard-v2', 'dashboardv2', 'dashboard_v2', 'dashv2'];
+  var COMISSOES_PAGES = ['comissoes', 'comissoes-v2', 'comissoesv2', 'comissoes_v2'];
+
+  function norm(txt) {
+    return String(txt || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().trim();
+  }
+
+  function classify(btn) {
+    var page = norm(btn.getAttribute('data-page'));
+    var id = norm(btn.id);
+    var label = norm(btn.textContent);
+
+    if (DASH_V2_PAGES.indexOf(page) !== -1 || /dashboard.?v2|dash.?v2/.test(id) || /dashboard\s*v?\s*2/.test(label)) {
+      return 'dashboard-v2';
+    }
+    if (COMISSOES_PAGES.indexOf(page) !== -1 || /comissoes/.test(id) || /^comissoes/.test(label)) {
+      return 'comissoes';
+    }
+    // Dashboard legado (caso algum script ainda injete o botao)
+    if (page === 'dashboard' || /^dashboard$/.test(label)) return 'dashboard-legado';
+    return null;
+  }
+
+  function currentRole() {
+    try {
+      if (window.currentUser && currentUser.role) return norm(currentUser.role);
+    } catch (e) {}
+    return '';
+  }
+
+  function applyMenuRoleVisibility() {
+    var role = currentRole();
+    if (!role) return;
+
+    var isAdminRole = (role === 'admin' || role === 'master_admin');
+    var isColaborador = (role === 'colaborador');
+
+    document.querySelectorAll('.sidebar-nav .nav-btn').forEach(function (btn) {
+      var kind = classify(btn);
+      if (!kind) return;
+
+      var visivel = true;
+      if (kind === 'dashboard-legado') visivel = false;
+      else if (kind === 'dashboard-v2') visivel = isAdminRole;
+      else if (kind === 'comissoes') visivel = isColaborador;
+
+      btn.style.display = visivel ? '' : 'none';
+      if (!visivel) btn.setAttribute('aria-hidden', 'true');
+      else btn.removeAttribute('aria-hidden');
+    });
+  }
+
+  window.applyMenuRoleVisibility = applyMenuRoleVisibility;
+
+  function observarMenu() {
+    var nav = document.querySelector('.sidebar-nav');
+    if (!nav) return false;
+    applyMenuRoleVisibility();
+    // Os menus do Dashboard V2 e de Comissoes sao injetados por scripts
+    // assincronos; reaplicamos a visibilidade sempre que o menu mudar.
+    try {
+      new MutationObserver(function () { applyMenuRoleVisibility(); })
+        .observe(nav, { childList: true, subtree: true });
+    } catch (e) {}
+    return true;
+  }
+
+  function boot() {
+    if (!observarMenu()) {
+      var t = 0;
+      var iv = setInterval(function () {
+        t++;
+        if (observarMenu() || t > 50) clearInterval(iv);
+      }, 200);
+    }
+    // Garante aplicacao apos a role ser resolvida de forma assincrona.
+    var tentativas = 0;
+    var iv2 = setInterval(function () {
+      tentativas++;
+      applyMenuRoleVisibility();
+      if (currentRole() && tentativas > 10) clearInterval(iv2);
+      if (tentativas > 50) clearInterval(iv2);
+    }, 300);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();

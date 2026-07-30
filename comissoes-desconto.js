@@ -1,5 +1,5 @@
 /* =====================================================================
-   COMISSOES-DESCONTO.JS — Add-on isolado (v1 — 2026-06-03)
+   COMISSOES-DESCONTO.JS — Add-on isolado (v3 — 2026-07-21 colunas estruturadas)
    ---------------------------------------------------------------------
    Carregue DEPOIS de comissoes.js, pagamentos.js, dashboard-pagamentos.js
    e desconto-financeiro.js, em agenda.html:
@@ -36,7 +36,7 @@
   if (window.__SLOTIFY_COM_DESC_LOADED__) return;
   window.__SLOTIFY_COM_DESC_LOADED__ = true;
 
-  console.log('%c🧾 comissoes-desconto.js v2 carregado (lê DESCONTO: em observacao — sem heurística)',
+  console.log('%c🧾 comissoes-desconto.js v3 carregado (lê agendamentos.desconto_total / caixinha_total)',
     'background:#16a34a;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------- Helpers --------------------
@@ -84,40 +84,30 @@
     return grossFallback(a);
   }
 
-  // -------------------- Caixinhas + Descontos (mesma observacao, 1 SELECT) --------------------
-  // v2: agora também extrai DESCONTO:<v>, gravado pelo pagamentos.js v16.
-  // Retorna { tips: {agId: caxTotal}, descs: {agId: descTotal} } — fonte única.
+  // -------------------- Caixinhas + Descontos (colunas estruturadas, 1 SELECT) --------------------
+  // v3: fonte única = agendamentos.desconto_total / caixinha_total,
+  // mantidas pelo trigger recompute_agendamento_financeiro no banco.
   async function fetchTipsEDescPorAg(ids){
     var tips = {}, descs = {};
     var sb = getSb(); var tenant = getTenantId();
     if (!sb || !tenant || !ids.length) return { tips: tips, descs: descs };
-    var seen = Object.create(null);
     var chunk = 500;
     for (var i=0; i<ids.length; i+=chunk){
       var slice = ids.slice(i, i+chunk);
       try {
-        var resp = await sb.from('agendamento_pagamentos')
-          .select('id, agendamento_id, observacao')
-          .in('agendamento_id', slice)
+        var resp = await sb.from('agendamentos')
+          .select('id, desconto_total, caixinha_total')
+          .in('id', slice)
           .eq('tenant_id', tenant);
-        if (resp.error) { console.warn('[com-desc] obs', resp.error); continue; }
+        if (resp.error) { console.warn('[com-desc] cols', resp.error); continue; }
         (resp.data || []).forEach(function(r){
-          if (!r || r.id == null) return;
-          if (seen[r.id]) return;
-          seen[r.id] = true;
-          var obs = r.observacao || '';
-          var mC = /CAIXINHA:([\d\.]+)/i.exec(obs);
-          if (mC){
-            var vC = parseFloat(mC[1]) || 0;
-            if (vC > 0) tips[r.agendamento_id] = round2((tips[r.agendamento_id] || 0) + vC);
-          }
-          var mD = /DESCONTO:([\d\.]+)/i.exec(obs);
-          if (mD){
-            var vD = parseFloat(mD[1]) || 0;
-            if (vD > 0) descs[r.agendamento_id] = round2((descs[r.agendamento_id] || 0) + vD);
-          }
+          if (!r || !r.id) return;
+          var vC = Number(r.caixinha_total) || 0;
+          var vD = Number(r.desconto_total) || 0;
+          if (vC > 0) tips[r.id]  = round2(vC);
+          if (vD > 0) descs[r.id] = round2(vD);
         });
-      } catch(e){ console.warn('[com-desc] obs ex', e); }
+      } catch(e){ console.warn('[com-desc] cols ex', e); }
     }
     return { tips: tips, descs: descs };
   }
@@ -142,7 +132,7 @@
   }
 
   // -------------------- Detecta desconto por agendamento (FONTE ÚNICA) --------------------
-  // v2: sem heurística. Lê DESCONTO direto da observacao (já carregado em descByAg).
+  // v3: sem heurística. Lê agendamentos.desconto_total (já carregado em descByAg).
   function detectaDesconto(a, descAplicado){
     var bruto = grossDe(a);
     var d = round2(Number(descAplicado) || 0);
@@ -209,7 +199,7 @@
     var obs = await fetchTipsEDescPorAg(ids);
     var descByAg = obs.descs || {};
 
-    // pré-calcula desconto por appt — fonte única (DESCONTO: em observacao)
+    // pré-calcula desconto por appt — fonte única (coluna agendamentos.desconto_total)
     var descByAppt = new Map();
     ags.forEach(function(a){
       var d = detectaDesconto(a, descByAg[a.id] || 0);

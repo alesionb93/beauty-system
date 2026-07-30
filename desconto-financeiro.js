@@ -1,31 +1,26 @@
 /* =====================================================================
-   DESCONTO-FINANCEIRO.JS — Add-on isolado (v6 — 2026-06-09 (invariante valor_total_pago))
+   DESCONTO-FINANCEIRO.JS — Add-on isolado (v7 — 2026-07-21 colunas estruturadas)
    ---------------------------------------------------------------------
    Carregue DEPOIS de pagamentos.js, dashboard-pagamentos.js e
    agendamento-desconto.js, em agenda.html:
 
        <script src="/desconto-financeiro.js?v=5" defer></script>
 
-   v5 (2026-06-09) — FONTE ÚNICA DE VERDADE PARA DESCONTO
+   v7 (2026-07-21) — COLUNAS ESTRUTURADAS COMO FONTE ÚNICA
    -----------------------------------------------------------
-   Regra de negócio formalizada:
+   Regra de negócio (mantida):
        faturamento = serviço - desconto + caixinha
        comissão    = (serviço - desconto) * pct
        receber     = comissão + caixinha          (caixinha é 100% do prof.)
 
    Mudanças:
-   • Removidas TODAS as heurísticas (bruto > pago−caixinha).
-   • Desconto agora é PERSISTIDO em agendamento_pagamentos.observacao,
-     no mesmo formato da caixinha — pagamentos.js v16 grava
-     `CAIXINHA:<v> DESCONTO:<v>` na 1ª linha do pagamento.
-   • hidratarDescontos() lê esses marcadores num ÚNICO SELECT,
-     popula `a.desconto_aplicado` em window.appointments (consumido por
-     dashboard-pagamentos.js calcularValorTotal e por comissoes-desconto.js)
-     e devolve { total, porProf } para o ajuste de DOM.
-   • Caixinha em #dash-faturamento continua sob a pagamentos.js v16
-     (idempotente via dataset.baseFat).
-   • Após v5: nenhum KPI depende de estado só-em-memória — recarregar a
-     página dá o mesmo resultado.
+   • Removido TODO parsing de observacao. A fonte de verdade agora é
+     a coluna agendamentos.desconto_total (e caixinha_total), mantida
+     pelo trigger recompute_agendamento_financeiro() no banco.
+   • hidratarDescontos() lê essas colunas em um único SELECT em
+     agendamentos e popula `a.desconto_aplicado` em window.appointments.
+   • observacao volta a ser um campo textual livre para anotações
+     do usuário — nunca lemos nem gravamos marcadores nela.
 
    NÃO TOCA:
      - regras de venda/uso de pacote
@@ -39,7 +34,7 @@
   if (window.__SLOTIFY_DESC_FIN_LOADED__) return;
   window.__SLOTIFY_DESC_FIN_LOADED__ = true;
 
-  console.log('%c🧾 desconto-financeiro.js v6 carregado (marker DESCONTO + invariante valor_total_pago como fallback/validação)',
+  console.log('%c🧾 desconto-financeiro.js v7 carregado (fonte única = agendamentos.desconto_total / caixinha_total)',
     'background:#0ea5e9;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // -------------------- Helpers --------------------
@@ -81,41 +76,31 @@
     return (a && (a.profissional || a.profissional_nome)) || '';
   }
 
-  // -------------------- Fonte única: lê DESCONTO de agendamento_pagamentos --------------------
-  // Retorna mapa { agId: descontoTotal } a partir do marcador DESCONTO:<v>
-  // gravado pelo pagamentos.js v16 na coluna observacao.
+  // -------------------- Fonte única: colunas estruturadas em agendamentos --------------------
+  // Lê desconto_total e caixinha_total direto da tabela agendamentos.
+  // Nenhum parsing de observacao — a coluna é a fonte de verdade,
+  // populada pelo recompute_agendamento_financeiro() no banco.
   async function fetchMarcadoresPorAg(ids){
-    // Retorna { descByAg: {agId: descTotal}, caxByAg: {agId: caixinhaTotal} }
     var out = { descByAg: {}, caxByAg: {} };
     var sb = getSb(); var tenant = getTenantId();
     if (!sb || !tenant || !ids.length) return out;
-    var seen = Object.create(null);
     var chunk = 500;
     for (var i=0; i<ids.length; i+=chunk){
       var slice = ids.slice(i, i+chunk);
       try {
-        var resp = await sb.from('agendamento_pagamentos')
-          .select('id, agendamento_id, observacao')
-          .in('agendamento_id', slice)
+        var resp = await sb.from('agendamentos')
+          .select('id, desconto_total, caixinha_total')
+          .in('id', slice)
           .eq('tenant_id', tenant);
-        if (resp.error) { console.warn('[desc-fin] fetch marc', resp.error); continue; }
+        if (resp.error) { console.warn('[desc-fin] fetch cols', resp.error); continue; }
         (resp.data || []).forEach(function(r){
-          if (!r || r.id == null) return;
-          if (seen[r.id]) return;
-          seen[r.id] = true;
-          var obs = r.observacao || '';
-          var md = /DESCONTO:([\d\.]+)/i.exec(obs);
-          if (md){
-            var vd = parseFloat(md[1]) || 0;
-            if (vd > 0) out.descByAg[r.agendamento_id] = round2((out.descByAg[r.agendamento_id] || 0) + vd);
-          }
-          var mc = /CAIXINHA:([\d\.]+)/i.exec(obs);
-          if (mc){
-            var vc = parseFloat(mc[1]) || 0;
-            if (vc > 0) out.caxByAg[r.agendamento_id] = round2((out.caxByAg[r.agendamento_id] || 0) + vc);
-          }
+          if (!r || !r.id) return;
+          var vd = Number(r.desconto_total) || 0;
+          var vc = Number(r.caixinha_total) || 0;
+          if (vd > 0) out.descByAg[r.id] = round2(vd);
+          if (vc > 0) out.caxByAg[r.id]  = round2(vc);
         });
-      } catch(e){ console.warn('[desc-fin] fetch marc ex', e); }
+      } catch(e){ console.warn('[desc-fin] fetch cols ex', e); }
     }
     return out;
   }
@@ -148,9 +133,9 @@
   }
 
   // -------------------- Hidrata desconto_aplicado em window.appointments --------------------
-  // v5: fonte de verdade = marcador DESCONTO em agendamento_pagamentos.observacao.
-  // Sem heurística. Sem inferência. Sem dependência de status_pagamento /
-  // valor_total_pago / sincronia de caixinha.
+  // v7: fonte de verdade = coluna agendamentos.desconto_total (mantida pelo
+  // trigger recompute_agendamento_financeiro no banco). Sem heurística,
+  // sem inferência, sem parsing de observacao.
   async function hidratarDescontos(){
     var out = { total: 0, porProf: {} };
     if (!Array.isArray(window.appointments)) return out;
@@ -163,39 +148,9 @@
     var ids = ags.map(function(a){ return a.id; });
     var marc = await fetchMarcadoresPorAg(ids);
     var descByAg = marc.descByAg;
-    var caxByAg  = marc.caxByAg;
 
     ags.forEach(function(a){
-      var marker   = round2(descByAg[a.id] || 0);
-      var caixinha = round2(caxByAg[a.id] != null ? caxByAg[a.id] : (Number(a.tip_amount) || 0));
-      var servico  = servicoBrutoDoAg(a);
-      var pago     = round2(Number(a.valor_total_pago) || 0);
-
-      // Invariante de negócio:
-      //   valor_total_pago = serviço - desconto + caixinha
-      //   => desconto = serviço + caixinha - valor_total_pago
-      // Quando temos dados suficientes (serviço > 0 e pago > 0), o invariante
-      // é a fonte de verdade absoluta. Se o marker DESCONTO: divergir do
-      // invariante (ex: marker stale/contaminado de uma execução anterior
-      // ou de outro registro), CONFIAMOS no invariante — não na string.
-      var temInvariante = (servico > 0 && pago > 0);
-      var inferido = temInvariante ? round2(Math.max(0, servico + caixinha - pago)) : marker;
-
-      var desc;
-      if (!temInvariante) {
-        desc = marker; // sem como validar, usa marker como antes
-      } else if (Math.abs(marker - inferido) <= 0.01) {
-        desc = marker; // marker confere com o invariante
-      } else {
-        // Divergência: marker é stale OU foi gravado errado. Usa invariante.
-        if (marker > 0) {
-          console.warn('[desc-fin] DESCONTO marker divergente do invariante; usando invariante',
-            { agId: a.id, marker: marker, inferido: inferido,
-              servico: servico, caixinha: caixinha, pago: pago });
-        }
-        desc = inferido;
-      }
-
+      var desc = round2(descByAg[a.id] || 0);
       a.desconto_aplicado = desc;
       if (desc > 0) {
         out.total += desc;

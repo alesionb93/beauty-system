@@ -13,7 +13,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const MAX_USERS_PER_TENANT = 4;
+// Limite de usuários é definido por tenant (tenants.max_active_users) — não usado aqui.
 const LOGIN_REGEX = /^[a-zA-Z0-9._]+$/
 const LOGIN_MIN = 3
 const LOGIN_MAX = 30

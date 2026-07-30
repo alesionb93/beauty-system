@@ -26,7 +26,8 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
-  console.log('%c💳 pagamentos.js v18 (caixinha dashboard idempotente mesmo quando loadDashboard não reescreve KPIs)', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c💳 pagamentos.js v21 (targets de pagamento: agendamento | venda)','background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
+  console.log('%c   base v20 (fonte única = colunas estruturadas; observacao volta a ser texto livre)', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
 
 
@@ -901,77 +902,219 @@
   }
 
   // ------------------------------------------------------------------
-  // Persistência
+  // PAGAMENTO TARGETS (v21) — o modal NÃO conhece mais "agendamento".
   // ------------------------------------------------------------------
-  async function salvarPagamentos(agId, pagamentos) {
-    var sb = getSb(); var tenantId = getTenantId();
-    if (!sb || !tenantId) throw new Error('Supabase/tenant indisponível');
-    var tip = Number(__ctx && __ctx.tipAmount) || 0;
-    // v16: persiste DESCONTO na mesma observacao. O modal de desconto chama
-    // __pagSetExtraTotal(-N) → __ctx.extraTotal = -N. Aqui materializamos
-    // esse desconto como marcador DESCONTO:<valor> em agendamento_pagamentos.
-    // Assim a reidratação no dashboard (desconto-financeiro.js v5 e
-    // comissoes-desconto.js) lê desconto e caixinha da MESMA fonte —
-    // nunca mais heurística, nunca mais estado só-em-memória.
-    var extra = Number(__ctx && __ctx.extraTotal) || 0;
-    var desc  = extra < 0 ? Math.abs(extra) : 0;
-    var rows = pagamentos.map(function(p, idx){
-      var row = {
-        tenant_id: tenantId,
-        agendamento_id: agId,
-        forma_pagamento: p.forma_pagamento,
-        valor: p.valor,
-        parcelas: p.parcelas || 1
+  // Contrato único (PagamentoTarget). Todo target implementa TODOS os
+  // métodos — nada de no-op permanente:
+  //
+  //   descrever(ctx)                        -> { titulo, subtitulo, total }
+  //   carregar(ctx)                         -> [ pagamentos existentes ]
+  //   limpar(ctx)                           -> remove pagamentos anteriores
+  //   salvar(ctx, pagamentos)               -> id da entidade persistida
+  //   atualizarResumo(ctx, pago, esperado)  -> atualiza o resumo financeiro
+  //
+  // Para adicionar um domínio financeiro novo (comanda, assinatura),
+  // registre outro target aqui. Nenhum `if (origem === 'BALCAO')`.
+  // ------------------------------------------------------------------
+  var PagTargets = {};
+  function registrarTarget(nome, impl){ PagTargets[nome] = impl; }
+  function getTarget(scope){
+    return PagTargets[scope || 'agendamento'] || PagTargets.agendamento;
+  }
+  window.__pagRegistrarTarget = registrarTarget;
+
+  // ------------------------------------------------- target: AGENDAMENTO
+  // Comportamento legado, movido — não reescrito.
+  registrarTarget('agendamento', {
+    descrever: function (ctx) {
+      var ag = (window.appointments || []).find(function (x) { return x.id === ctx.entityId; }) || {};
+      return {
+        titulo: ag.cliente_nome || ag.nome_cliente || ag.nomeCliente || ag.cliente_name
+                || (ag.cliente && (ag.cliente.nome || ag.cliente.name))
+                || (typeof ag.cliente === 'string' ? ag.cliente : '') || ag.nome || '—',
+        subtitulo: (ag.data ? ag.data.split('-').reverse().join('/') : '')
+                   + ' · ' + (ag.hora || '').slice(0, 5),
+        total: ctx.total
       };
-      // Marca metadados de caixinha + desconto na 1ª linha (sem alterar schema)
-      if (idx === 0) {
-        var marks = [];
-        if (tip > 0)  marks.push('CAIXINHA:' + tip.toFixed(2));
-        if (desc > 0) marks.push('DESCONTO:' + desc.toFixed(2));
-        if (marks.length) row.observacao = marks.join(' ');
+    },
+
+    carregar: async function (ctx) {
+      var sb = getSb(); if (!sb || !ctx.entityId) return [];
+      var resp = await sb.from('agendamento_pagamentos')
+        .select('id, forma_pagamento, valor, parcelas, caixinha_valor, created_at')
+        .eq('agendamento_id', ctx.entityId)
+        .order('created_at', { ascending: true });
+      if (resp.error) { console.warn('[pag] load', resp.error); return []; }
+      return resp.data || [];
+    },
+
+    limpar: async function (ctx) {
+      var sb = getSb(); if (!sb || !ctx.entityId) return;
+      await sb.from('agendamento_pagamentos').delete().eq('agendamento_id', ctx.entityId);
+      delete __pagResumoCache[ctx.entityId];
+    },
+
+    salvar: async function (ctx, pagamentos) {
+      var sb = getSb(); var tenantId = getTenantId();
+      if (!sb || !tenantId) throw new Error('Supabase/tenant indisponível');
+      var tip   = Number(ctx.tipAmount) || 0;
+      var extra = Number(ctx.extraTotal) || 0;
+      var desc  = extra < 0 ? Math.abs(extra) : 0;
+      var rows = pagamentos.map(function (p, idx) {
+        var row = {
+          tenant_id: tenantId,
+          agendamento_id: ctx.entityId,
+          forma_pagamento: p.forma_pagamento,
+          valor: p.valor,
+          parcelas: p.parcelas || 1
+        };
+        if (idx === 0) {
+          if (tip  > 0) row.caixinha_valor = round2(tip);
+          if (desc > 0) row.desconto_valor = round2(desc);
+        }
+        return row;
+      });
+      var resp = await sb.from('agendamento_pagamentos').insert(rows);
+      if (resp.error) throw resp.error;
+      return ctx.entityId;
+    },
+
+    atualizarResumo: async function (ctx, totalPago, totalEsperado) {
+      var sb = getSb();
+      var id = ctx.entityId;
+      if (!sb || !id) return;
+      var pago = Number(totalPago) || 0;
+      var status = Math.abs(pago - (Number(totalEsperado) || 0)) < 0.01
+        ? 'pago' : (pago > 0 ? 'parcial' : 'pendente');
+      var variants = [
+        { valor_total_pago: round2(pago), status_pagamento: status, possui_pagamento: pago > 0 },
+        { valor_total_pago: round2(pago), status_pagamento: status },
+        { status_pagamento: status },
+        { valor_total_pago: round2(pago) }
+      ];
+      var lastErr = null;
+      for (var i = 0; i < variants.length; i++) {
+        try {
+          var r = await sb.from('agendamentos').update(variants[i]).eq('id', id);
+          if (!r.error) return;
+          lastErr = r.error;
+        } catch (e) { lastErr = e; }
       }
-      return row;
-    });
-    var resp = await sb.from('agendamento_pagamentos').insert(rows);
-    if (resp.error) throw resp.error;
-  }
-
-  async function carregarPagamentos(agId) {
-    var sb = getSb(); if (!sb) return [];
-    var resp = await sb.from('agendamento_pagamentos')
-      .select('id, forma_pagamento, valor, parcelas, created_at')
-      .eq('agendamento_id', agId)
-      .order('created_at', { ascending: true });
-    if (resp.error) { console.warn('[pag] load', resp.error); return []; }
-    return resp.data || [];
-  }
-
-  async function removerPagamentosDoAgendamento(agId) {
-    var sb = getSb(); if (!sb) return;
-    await sb.from('agendamento_pagamentos').delete().eq('agendamento_id', agId);
-    delete __pagResumoCache[agId];
-  }
-
-  async function atualizarResumoFinanceiroAgendamento(agId, totalPago, totalEsperado) {
-    var sb = getSb();
-    if (!sb || !agId) return;
-    var status = Math.abs((Number(totalPago)||0) - (Number(totalEsperado)||0)) < 0.01 ? 'pago' : ((Number(totalPago)||0) > 0 ? 'parcial' : 'pendente');
-    var variants = [
-      { valor_total_pago: round2(totalPago), status_pagamento: status, possui_pagamento: (Number(totalPago)||0) > 0 },
-      { valor_total_pago: round2(totalPago), status_pagamento: status },
-      { status_pagamento: status },
-      { valor_total_pago: round2(totalPago) }
-    ];
-    var lastErr = null;
-    for (var i = 0; i < variants.length; i++) {
-      try {
-        var r = await sb.from('agendamentos').update(variants[i]).eq('id', agId);
-        if (!r.error) return;
-        lastErr = r.error;
-      } catch(e) { lastErr = e; }
+      if (lastErr) console.warn('[pag] não atualizou resumo em agendamentos (badge usa cache):', lastErr);
     }
-    if (lastErr) console.warn('[pag] não atualizou resumo em agendamentos (badge usa cache):', lastErr);
+  });
+
+  // -------------------------------------------------------- target: VENDA
+  // Escrita EXCLUSIVAMENTE por RPC. O frontend nunca insere/atualiza nas
+  // tabelas vendas / venda_itens / venda_pagamentos (elas são read-only
+  // para o usuário autenticado). Leitura direta continua permitida.
+  registrarTarget('venda', {
+    descrever: function (ctx) {
+      var c = ctx.contexto || {};
+      var d = new Date();
+      var dataStr = ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2)
+                  + '/' + d.getFullYear() + ' · '
+                  + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+      return {
+        titulo: c.cliente_nome || 'Consumidor Final',
+        subtitulo: c.subtitulo || dataStr,
+        total: ctx.total
+      };
+    },
+
+    carregar: async function (ctx) {
+      // Antes de confirmar, a venda ainda não existe no banco (por design):
+      // nenhum rascunho é criado. Depois de criada, o mesmo modal consegue
+      // reabrir os pagamentos reais.
+      var sb = getSb(); if (!sb || !ctx.entityId) return [];
+      var resp = await sb.from('venda_pagamentos')
+        .select('id, forma_pagamento, valor, parcelas, caixinha_valor, created_at')
+        .eq('venda_id', ctx.entityId)
+        .order('created_at', { ascending: true });
+      if (resp.error) { console.warn('[pag] load venda', resp.error); return []; }
+      return resp.data || [];
+    },
+
+    limpar: async function (ctx) {
+      var sb = getSb(); if (!sb || !ctx.entityId) return;
+      var r = await sb.rpc('venda_limpar_pagamentos', { p_venda_id: ctx.entityId });
+      if (r.error) throw r.error;
+      delete __pagResumoCache[ctx.entityId];
+    },
+
+    salvar: async function (ctx, pagamentos) {
+      var sb = getSb(); if (!sb) throw new Error('Supabase indisponível');
+      var c = ctx.contexto || {};
+      var extra = Number(ctx.extraTotal) || 0;
+      var pags = pagamentos.map(function (p) {
+        return {
+          forma_pagamento: p.forma_pagamento,
+          valor: round2(p.valor),
+          parcelas: p.parcelas || 1,
+          observacao: p.observacao || null
+        };
+      });
+
+      // Venda já existente (reabertura) → só regrava os pagamentos.
+      if (ctx.entityId) {
+        var upd = await sb.rpc('venda_substituir_pagamentos', {
+          p_venda_id: ctx.entityId, p_pagamentos: pags
+        });
+        if (upd.error) throw upd.error;
+        return ctx.entityId;
+      }
+
+      // Venda nova → uma única RPC transacional cria tudo.
+      var payload = {
+        profissional_id:  c.profissional_id || null,
+        cliente_id:       c.cliente_id || null,
+        cliente_nome:     c.cliente_nome || 'Consumidor Final',
+        cliente_telefone: c.cliente_telefone || null,
+        observacoes:      c.observacoes || null,
+        desconto_valor:   extra < 0 ? round2(Math.abs(extra)) : 0,
+        caixinha_valor:   round2(Number(ctx.tipAmount) || 0),
+        itens:            (c.itens || []).map(function (it) {
+          return {
+            produto_id:     it.produto_id || null,
+            descricao:      it.descricao,
+            quantidade:     Number(it.quantidade) || 1,
+            valor_unitario: round2(it.valor_unitario),
+            desconto_valor: round2(it.desconto_valor || 0)
+          };
+        }),
+        pagamentos: pags
+      };
+      var resp = await sb.rpc('registrar_venda', { p_payload: payload });
+      if (resp.error) throw resp.error;
+      return resp.data; // uuid da venda criada
+    },
+
+    atualizarResumo: async function (ctx) {
+      // Os totais são recalculados no servidor pela própria RPC.
+      var sb = getSb(); if (!sb || !ctx.entityId) return;
+      var r = await sb.rpc('venda_recalcular_totais', { p_venda_id: ctx.entityId });
+      if (r && r.error) console.warn('[pag] recalcular venda', r.error);
+    }
+  });
+
+  // ------------------------------------------------------------------
+  // Persistência (agnóstica de domínio) — delega para o target do escopo
+  // ------------------------------------------------------------------
+  async function salvarPagamentos(ctx, pagamentos)  { return getTarget(ctx.scope).salvar(ctx, pagamentos); }
+  async function carregarPagamentos(ctx)            { return getTarget(ctx.scope).carregar(ctx); }
+  async function removerPagamentos(ctx)             { return getTarget(ctx.scope).limpar(ctx); }
+  async function atualizarResumoFinanceiro(ctx, pago, esperado) {
+    return getTarget(ctx.scope).atualizarResumo(ctx, pago, esperado);
   }
+
+  // aliases legados (mantêm chamadas antigas funcionando)
+  function removerPagamentosDoAgendamento(agId){
+    return PagTargets.agendamento.limpar({ scope:'agendamento', entityId: agId });
+  }
+  function atualizarResumoFinanceiroAgendamento(agId, p, e){
+    return PagTargets.agendamento.atualizarResumo({ scope:'agendamento', entityId: agId }, p, e);
+  }
+
 
   // ------------------------------------------------------------------
   // Confirmar
@@ -991,12 +1134,16 @@
 
     try {
       if (__ctx.mode === 'registrar') {
-        await removerPagamentosDoAgendamento(__ctx.agendamentoId);
+        await removerPagamentos(__ctx);
       }
-      await salvarPagamentos(__ctx.agendamentoId, pags);
-      __pagResumoCache[__ctx.agendamentoId] = { valor: round2(somado), qtd: pags.length };
+      // O target devolve o id da entidade persistida. Para venda nova, esse
+      // id só passa a existir AGORA (a RPC é a criação da venda inteira).
+      var savedId = await salvarPagamentos(__ctx, pags);
+      if (savedId) __ctx.entityId = savedId;
+      __pagResumoCache[__ctx.entityId] = { valor: round2(somado), qtd: pags.length };
       try {
-        var agLocal = (window.appointments || []).find(function(x){ return x.id === __ctx.agendamentoId; });
+        var agLocal = __ctx.scope !== 'agendamento' ? null
+          : (window.appointments || []).find(function(x){ return x.id === __ctx.entityId; });
         if (agLocal) {
           agLocal.valor_total_pago = round2(somado);
           agLocal.possui_pagamento = pags.length > 0;
@@ -1004,14 +1151,17 @@
           agLocal.tip_amount = Number(__ctx.tipAmount) || 0;
         }
       } catch(_){}
-      try { await atualizarResumoFinanceiroAgendamento(__ctx.agendamentoId, somado, totalAlvo); } catch(_){}
+      try { await atualizarResumoFinanceiro(__ctx, somado, totalAlvo); } catch(_){}
+
 
       // 🔧 v7: hook síncrono para add-ons (pré-pago) — roda ANTES do close,
       // garantindo que a criação do próximo agendamento não dependa do
       // MutationObserver do fechamento do modal.
       try {
         var ctxSnap = {
-          agendamentoId: __ctx.agendamentoId,
+          scope: __ctx.scope,
+          entityId: __ctx.entityId,
+          agendamentoId: __ctx.scope === 'agendamento' ? __ctx.entityId : null,
           total: totalAlvo,
           serviceAmount: round2(__ctx.total || 0),
           tipAmount: round2(__ctx.tipAmount || 0),
@@ -1028,16 +1178,23 @@
       } catch(eh){ console.error('[pag][afterSave]', eh); }
 
       var cb = __ctx.onSuccess;
+      var __ctxScopeSnapshot = __ctx.scope;
+      var __ctxIdSnapshot = __ctx.entityId;
       closePagModal();
 
       if (typeof cb === 'function') {
-        try { await cb(); } catch(e){ console.error(e); }
+        try { await cb(__ctxIdSnapshot); } catch(e){ console.error(e); }
       }
       if (typeof window.showToast === 'function') {
-        window.showToast('Pagamento registrado com sucesso');
+        window.showToast(__ctxScopeSnapshot === 'venda'
+          ? 'Venda registrada com sucesso'
+          : 'Pagamento registrado com sucesso');
       }
-      try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
-      try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+
+      if (__ctxScopeSnapshot === 'agendamento') {
+        try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
+        try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+      }
       try { if (typeof window.__rodarDashboardPagamentos === 'function') await window.__rodarDashboardPagamentos(); } catch(_){}
     } catch(e) {
       console.error('[pag][confirmar]', e);
@@ -1059,12 +1216,23 @@
   // ------------------------------------------------------------------
   async function abrirModalPagamento(opts) {
     ensureModal();
-    var ag = (window.appointments || []).find(function(x){ return x.id === opts.agendamentoId; });
-    if (!ag) { console.warn('[pag] agendamento não encontrado', opts.agendamentoId); return; }
+    var scope    = opts.scope || 'agendamento';
+    var entityId = opts.entityId || opts.agendamentoId || null;
+
+    // Só o escopo agendamento depende de window.appointments.
+    // Escopos sem registro prévio (venda) passam `contexto` e nada mais.
+    var ag = null;
+    if (scope === 'agendamento') {
+      ag = (window.appointments || []).find(function(x){ return x.id === entityId; });
+      if (!ag) { console.warn('[pag] agendamento não encontrado', entityId); return; }
+    }
 
     var total = round2(opts.total != null ? opts.total : calcularValorTotalAgendamento(ag));
     __ctx = {
-      agendamentoId: opts.agendamentoId,
+      scope: scope,
+      entityId: entityId,
+      agendamentoId: scope === 'agendamento' ? entityId : null,
+      contexto: opts.contexto || null,   // payload específico do domínio
       total: total,
       baseTotal: total,   // total original do atendimento (sem pré-pago)
       extraTotal: 0,      // extra do pré-pago (próximo agendamento)
@@ -1073,11 +1241,18 @@
       onSuccess: opts.onSuccess || null
     };
 
-    document.getElementById('pag-cliente').textContent = ag.cliente_nome || ag.nome_cliente || ag.nomeCliente || ag.cliente_name || (ag.cliente && (ag.cliente.nome || ag.cliente.name)) || (typeof ag.cliente === 'string' ? ag.cliente : '') || ag.nome || '—';
-    document.getElementById('pag-data').textContent =
-      (ag.data ? ag.data.split('-').reverse().join('/') : '') + ' · ' + (ag.hora || '').slice(0,5);
-    document.getElementById('pag-total').textContent = fmtBRL(total);
-    // (Layout v2) — a linha do resumo já tem rótulo "TOTAL" fixo.
+    // Cabeçalho: o target descreve a si mesmo. `opts.header` continua
+    // vencendo, para quem quiser sobrescrever pontualmente.
+    var header = opts.header;
+    if (!header) {
+      try { header = getTarget(scope).descrever(__ctx); }
+      catch(e){ console.warn('[pag] descrever', e); header = null; }
+    }
+    header = header || { titulo: '—', subtitulo: '', total: total };
+
+    document.getElementById('pag-cliente').textContent = header.titulo || '—';
+    document.getElementById('pag-data').textContent    = header.subtitulo || '';
+    document.getElementById('pag-total').textContent   = fmtBRL(total);
     document.getElementById('pag-confirmar-label').textContent =
       __ctx.mode === 'concluir' ? 'Confirmar e concluir' : 'Salvar pagamento';
 
@@ -1085,23 +1260,13 @@
     list.innerHTML = '';
 
     if (__ctx.mode === 'registrar') {
-      var existentes = await carregarPagamentos(opts.agendamentoId);
-      // Detectar caixinha já registrada (CAIXINHA:X.XX em observacao)
+      var existentes = await carregarPagamentos(__ctx);
+
+      // Caixinha já registrada (coluna caixinha_valor — fonte única, já vem no select)
       try {
-        var sb2 = getSb();
-        if (sb2 && existentes.length) {
-          var idsObs = existentes.map(function(p){ return p.id; });
-          var rObs = await sb2.from('agendamento_pagamentos').select('id, observacao').in('id', idsObs);
-          var byId = {};
-          (rObs.data || []).forEach(function(r){ byId[r.id] = r.observacao || ''; });
-          var tipDetect = 0;
-          existentes.forEach(function(p){
-            var obs = byId[p.id] || '';
-            var m = /CAIXINHA:([\d\.]+)/i.exec(obs);
-            if (m) tipDetect += parseFloat(m[1]) || 0;
-          });
-          if (tipDetect > 0) __ctx.tipAmount = round2(tipDetect);
-        }
+        var tipDetect = 0;
+        existentes.forEach(function(r){ tipDetect += Number(r && r.caixinha_valor) || 0; });
+        if (tipDetect > 0) __ctx.tipAmount = round2(tipDetect);
       } catch(_){}
       if (existentes.length > 0) {
         existentes.forEach(function(p){
@@ -1157,7 +1322,7 @@
 
 
             // Já tem pagamentos integrais? Segue direto
-            var jaPagos = await carregarPagamentos(agId);
+            var jaPagos = await carregarPagamentos({ scope: 'agendamento', entityId: agId });
             var somado = jaPagos.reduce(function(s,p){ return s + Number(p.valor); }, 0);
             if (somado + 0.01 >= total) return original.apply(this, arguments);
 
@@ -1357,9 +1522,13 @@
     recomputar();
     return true;
   };
+  // Entry point público — usado pela Venda de Balcão (scope:'venda').
+  window.abrirModalPagamento = abrirModalPagamento;
+
   window.__pagGetCtx = function () {
     if (!__ctx) return null;
-    return { agendamentoId: __ctx.agendamentoId, total: __ctx.total,
+    return { scope: __ctx.scope, entityId: __ctx.entityId,
+             agendamentoId: __ctx.agendamentoId, total: __ctx.total,
              baseTotal: __ctx.baseTotal, extraTotal: __ctx.extraTotal, mode: __ctx.mode };
   };
 
@@ -1373,7 +1542,7 @@
 
   // ------------------------------------------------------------------
   // DASHBOARD — soma das caixinhas no Faturamento Total
-  // Lê agendamento_pagamentos.observacao = "CAIXINHA:X.XX" dos agendamentos
+  // Lê agendamento_pagamentos.caixinha_valor (coluna estruturada) dos agendamentos
   // CONCLUÍDOS no range filtrado e acrescenta ao card "Faturamento Total".
   // Também recalcula o Ticket Médio para refletir o novo total.
   // ------------------------------------------------------------------
@@ -1695,7 +1864,7 @@
       for (var i = 0; i < idsValidos.length; i += chunk) {
         var slice = idsValidos.slice(i, i + chunk);
         var resp = await sb.from('agendamento_pagamentos')
-          .select('id, agendamento_id, observacao')
+          .select('id, agendamento_id, caixinha_valor')
           .in('agendamento_id', slice)
           .eq('tenant_id', tenantId);
         if (resp.error) throw resp.error;
@@ -1711,9 +1880,8 @@
           if (!r || r.id == null) return;
           if (seenPagId[r.id]) return;          // 🛡️ dedup por id
           seenPagId[r.id] = true;
-          var m = /CAIXINHA:([\d\.]+)/i.exec(r.observacao || '');
-          if (m) {
-            var v = parseFloat(m[1]) || 0;
+          var v = Number(r.caixinha_valor) || 0;
+          if (v > 0) {
             totalCaixinha += v;
             tipPorAgendamento[r.agendamento_id] = (tipPorAgendamento[r.agendamento_id] || 0) + v;
           }
