@@ -66,7 +66,7 @@
   function isOkParaFaturamento(a){
     if (!a) return false;
     if (typeof window.isAppointmentCancelled === 'function' && window.isAppointmentCancelled(a)) return false;
-    if (typeof window.isAppointmentAutoCompleted === 'function' && !window.isAppointmentAutoCompleted(a)) return false;
+    if (typeof window.isAppointmentCompleted === 'function' && !window.isAppointmentCompleted(a)) return false;
     return true;
   }
   function primaryProf(a){

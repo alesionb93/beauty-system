@@ -26,6 +26,7 @@
   if (window.__SLOTIFY_PAG_LOADED__) return;
   window.__SLOTIFY_PAG_LOADED__ = true;
 
+  console.log('%c💳 pagamentos.js v23 (conclusão por uso de pacote + modal próprio)','background:#16a34a;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
   console.log('%c💳 pagamentos.js v21 (targets de pagamento: agendamento | venda)','background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
   console.log('%c   base v20 (fonte única = colunas estruturadas; observacao volta a ser texto livre)', 'background:#6c3aed;color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
@@ -386,7 +387,74 @@
   // ------------------------------------------------------------------
   // Modal: injeção de markup (1 só vez) — usa convenção .modal-overlay
   // ------------------------------------------------------------------
+  // Estilos de ação positiva (success). O pagamento agora ENCERRA o
+  // atendimento, então os botões desse fluxo usam verde, não roxo.
+  function ensurePagSuccessStyles() {
+    if (document.getElementById('pag-success-styles')) return;
+    var st = document.createElement('style');
+    st.id = 'pag-success-styles';
+    st.textContent = [
+      '#btn-registrar-pagamento, .btn-registrar-pagamento {',
+      '  background: #16a34a !important;',
+      '  background-image: none !important;',
+      '  border-color: #16a34a !important;',
+      '  color: #fff !important;',
+      '}',
+      '#btn-registrar-pagamento:hover, .btn-registrar-pagamento:hover {',
+      '  background: #15803d !important;',
+      '  border-color: #15803d !important;',
+      '}',
+      '#modal-pagamento-ag.pag-mode-concluir #pag-confirmar {',
+      '  background: #16a34a !important;',
+      '  background-image: none !important;',
+      '  border-color: #16a34a !important;',
+      '  color: #fff !important;',
+      '}',
+      '#modal-pagamento-ag.pag-mode-concluir #pag-confirmar:hover:not(:disabled) {',
+      '  background: #15803d !important;',
+      '  border-color: #15803d !important;',
+      '}',
+      '#modal-pagamento-ag.pag-mode-concluir #pag-confirmar:disabled {',
+      '  background: #16a34a !important;',
+      '  border-color: #16a34a !important;',
+      '  opacity: .55 !important;',
+      '}'
+    ].join('\n') + PAG_PACOTE_CSS;
+    document.head.appendChild(st);
+  }
+
+  // Estilos do fluxo "Confirmar atendimento" (uso de crédito de pacote).
+  var PAG_PACOTE_CSS = [
+    '',
+    '#btn-confirmar-atendimento {',
+    '  display: none; align-items: center; gap: 8px;',
+    '  padding: 10px 16px; border-radius: 10px; cursor: pointer;',
+    '  font-weight: 600; font-size: 14px; border: 1px solid #16a34a;',
+    '  background: #16a34a; color: #fff;',
+    '}',
+    '#btn-confirmar-atendimento:hover { background: #15803d; border-color: #15803d; }',
+    '#modal-confirmar-pacote .cpk-card {',
+    '  background: rgba(108,58,237,.06); border: 1px solid rgba(108,58,237,.18);',
+    '  border-radius: 12px; padding: 14px; margin-bottom: 14px;',
+    '}',
+    '#modal-confirmar-pacote .cpk-row { display:flex; justify-content:space-between; gap:12px; padding:6px 0; font-size:14px; }',
+    '#modal-confirmar-pacote .cpk-row .cpk-k { color:#6b7280; }',
+    '#modal-confirmar-pacote .cpk-row .cpk-v { font-weight:600; text-align:right; }',
+    '#modal-confirmar-pacote .cpk-saldo { font-variant-numeric: tabular-nums; }',
+    '#modal-confirmar-pacote .cpk-saldo b { color:#16a34a; }',
+    '#modal-confirmar-pacote .cpk-msg { font-size:14px; color:#374151; margin: 4px 2px 2px; }',
+    '#modal-confirmar-pacote .cpk-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:18px; }',
+    '#modal-confirmar-pacote .cpk-btn {',
+    '  padding:10px 16px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer;',
+    '}',
+    '#modal-confirmar-pacote .cpk-btn-cancel { background:transparent; border:1px solid #d1d5db; color:#374151; }',
+    '#modal-confirmar-pacote .cpk-btn-ok { background:#16a34a; border:1px solid #16a34a; color:#fff; }',
+    '#modal-confirmar-pacote .cpk-btn-ok:hover:not(:disabled) { background:#15803d; border-color:#15803d; }',
+    '#modal-confirmar-pacote .cpk-btn-ok:disabled { opacity:.55; cursor:default; }'
+  ].join('\n');
+
   function ensureModal() {
+    ensurePagSuccessStyles();
     if (document.getElementById('modal-pagamento-ag')) return;
     var html = ''
       + '<div class="modal-overlay" id="modal-pagamento-ag">'
@@ -1153,6 +1221,31 @@
       } catch(_){}
       try { await atualizarResumoFinanceiro(__ctx, somado, totalAlvo); } catch(_){}
 
+      // 🟢 CONCLUSÃO DO ATENDIMENTO — parte da MESMA operação lógica.
+      // Só existe UM momento em que um agendamento vira 'concluido':
+      // aqui, depois que o pagamento foi validado e salvo.
+      // (consome pacote → baixa estoque → UPDATE status/concluded_at/conclusion_type)
+      if (__ctx.scope === 'agendamento' && __ctx.mode === 'concluir' && __ctx.entityId) {
+        labEl.textContent = 'Concluindo...';
+        var okConclusao = false;
+        if (typeof window.concluirAtendimentoAposPagamento === 'function') {
+          okConclusao = await window.concluirAtendimentoAposPagamento(__ctx.entityId, { refresh: false });
+        } else {
+          console.error('[pag] concluirAtendimentoAposPagamento indisponível');
+        }
+        if (!okConclusao) {
+          console.error('[pag] pagamento salvo, mas conclusão não persistiu', __ctx.entityId);
+          if (typeof window.showToast === 'function') {
+            window.showToast('Pagamento salvo, mas não foi possível concluir o atendimento. Tente novamente.', 'error');
+          }
+          btn.disabled = false;
+          labEl.textContent = origLabel;
+          try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
+          try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+          return;
+        }
+      }
+
 
       // 🔧 v7: hook síncrono para add-ons (pré-pago) — roda ANTES do close,
       // garantindo que a criação do próximo agendamento não dependa do
@@ -1180,6 +1273,7 @@
       var cb = __ctx.onSuccess;
       var __ctxScopeSnapshot = __ctx.scope;
       var __ctxIdSnapshot = __ctx.entityId;
+      var __ctxModeSnapshot = __ctx.mode;
       closePagModal();
 
       if (typeof cb === 'function') {
@@ -1188,12 +1282,31 @@
       if (typeof window.showToast === 'function') {
         window.showToast(__ctxScopeSnapshot === 'venda'
           ? 'Venda registrada com sucesso'
-          : 'Pagamento registrado com sucesso');
+          : (__ctxModeSnapshot === 'concluir'
+              ? 'Pagamento registrado e atendimento concluído'
+              : 'Pagamento registrado com sucesso'));
       }
 
       if (__ctxScopeSnapshot === 'agendamento') {
         try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
         try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+
+        // ✅ UX: a operação inteira (pagamento + conclusão) terminou com
+        // sucesso — o atendimento acabou, então o modal "Editar Agendamento"
+        // não deve continuar aberto. Em caso de erro, o return antecipado
+        // acima garante que ele permaneça aberto para correção.
+        if (__ctxModeSnapshot === 'concluir') {
+          try {
+            if (typeof window.closeModal === 'function') {
+              window.closeModal('modal-agendamento');
+            } else {
+              var __mAg = document.getElementById('modal-agendamento');
+              if (__mAg) { __mAg.classList.remove('active'); __mAg.style.display = 'none'; }
+            }
+          } catch(_){}
+          try { document.body.style.overflow = ''; } catch(_){}
+          try { window.editingAppointmentId = null; } catch(_){}
+        }
       }
       try { if (typeof window.__rodarDashboardPagamentos === 'function') await window.__rodarDashboardPagamentos(); } catch(_){}
     } catch(e) {
@@ -1255,6 +1368,11 @@
     document.getElementById('pag-total').textContent   = fmtBRL(total);
     document.getElementById('pag-confirmar-label').textContent =
       __ctx.mode === 'concluir' ? 'Confirmar e concluir' : 'Salvar pagamento';
+    // classe de modo: pinta "Confirmar e concluir" de verde (ação positiva)
+    try {
+      var __modalPag = document.getElementById('modal-pagamento-ag');
+      if (__modalPag) __modalPag.classList.toggle('pag-mode-concluir', __ctx.mode === 'concluir');
+    } catch(_){}
 
     var list = document.getElementById('pag-formas-list');
     list.innerHTML = '';
@@ -1284,86 +1402,268 @@
   }
 
   // ------------------------------------------------------------------
-  // INTERCEPTA conclusão manual
+  // ❌ Interceptor da conclusão manual REMOVIDO.
+  // O fluxo "Concluir atendimento → Registrar pagamento" não existe mais.
+  // Agora é o inverso e único caminho: "Registrar pagamento" →
+  // "Confirmar e concluir" (onConfirmar conclui o atendimento).
   // ------------------------------------------------------------------
-  function instalarInterceptorConclusao() {
-    var tries = 0;
-    var iv = setInterval(function(){
-      if (typeof window.confirmarConcluirAtendimento === 'function' && !window.confirmarConcluirAtendimento.__pagWrapped) {
-        clearInterval(iv);
-        var original = window.confirmarConcluirAtendimento;
-        var wrapper = async function() {
-          try {
-            var agId = window.editingAppointmentId;
-            if (!agId) return original.apply(this, arguments);
-            var ag = (window.appointments || []).find(function(x){ return x.id === agId; });
-            if (!ag) return original.apply(this, arguments);
 
-            // 🔧 PRÉ-PAGO v5: agendamento criado como pré-pago já pago → não cobra de novo.
-            if (isPrepaidPaid(ag)) {
-              console.log('[pag] pré-pago detectado — pulando modal de cobrança');
-              return original.apply(this, arguments);
-            }
+  // ------------------------------------------------------------------
+  // Botão "Registrar pagamento" no modal de agendamento.
+  // É o ÚNICO caminho para encerrar um atendimento: ele abre o modal de
+  // pagamento, cujo botão "Confirmar e concluir" persiste a conclusão.
+  // ------------------------------------------------------------------
+  // Conclusão = status persistido no banco. Nada de horário/buffer.
+  function isConcluido(ag) {
+    if (!ag) return false;
+    if (typeof window.isAppointmentCompleted === 'function') {
+      try { return !!window.isAppointmentCompleted(ag); } catch(_){}
+    }
+    var st = String(ag.status || '').trim().toLowerCase();
+    return st === 'concluido' || st === 'concluído';
+  }
 
-            var total = calcularValorTotalAgendamento(ag);
-            var temVenda = possuiVendaFinanceira(ag);
-            console.log('[pag] conclusão manual — temVenda:', temVenda,
-                        '| total:', total,
-                        '| venda_pacote:', possuiVendaPacote(ag),
-                        '| servico_pago:', possuiServicoPago(ag),
-                        '| produtos:', possuiProdutosVendidos(ag));
-
-            // REGRA PRINCIPAL (fluxogramas 1 e 2):
-            // Só abre modal se EXISTIR venda financeira. Uso/consumo de
-            // pacote nunca abre modal e nunca gera recebimento.
-            if (!temVenda || !total || total <= 0) {
-              return original.apply(this, arguments);
-            }
-
-
-            // Já tem pagamentos integrais? Segue direto
-            var jaPagos = await carregarPagamentos({ scope: 'agendamento', entityId: agId });
-            var somado = jaPagos.reduce(function(s,p){ return s + Number(p.valor); }, 0);
-            if (somado + 0.01 >= total) return original.apply(this, arguments);
-
-            // Fecha o modal de confirmação e abre o de pagamento
-            try { if (typeof window.closeModal === 'function') window.closeModal('modal-concluir-atendimento'); } catch(_){}
-
-            return abrirModalPagamento({
-              agendamentoId: agId,
-              total: total,
-              mode: 'concluir',
-              onSuccess: async function(){
-                // Após salvar pagamento, executa a conclusão original
-                await original.call(window);
-              }
-            });
-          } catch (err) {
-            console.error('[pag][interceptor] erro — caindo p/ conclusão original:', err);
-            return original.apply(this, arguments);
-          }
-        };
-        wrapper.__pagWrapped = true;
-        window.confirmarConcluirAtendimento = wrapper;
-        console.log('[pag] interceptor de conclusão manual instalado');
-      } else if (++tries > 50) {
-        clearInterval(iv);
-        console.warn('[pag] confirmarConcluirAtendimento não encontrado');
-      }
-    }, 200);
+  function isCancelado(ag) {
+    if (!ag) return false;
+    if (typeof window.isAppointmentCancelled === 'function') {
+      try { return !!window.isAppointmentCancelled(ag); } catch(_){}
+    }
+    var st = String(ag.status || '').trim().toLowerCase();
+    return st === 'cancelado' || st === 'excluido' || st === 'excluído' || st === 'desmarcado';
   }
 
   // ------------------------------------------------------------------
-  // Botão "Registrar pagamento" + auto-hide do "Concluir" em auto-concluídos
+  // USO DE PACOTE — detecção e fluxo próprio de conclusão
   // ------------------------------------------------------------------
-  function isConcluido(ag) {
-    if (!ag) return false;
-    var st = String(ag.status || '').toLowerCase();
-    if (st === 'concluido' || st === 'concluído') return true;
-    if (typeof window.isAppointmentAutoCompleted === 'function') {
-      try { return !!window.isAppointmentAutoCompleted(ag); } catch(_){}
+  // Um atendimento pago com crédito de pacote não tem valor pendente, logo
+  // não passa pelo modal de pagamento. Ele tem um encerramento próprio:
+  // "Confirmar atendimento" -> modal simplificado -> mesma conclusão
+  // persistida no banco (consome crédito, baixa estoque, status/concluded_at).
+  function linhasUsoPacote(ag) {
+    var out = [];
+    if (!ag) return out;
+    var lista = ag.servicos || ag.agendamento_servicos || [];
+    for (var i = 0; i < lista.length; i++) {
+      var s = lista[i];
+      if (!s) continue;
+      var origem = String(s.origem || '').toLowerCase();
+      if (origem === 'pacote_uso' || (!!s.cliente_pacote_id && origem !== 'pacote_venda')) out.push(s);
     }
-    return false;
+    return out;
+  }
+
+  function agendamentoUsaPacote(ag) {
+    if (!ag) return false;
+    if (ag.usar_pacote === true || ag.usarPacote === true) return true;
+    return linhasUsoPacote(ag).length > 0;
+  }
+
+  function valorPendenteAgendamento(ag) {
+    var total = round2(calcularValorTotalAgendamento(ag));
+    var pago  = round2(Number(ag && ag.valor_total_pago) || 0);
+    return round2(Math.max(total - pago, 0));
+  }
+
+  // Só é "conclusão por pacote" quando existe uso de pacote E não sobra
+  // nenhum valor a receber.
+  function ehConclusaoPorPacote(ag) {
+    return agendamentoUsaPacote(ag) && valorPendenteAgendamento(ag) <= 0.009;
+  }
+
+  function nomesServicosDoAgendamento(ag) {
+    var lista = (ag && (ag.servicos || ag.agendamento_servicos)) || [];
+    var nomes = [];
+    for (var i = 0; i < lista.length; i++) {
+      var s = lista[i] || {};
+      var n = s.servico_nome || s.nome || (s.servicos && s.servicos.nome) || '';
+      if (n && nomes.indexOf(n) < 0) nomes.push(n);
+    }
+    return nomes;
+  }
+
+  // Saldo real dos pacotes usados por este agendamento (banco = verdade).
+  async function carregarSaldosPacoteDoAgendamento(agId) {
+    var sb = getSb();
+    if (!sb || !agId) return [];
+    try {
+      var r = await sb.from('agendamento_servicos')
+        .select('id, cliente_pacote_id, origem, credito_consumido')
+        .eq('agendamento_id', agId)
+        .not('cliente_pacote_id', 'is', null);
+      if (r.error) throw r.error;
+      var linhas = (r.data || []).filter(function(l){
+        return String(l.origem || '').toLowerCase() !== 'pacote_venda';
+      });
+      if (!linhas.length) return [];
+
+      var ids = [], consumos = {};
+      linhas.forEach(function(l){
+        if (ids.indexOf(l.cliente_pacote_id) < 0) ids.push(l.cliente_pacote_id);
+        if (!l.credito_consumido) consumos[l.cliente_pacote_id] = (consumos[l.cliente_pacote_id] || 0) + 1;
+      });
+
+      var rp = await sb.from('cliente_pacotes')
+        .select('id, quantidade_total, quantidade_restante, pacotes(nome)')
+        .in('id', ids);
+      if (rp.error) throw rp.error;
+
+      return (rp.data || []).map(function(cp){
+        var usar = consumos[cp.id] || 0;
+        var atual = Number(cp.quantidade_restante) || 0;
+        return {
+          id: cp.id,
+          nome: (cp.pacotes && cp.pacotes.nome) || 'Pacote',
+          total: Number(cp.quantidade_total) || 0,
+          saldoAtual: atual,
+          saldoDepois: Math.max(atual - usar, 0),
+          consumir: usar
+        };
+      });
+    } catch (e) {
+      console.warn('[pag][pacote] falha ao ler saldo do pacote', e);
+      return [];
+    }
+  }
+
+  function ensureModalConfirmarPacote() {
+    ensurePagSuccessStyles();
+    if (document.getElementById('modal-confirmar-pacote')) return;
+    var html = ''
+      + '<div class="modal-overlay" id="modal-confirmar-pacote">'
+      +   '<div class="modal">'
+      +     '<div class="modal-header">'
+      +       '<h3><i class="fa-solid fa-gift" style="margin-right:8px;"></i>Confirmar atendimento</h3>'
+      +       '<button type="button" class="modal-close" data-cpk-close="1" aria-label="Fechar">&times;</button>'
+      +     '</div>'
+      +     '<div class="modal-body">'
+      +       '<div class="cpk-card">'
+      +         '<div class="cpk-row"><span class="cpk-k">Cliente</span><span class="cpk-v" id="cpk-cliente">—</span></div>'
+      +         '<div class="cpk-row"><span class="cpk-k">Serviço</span><span class="cpk-v" id="cpk-servico">—</span></div>'
+      +         '<div class="cpk-row"><span class="cpk-k">Forma de encerramento</span><span class="cpk-v">🎁 Uso de pacote</span></div>'
+      +         '<div class="cpk-row"><span class="cpk-k">Valor</span><span class="cpk-v">R$ 0,00</span></div>'
+      +         '<div id="cpk-saldos"></div>'
+      +       '</div>'
+      +       '<p class="cpk-msg">Deseja confirmar este atendimento utilizando um crédito do pacote?</p>'
+      +       '<div class="cpk-actions">'
+      +         '<button type="button" class="cpk-btn cpk-btn-cancel" data-cpk-close="1">Cancelar</button>'
+      +         '<button type="button" class="cpk-btn cpk-btn-ok" id="cpk-confirmar"><span id="cpk-confirmar-label">Confirmar e concluir</span></button>'
+      +       '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>';
+    var wrap = document.createElement('div');
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap.firstChild);
+
+    var modal = document.getElementById('modal-confirmar-pacote');
+    modal.addEventListener('click', function(ev){
+      if (ev.target === modal || (ev.target.closest && ev.target.closest('[data-cpk-close]'))) {
+        fecharModalConfirmarPacote();
+      }
+    });
+    document.getElementById('cpk-confirmar').addEventListener('click', onConfirmarPacote);
+  }
+
+  var __cpkAgId = null;
+
+  function fecharModalConfirmarPacote() {
+    var m = document.getElementById('modal-confirmar-pacote');
+    if (m) { m.classList.remove('active'); m.style.display = 'none'; }
+    __cpkAgId = null;
+  }
+
+  async function abrirModalConfirmarPacote(ag) {
+    if (!ag) return;
+    ensureModalConfirmarPacote();
+    __cpkAgId = ag.id;
+
+    document.getElementById('cpk-cliente').textContent = ag.cliente_nome || ag.cliente || '—';
+    var nomes = nomesServicosDoAgendamento(ag);
+    document.getElementById('cpk-servico').textContent = nomes.length ? nomes.join(', ') : '—';
+    var saldosEl = document.getElementById('cpk-saldos');
+    saldosEl.innerHTML = '<div class="cpk-row"><span class="cpk-k">Saldo do pacote</span><span class="cpk-v">carregando…</span></div>';
+
+    var btn = document.getElementById('cpk-confirmar');
+    btn.disabled = false;
+    document.getElementById('cpk-confirmar-label').textContent = 'Confirmar e concluir';
+
+    var m = document.getElementById('modal-confirmar-pacote');
+    m.classList.add('active');
+    m.style.display = 'flex';
+
+    var saldos = await carregarSaldosPacoteDoAgendamento(ag.id);
+    if (__cpkAgId !== ag.id) return;
+    if (!saldos.length) {
+      saldosEl.innerHTML = '';
+      return;
+    }
+    saldosEl.innerHTML = saldos.map(function(s){
+      return '<div class="cpk-row">'
+        + '<span class="cpk-k">' + escHtml(s.nome) + '</span>'
+        + '<span class="cpk-v cpk-saldo">Saldo ' + s.saldoAtual + ' → <b>' + s.saldoDepois + '</b></span>'
+        + '</div>';
+    }).join('');
+  }
+
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+
+  // Mesma conclusão dos atendimentos comuns — sem registrar pagamento.
+  async function onConfirmarPacote() {
+    var agId = __cpkAgId;
+    if (!agId) return;
+    var btn = document.getElementById('cpk-confirmar');
+    var lab = document.getElementById('cpk-confirmar-label');
+    btn.disabled = true;
+    lab.textContent = 'Concluindo...';
+
+    try {
+      var ok = false;
+      if (typeof window.concluirAtendimentoAposPagamento === 'function') {
+        ok = await window.concluirAtendimentoAposPagamento(agId, { refresh: false });
+      } else {
+        console.error('[pag][pacote] concluirAtendimentoAposPagamento indisponível');
+      }
+      if (!ok) {
+        btn.disabled = false;
+        lab.textContent = 'Confirmar e concluir';
+        if (typeof window.showToast === 'function') {
+          window.showToast('Não foi possível concluir o atendimento. Tente novamente.', 'error');
+        }
+        return;
+      }
+
+      fecharModalConfirmarPacote();
+
+      // Fecha o modal de edição só após todo o fluxo dar certo.
+      try {
+        if (typeof window.closeModal === 'function') {
+          window.closeModal('modal-agendamento');
+        } else {
+          var mAg = document.getElementById('modal-agendamento');
+          if (mAg) { mAg.classList.remove('active'); mAg.style.display = 'none'; }
+        }
+      } catch(_){}
+      try { document.body.style.overflow = ''; } catch(_){}
+      try { window.editingAppointmentId = null; } catch(_){}
+
+      try { if (typeof window.loadAppointments === 'function') await window.loadAppointments(); } catch(_){}
+      try { if (typeof window.renderDayDetail === 'function') window.renderDayDetail(); } catch(_){}
+      try { if (typeof window.loadDashboard === 'function') window.loadDashboard(); } catch(_){}
+      try { if (typeof window.__rodarDashboardPagamentos === 'function') await window.__rodarDashboardPagamentos(); } catch(_){}
+
+      if (typeof window.showToast === 'function') {
+        window.showToast('Atendimento concluído com crédito do pacote');
+      }
+    } catch (e) {
+      console.error('[pag][pacote][confirmar]', e);
+      btn.disabled = false;
+      lab.textContent = 'Confirmar e concluir';
+      if (typeof window.showToast === 'function') window.showToast('Erro ao concluir atendimento.', 'error');
+    }
   }
 
   function injetarBotaoRegistrarPagamento() {
@@ -1371,58 +1671,81 @@
     if (!modalAg) return;
     if (document.getElementById('btn-registrar-pagamento')) return;
 
-    var anchor = document.getElementById('btn-concluir-atendimento') || modalAg.querySelector('.modal-actions, .modal-footer');
+    var anchor = modalAg.querySelector('.modal-actions, .modal-footer');
     if (!anchor) return;
+    ensurePagSuccessStyles();
+
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.id = 'btn-registrar-pagamento';
-    btn.className = 'btn-registrar-pagamento';
+    btn.className = 'btn-registrar-pagamento btn-pag-success';
     btn.style.display = 'none';
     btn.innerHTML = '<i class="fa-solid fa-money-bill-wave"></i> <span>Registrar pagamento</span>';
-    if (anchor.id === 'btn-concluir-atendimento') {
-      anchor.parentNode.insertBefore(btn, anchor);
-    } else {
-      anchor.appendChild(btn);
-    }
+    anchor.appendChild(btn);
+
+    // Botão exclusivo do encerramento por crédito de pacote.
+    var btnPk = document.createElement('button');
+    btnPk.type = 'button';
+    btnPk.id = 'btn-confirmar-atendimento';
+    btnPk.style.display = 'none';
+    btnPk.innerHTML = '<i class="fa-solid fa-circle-check"></i> <span>Confirmar atendimento</span>';
+    anchor.appendChild(btnPk);
 
     btn.addEventListener('click', function(){
       var agId = window.editingAppointmentId;
       if (!agId) return;
       var ag = (window.appointments || []).find(function(x){ return x.id === agId; });
       if (!ag) return;
+      // Ainda não concluído => "Confirmar e concluir" (conclui ao salvar).
+      // Já concluído => apenas edição do pagamento.
       abrirModalPagamento({
         agendamentoId: agId,
         total: calcularValorTotalAgendamento(ag),
-        mode: 'registrar'
+        mode: isConcluido(ag) ? 'registrar' : 'concluir'
       });
     });
 
-    var btnConcluir = document.getElementById('btn-concluir-atendimento');
+    btnPk.addEventListener('click', function(){
+      var agId = window.editingAppointmentId;
+      if (!agId) return;
+      var ag = (window.appointments || []).find(function(x){ return x.id === agId; });
+      if (!ag) return;
+      abrirModalConfirmarPacote(ag);
+    });
 
     var mo = new MutationObserver(function(){
       var aberto = (modalAg.classList && modalAg.classList.contains('active')) ||
                    (modalAg.style.display && modalAg.style.display !== 'none');
-      if (!aberto) { btn.style.display = 'none'; return; }
+      if (!aberto) { btn.style.display = 'none'; btnPk.style.display = 'none'; return; }
       var agId = window.editingAppointmentId;
       var ag = (window.appointments || []).find(function(x){ return x.id === agId; });
-      if (!ag) { btn.style.display = 'none'; return; }
+      if (!ag) { btn.style.display = 'none'; btnPk.style.display = 'none'; return; }
 
       var concluido = isConcluido(ag);
+      var cancelado = isCancelado(ag);
       var total = calcularValorTotalAgendamento(ag);
       var pago  = Number(ag.valor_total_pago) || 0;
       var falta = total > 0 && (pago + 0.01 < total);
 
-      // FIX: esconde "Concluir atendimento" também em auto-concluídos
-      if (btnConcluir && concluido) {
-        btnConcluir.style.display = 'none';
-      }
-
       // 🔧 PRÉ-PAGO v5: pré-pago já pago não precisa de botão de cobrança
       var ehPrepaidPago = isPrepaidPaid(ag);
 
-      var label = (pago > 0) ? 'Editar pagamento' : 'Registrar pagamento';
+      // 🎁 Uso de pacote sem valor pendente: o encerramento não é um
+      // pagamento, é uma confirmação de atendimento.
+      var pacote = !cancelado && !concluido && !ehPrepaidPago && ehConclusaoPorPacote(ag);
+      btnPk.style.display = pacote ? 'inline-flex' : 'none';
+
+      // Enquanto NÃO concluído, o botão é a única saída do atendimento:
+      // "Registrar pagamento" (que conclui). Depois de concluído, só
+      // aparece para completar/editar um pagamento faltante.
+      var label = concluido
+        ? ((pago > 0) ? 'Editar pagamento' : 'Registrar pagamento')
+        : 'Registrar pagamento';
       btn.querySelector('span').textContent = label;
-      btn.style.display = (concluido && falta && !ehPrepaidPago) ? 'inline-flex' : 'none';
+
+      var mostrar = !pacote && !cancelado && total > 0 && !ehPrepaidPago &&
+                    (!concluido || falta);
+      btn.style.display = mostrar ? 'inline-flex' : 'none';
     });
     mo.observe(modalAg, { attributes: true, attributeFilter: ['style', 'class'] });
   }
@@ -1534,7 +1857,6 @@
 
   // Boot
   function boot() {
-    instalarInterceptorConclusao();
     injetarBotaoRegistrarPagamento();
     instalarObserverDayDetail();
     instalarHookDashboardCaixinha();
@@ -1838,7 +2160,7 @@
     window.appointments.forEach(function(a){
       if (!a || !a.id) return;
       if (typeof window.isAppointmentCancelled === 'function' && window.isAppointmentCancelled(a)) return;
-      if (typeof window.isAppointmentAutoCompleted === 'function' && !window.isAppointmentAutoCompleted(a)) return;
+      if (typeof window.isAppointmentCompleted === 'function' && !window.isAppointmentCompleted(a)) return;
       if (fIni && fFim && a.data) {
         if (a.data < fIni || a.data > fFim) return;
       }

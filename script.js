@@ -196,15 +196,13 @@ var appointments = [];
 var bloqueios = []; // Lista de bloqueios de horário do tenant
 
 /* ============================================================
-   AUTO-CONCLUSÃO DE AGENDAMENTOS (v1)
-   Regra: agendamento é considerado CONCLUÍDO automaticamente
-   quando agora > (início + duração total dos serviços + 30min).
-   - Cancelados (status 'excluido'/'cancelado'/'desmarcado') ignorados
-   - Futuros => sempre 'agendado'
-   - Apenas concluídos entram em faturamento
-   Não persiste no banco — derivado em tempo real.
+   STATUS DE AGENDAMENTOS (v2 — sem Auto Buffer)
+   O BANCO É A ÚNICA FONTE DA VERDADE.
+   Um atendimento só é 'concluido' quando o pagamento é confirmado
+   (fluxo "Confirmar e concluir" do modal de pagamento), momento em
+   que gravamos status='concluido', concluded_at e conclusion_type.
+   NÃO existe mais conclusão derivada de horário/duração/buffer.
    ============================================================ */
-var AUTO_CONCLUSAO_BUFFER_MIN = 30;
 
 function getAppointmentTotalDuration(a) {
   if (!a) return 30;
@@ -258,6 +256,8 @@ function isAppointmentSlotBlocking(a) {
   return true;
 }
 
+// Fim REAL do atendimento (início + duração dos serviços). Uso puramente
+// visual/informativo — não determina conclusão.
 function getAppointmentEndDate(a) {
   if (!a || !a.data || !a.hora) return null;
   var dParts = String(a.data).split('-');
@@ -272,52 +272,31 @@ function getAppointmentEndDate(a) {
     0, 0
   );
   if (isNaN(dt.getTime())) return null;
-  var totalMin = getAppointmentTotalDuration(a) + AUTO_CONCLUSAO_BUFFER_MIN;
+  var totalMin = getAppointmentTotalDuration(a);
   dt.setMinutes(dt.getMinutes() + totalMin);
   return dt;
 }
 
-function isAppointmentAutoCompleted(a) {
+// 🟢 ÚNICA definição de "concluído": status persistido no banco.
+// (gravado somente pela confirmação de pagamento — ver
+//  concluirAtendimentoAposPagamento)
+function isAppointmentCompleted(a) {
   if (!a) return false;
   if (isAppointmentCancelled(a)) return false;
-  // 🟢 CONCLUSÃO MANUAL: status persistido 'concluido' tem precedência sobre o cálculo por horário.
-  // Isso garante que o agendamento seja tratado como concluído imediatamente, mesmo
-  // antes do buffer de 30 min, quando o usuário aciona "Concluir atendimento".
-  var st = String(a.status || '').trim().toLowerCase();
-  if (st === 'concluido' || st === 'concluído') return true;
-  var endDt = getAppointmentEndDate(a);
-  if (!endDt) return false;
-  return new Date().getTime() > endDt.getTime();
-}
-
-// Indica se o agendamento já foi concluído manualmente (status persistido).
-function isAppointmentManuallyCompleted(a) {
-  if (!a) return false;
   var st = String(a.status || '').trim().toLowerCase();
   return st === 'concluido' || st === 'concluído';
 }
 
-// Status efetivo para UI/cálculos: 'cancelado' | 'concluido' | 'agendado'
-function getEffectiveAppointmentStatus(a) {
+// Status para UI/cálculos: 'cancelado' | 'concluido' | 'agendado'
+function getAppointmentStatus(a) {
   if (isAppointmentCancelled(a)) return 'cancelado';
-  if (isAppointmentAutoCompleted(a)) return 'concluido';
+  if (isAppointmentCompleted(a)) return 'concluido';
   return 'agendado';
 }
 
-// Auto-refresh: revalida visual a cada 60s para que blocos virem "concluído"
-// quando o tempo passa, mesmo sem ação do usuário.
-setInterval(function() {
-  try {
-    var pageAgenda = document.querySelector('.page.active[data-page="agenda"], #page-agenda.page.active');
-    if (typeof renderDayDetail === 'function' && pageAgenda) {
-      renderDayDetail();
-    }
-    var pageDash = document.querySelector('#page-dashboard.page.active');
-    if (typeof loadDashboard === 'function' && pageDash) {
-      loadDashboard();
-    }
-  } catch(e) { /* silencioso */ }
-}, 60000);
+// Exposição global explícita (usada por pagamentos.js / desconto-financeiro.js)
+window.isAppointmentCompleted = isAppointmentCompleted;
+window.getAppointmentStatus   = getAppointmentStatus;
 
 var editingAppointmentId = null;
 var editingClientId = null;
@@ -3287,8 +3266,8 @@ function renderTimelineBlockMulti(container, ev, colIdx, totalCols, subCol, tota
   }
 
   buildBlockContent(block, ev, heightPx, endTime, ev.servico);
-  // 🟢 AUTO-CONCLUSÃO: marca visual quando passou do horário + duração + 30min
-  if (ev.agendamento && isAppointmentAutoCompleted(ev.agendamento)) {
+  // 🟢 Marca visual apenas quando o banco diz que está concluído.
+  if (ev.agendamento && isAppointmentCompleted(ev.agendamento)) {
     block.classList.add('is-completed');
   }
   // 🖱️ Tooltip de leitura rápida (desktop) + 📱 bottom sheet no mobile/tablet
@@ -3331,8 +3310,8 @@ function renderTimelineBlock(container, ev, colIdx, totalCols, hourStartOverride
   }
 
   buildBlockContent(block, ev, heightPx, endTime, ev.servico);
-  // 🟢 AUTO-CONCLUSÃO: marca visual quando passou do horário + duração + 30min
-  if (ev.agendamento && isAppointmentAutoCompleted(ev.agendamento)) {
+  // 🟢 Marca visual apenas quando o banco diz que está concluído.
+  if (ev.agendamento && isAppointmentCompleted(ev.agendamento)) {
     block.classList.add('is-completed');
   }
   // 🖱️ Tooltip de leitura rápida (desktop) + 📱 bottom sheet no mobile/tablet
@@ -3392,16 +3371,8 @@ function openAgendamentoModal(agId, clienteNome, clienteTel) {
   document.getElementById('ag-telefone').value = clienteTel || '';
   document.getElementById('modal-agendamento-titulo').textContent = agId ? 'Editar Agendamento' : 'Novo Agendamento';
   document.getElementById('btn-excluir-agendamento').style.display = agId ? 'flex' : 'none';
-  // 🟢 CONCLUSÃO MANUAL: botão visível apenas em edição, oculto se já concluído/cancelado
-  try {
-    var btnConcluir = document.getElementById('btn-concluir-atendimento');
-    if (btnConcluir) {
-      var agAtual = agId ? appointments.find(function(x){ return x.id === agId; }) : null;
-      var jaConcluido = agAtual && isAppointmentManuallyCompleted(agAtual);
-      var jaCancelado = agAtual && isAppointmentCancelled(agAtual);
-      btnConcluir.style.display = (agId && !jaConcluido && !jaCancelado) ? 'flex' : 'none';
-    }
-  } catch(_){}
+  // ❌ Botão "Concluir atendimento" removido: a conclusão acontece exclusivamente
+  // na confirmação do pagamento ("Confirmar e concluir").
   document.getElementById('servicos-container').innerHTML = '';
 
   // (Re)popula o select de horas conforme horário comercial atual
@@ -3466,7 +3437,7 @@ function isMobileOrTablet() {
 }
 
 function getStatusLabel(a) {
-  var st = getEffectiveAppointmentStatus(a);
+  var st = getAppointmentStatus(a);
   if (st === 'cancelado') return 'Cancelado';
   if (st === 'concluido') return 'Concluído';
   return 'Agendado';
@@ -3528,7 +3499,7 @@ function openAgendamentoBottomSheet(a) {
   var endTime = computeEndTime(a.hora, getAppointmentTotalDuration(a));
   var dataFmt = a.data ? a.data.split('-').reverse().join('/') : '—';
   var status = getStatusLabel(a);
-  var statusClass = 'status-' + getEffectiveAppointmentStatus(a);
+  var statusClass = 'status-' + getAppointmentStatus(a);
 
   // Produtos vinculados (cores/bases/pigmentos via agendamento_servico_cores)
   var produtosTxt = '';
@@ -6013,10 +5984,10 @@ async function loadDashboard() {
     if (nomeFiltrado) profHoraFat[nomeFiltrado] = {};
   }
 
-  // 🟢 AUTO-CONCLUSÃO + 📦 VENDA DE PACOTE
+  // 🟢 CONCLUSÃO PERSISTIDA + 📦 VENDA DE PACOTE
   // Regras (alinhadas com atendimentos comuns):
   //  - SERVIÇOS EXECUTADOS só entram no faturamento se o agendamento estiver
-  //    auto-concluído (passou de início + duração + 30min) e não cancelado.
+  //    concluído NO BANCO (status='concluido') e não cancelado.
   //  - VENDAS DE PACOTE seguem A MESMA REGRA: só entram em Faturamento Total /
   //    Total Faturado / Recebido quando o agendamento estiver concluído.
   //    Enquanto Agendado/Aberto, o valor aparece apenas como PENDENTE
@@ -6028,7 +5999,7 @@ async function loadDashboard() {
     var cancelado = isAppointmentCancelled(a);
     if (cancelado) return; // cancelados nunca entram no dashboard
 
-    var concluido = isAppointmentAutoCompleted(a);
+    var concluido = isAppointmentCompleted(a);
 
     // Sem conclusão, não entra no faturamento — nem serviço comum nem venda
     // de pacote. (O valor previsto vira "Pendente" no widget de pagamentos.)
@@ -7962,26 +7933,8 @@ async function inserirLinhasServicoAgendamento(opts) {
 }
 
 
-async function persistAutoConcludedAtIfRetroactive(agendamentoId, apt) {
-  if (!agendamentoId || !apt) return;
-  try {
-    var snapshot = Object.assign({}, apt, { id: agendamentoId, status: apt.status || 'agendado' });
-    if (typeof isAppointmentAutoCompleted !== 'function' || !isAppointmentAutoCompleted(snapshot)) return;
-    var endDt = (typeof getAppointmentEndDate === 'function') ? getAppointmentEndDate(snapshot) : null;
-    if (!endDt || isNaN(endDt.getTime())) return;
-
-    var upd = supabaseClient.from('agendamentos')
-      .update({ concluded_at: endDt.toISOString() })
-      .eq('id', agendamentoId)
-      .is('concluded_at', null);
-    var tenantId = getCurrentTenantId();
-    if (tenantId) upd = upd.eq('tenant_id', tenantId);
-    var r = await upd;
-    if (r.error) console.warn('[auto-conclusao] concluded_at não persistido:', r.error);
-  } catch (e) {
-    console.warn('[auto-conclusao] erro ao persistir concluded_at:', e);
-  }
-}
+// ❌ Rotina legada de gravação retroativa de concluded_at removida (Auto Buffer).
+// concluded_at só é gravado na confirmação do pagamento.
 
 insertAppointment = async function(apt) {
   var tenantId = getCurrentTenantId();
@@ -8024,7 +7977,6 @@ insertAppointment = async function(apt) {
       return false;
     }
   }
-  await persistAutoConcludedAtIfRetroactive(agId, apt);
   return true;
 };
 
@@ -8116,7 +8068,6 @@ updateAppointment = async function(id, apt) {
     console.warn('[pacote][update-reaplica] erro inesperado:', e);
   }
 
-  await persistAutoConcludedAtIfRetroactive(id, apt);
   return true;
 };
 
@@ -12240,21 +12191,22 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
   }
 
   // ============================================================
-  // 5) AUTO-CONCLUSÃO: varredor periódico para baixar estoque
-  //    Roda em paralelo com o setInterval(60s) já existente.
-  //    Idempotente: só baixa onde estoque_movimentacao_id IS NULL.
+  // 5) REDE DE SEGURANÇA: varredor de agendamentos JÁ CONCLUÍDOS no banco
+  //    cujos efeitos operacionais ficaram pendentes (falha de rede etc.).
+  //    Não conclui nada — apenas repara. Idempotente: só baixa onde
+  //    estoque_movimentacao_id IS NULL.
   // ============================================================
   var __varredorRodando = false;
   async function varrerConclusoesEDarBaixa(){
     if (__varredorRodando) return;
     if (typeof appointments === 'undefined' || !Array.isArray(appointments)) return;
-    if (typeof isAppointmentAutoCompleted !== 'function') return;
+    if (typeof isAppointmentCompleted !== 'function') return;
     __varredorRodando = true;
     try {
       var concluidos = appointments.filter(function(a){
         if (!a || !a.id) return false;
         if (typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(a)) return false;
-        if (!isAppointmentAutoCompleted(a)) return false;
+        if (!isAppointmentCompleted(a)) return false;
         var prods = produtosPorAgendamento[a.id] || [];
         var temProdutoPendente = prods.some(function(p){
           if (p.estoque_movimentacao_id) return false;
@@ -12264,13 +12216,13 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
         var temPacotePendente = Array.isArray(a.servicos) && a.servicos.some(function(s){
           return s && s.origem === 'pacote_uso' && s.cliente_pacote_id && !s.credito_consumido;
         });
-        // Auto-conclusão agora executa efeitos operacionais pendentes:
+        // Efeitos operacionais pendentes de um atendimento já concluído:
         // baixa estoque e/ou consome crédito de pacote. Não altera receita.
         return temProdutoPendente || temPacotePendente;
       });
       for (var i = 0; i < concluidos.length; i++) {
         try { await consumirCreditosPacoteDoAgendamento(concluidos[i].id); }
-        catch(e){ console.warn('[pacote][auto-conclusao] consumo falhou:', e); }
+        catch(e){ console.warn('[pacote][repair] consumo falhou:', e); }
         await darBaixaEstoqueAgendamento(concluidos[i].id);
       }
       if (concluidos.length > 0) {
@@ -12656,7 +12608,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
         var ehVendaCancelada = (typeof isCanceladoComVenda === 'function') && isCanceladoComVenda(a);
         if (!ehVendaCancelada) {
           if (typeof isAppointmentCancelled === 'function' && isAppointmentCancelled(a)) return;
-          if (typeof isAppointmentAutoCompleted === 'function' && !isAppointmentAutoCompleted(a)) return;
+          if (typeof isAppointmentCompleted === 'function' && !isAppointmentCompleted(a)) return;
         }
         if (fInicio && fFim && a.data) {
           if (a.data < fInicio || a.data > fFim) return;
@@ -12765,158 +12717,162 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
 
 
 /* ============================================================
-   CONCLUSÃO MANUAL DE ATENDIMENTO (v1)
-   - Reaproveita o mesmo fluxo da auto-conclusão:
-     * status persistido = 'concluido' (faz isAppointmentAutoCompleted retornar true,
-       o que já alimenta dashboard, faturamento e badge "CONCLUÍDO");
-     * darBaixaEstoqueAgendamento(id) é idempotente (só baixa onde
-       estoque_movimentacao_id IS NULL);
-     * o varredor periódico continua funcionando para os demais
-       agendamentos não concluídos manualmente.
-   - Persiste concluded_at e conclusion_type='manual'.
-   - Salva alterações pendentes do formulário ANTES de concluir.
+   CONCLUSÃO DE ATENDIMENTO (v2 — sem Auto Buffer)
+   ------------------------------------------------------------
+   REGRA ÚNICA DE NEGÓCIO:
+     Um atendimento só é concluído quando o pagamento é confirmado.
+
+   Não existe mais:
+     • buffer de auto-conclusão / conclusão por horário
+     • botão "Concluir atendimento"
+     • modal "modal-concluir-atendimento"
+     • conclusão apenas visual
+
+   Este módulo expõe UMA operação lógica, chamada pelo botão
+   "Confirmar e concluir" do modal de pagamento (pagamentos.js),
+   depois de salvar os pagamentos:
+
+     consumir pacote → baixar estoque → UPDATE agendamentos
+     (status='concluido', concluded_at=NOW(), conclusion_type='manual')
+
+   Comissão / faturamento / dashboard são derivados do status
+   persistido — nada é calculado no cliente.
    ============================================================ */
 (function(){
   'use strict';
 
-  var __concluindo = false;
+  var __concluindo = Object.create(null);
 
-  function abrirModalConcluirAtendimento(){
-    if (!editingAppointmentId) return;
-    var ag = appointments.find(function(x){ return x.id === editingAppointmentId; });
-    if (ag && isAppointmentManuallyCompleted(ag)) {
-      if (typeof showToast === 'function') showToast('Este atendimento já foi concluído.');
-      return;
-    }
-    if (ag && isAppointmentCancelled(ag)) {
-      if (typeof showToast === 'function') showToast('Este atendimento está cancelado.');
-      return;
-    }
-    if (typeof openModal === 'function') openModal('modal-concluir-atendimento');
+  // ---------------------------------------------------------
+  // Limpeza de resquícios do fluxo antigo no DOM.
+  // (Se o HTML ainda contiver o botão/modal legados, eles são
+  //  removidos para que não exista nenhum caminho alternativo
+  //  de conclusão fora do pagamento.)
+  // ---------------------------------------------------------
+  function removerUILegadaDeConclusao(){
+    ['btn-concluir-atendimento',
+     'btn-confirmar-concluir-atendimento',
+     'modal-concluir-atendimento'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', removerUILegadaDeConclusao);
+  } else {
+    removerUILegadaDeConclusao();
   }
 
-  async function confirmarConcluirAtendimento(){
-    if (__concluindo) return;
-    var agId = editingAppointmentId;
-    if (!agId) return;
+  function statusPersistidoConcluido(st){
+    st = String(st || '').trim().toLowerCase();
+    return st === 'concluido' || st === 'concluído';
+  }
+  function statusPersistidoCancelado(st){
+    st = String(st || '').trim().toLowerCase();
+    return st === 'cancelado' || st === 'excluido' || st === 'excluído' || st === 'desmarcado';
+  }
 
-    var btn = document.getElementById('btn-confirmar-concluir-atendimento');
-    var btnTexto = btn ? btn.innerHTML : '';
-    __concluindo = true;
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Concluindo...';
-    }
+  /**
+   * Conclui o atendimento APÓS a confirmação do pagamento.
+   * Executa, em sequência, os efeitos operacionais e só então
+   * persiste o status. Idempotente.
+   *
+   * @param {string} agId
+   * @param {{silent?:boolean, refresh?:boolean}} [opts]
+   * @returns {Promise<boolean>} true se o agendamento está concluído no banco
+   */
+  async function concluirAtendimentoAposPagamento(agId, opts){
+    opts = opts || {};
+    if (!agId) return false;
+    if (__concluindo[agId]) return false;
+    __concluindo[agId] = true;
 
     try {
-      // 🛑 BUGFIX (calendário): NÃO dispare saveAppointment aqui.
-      // Concluir atendimento é OPERACIONAL — não pode reescrever
-      // agendamento_servicos (delete + reinsert), pois isso:
-      //   • muda a ordem/quantidade das linhas (created_at novo);
-      //   • pode reintroduzir uma linha pacote_venda como serviço executável,
-      //     fazendo expandToServiceEvents empurrar o bloco pra frente no
-      //     horário visualmente.
-      // Se o usuário quer salvar mudanças do formulário, deve clicar em
-      // "Salvar" antes de "Concluir". Conclusão NÃO altera estrutura.
-
-      // 2) IDEMPOTÊNCIA: revalida estado atual antes de marcar concluído
-      var tenantId = (typeof getCurrentTenantId === 'function') ? getCurrentTenantId() : null;
+      // 1) Revalida o estado atual no banco (idempotência / concorrência)
       var checkResp = await supabaseClient.from('agendamentos')
         .select('id, status')
         .eq('id', agId)
         .maybeSingle();
       if (checkResp.error) {
-        console.error('[concluir-manual] check erro:', checkResp.error);
-        if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
-        return;
+        console.error('[concluir] check erro:', checkResp.error);
+        if (!opts.silent && typeof showToast === 'function') showToast('Erro ao concluir atendimento.', 'error');
+        return false;
       }
-      var statusAtual = checkResp.data && String(checkResp.data.status || '').toLowerCase();
-      if (statusAtual === 'concluido' || statusAtual === 'concluído') {
-        if (typeof showToast === 'function') showToast('Atendimento já estava concluído.');
-        try { closeModal('modal-concluir-atendimento'); } catch(_){}
-        try { closeModal('modal-agendamento'); } catch(_){}
-        return;
-      }
-      if (statusAtual === 'cancelado' || statusAtual === 'excluido' || statusAtual === 'desmarcado') {
-        if (typeof showToast === 'function') showToast('Não é possível concluir um agendamento cancelado.');
-        return;
+      var statusAtual = checkResp.data && checkResp.data.status;
+      if (statusPersistidoConcluido(statusAtual)) return true;   // já concluído
+      if (statusPersistidoCancelado(statusAtual)) {
+        if (!opts.silent && typeof showToast === 'function') {
+          showToast('Não é possível concluir um agendamento cancelado.', 'error');
+        }
+        return false;
       }
 
-      // 3) CONSUME créditos de pacote pendentes.
-      //    Isso é operacional: NÃO cria venda, NÃO recalcula preço e NÃO mexe
-      //    nas linhas pacote_venda já registradas no dashboard.
-      try { await consumirCreditosPacoteDoAgendamento(agId); }
-      catch(e) {
-        console.error('[concluir-manual] consumo de pacote falhou:', e);
-        if (typeof showToast === 'function') showToast(e.message || 'Não foi possível consumir o crédito do pacote.', 'error');
-        return;
-      }
-
-      // 4) PERSISTE conclusão: status + concluded_at + conclusion_type='manual'
-      var updatePayload = {
-        status: 'concluido',
-        concluded_at: new Date().toISOString(),
-        conclusion_type: 'manual',
-        updated_at: new Date().toISOString()
-      };
-      var upd = await supabaseClient.from('agendamentos')
-        .update(updatePayload)
-        .eq('id', agId);
-      if (upd.error) {
-        // Fallback caso as colunas concluded_at/conclusion_type não existam ainda
-        console.warn('[concluir-manual] update falhou (tentando fallback):', upd.error);
-        var upd2 = await supabaseClient.from('agendamentos')
-          .update({ status: 'concluido', updated_at: new Date().toISOString() })
-          .eq('id', agId);
-        if (upd2.error) {
-          console.error('[concluir-manual] update fallback falhou:', upd2.error);
-          if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
-          return;
+      // 2) Consome créditos de pacote pendentes (operacional)
+      if (typeof consumirCreditosPacoteDoAgendamento === 'function') {
+        try { await consumirCreditosPacoteDoAgendamento(agId); }
+        catch(e) {
+          console.error('[concluir] consumo de pacote falhou:', e);
+          if (!opts.silent && typeof showToast === 'function') {
+            showToast(e.message || 'Não foi possível consumir o crédito do pacote.', 'error');
+          }
+          return false;
         }
       }
 
-      // 5) BAIXA DE ESTOQUE — reaproveita o MESMO fluxo da auto-conclusão.
-      //    A função é idempotente: só baixa onde estoque_movimentacao_id IS NULL.
+      // 3) Baixa de estoque dos produtos vendidos (idempotente)
       if (typeof window.darBaixaEstoqueAgendamento === 'function') {
         try { await window.darBaixaEstoqueAgendamento(agId); }
-        catch(e){ console.warn('[concluir-manual] baixa estoque falhou:', e); }
+        catch(e){ console.warn('[concluir] baixa de estoque falhou:', e); }
       }
 
-      // 6) Atualiza UI
-      try { closeModal('modal-concluir-atendimento'); } catch(_){}
-      try { closeModal('modal-agendamento'); } catch(_){}
-      if (typeof loadAppointments === 'function') {
-        try { await loadAppointments(); } catch(_){}
+      // 4) PERSISTE a conclusão — única gravação de status='concluido'
+      var agora = new Date().toISOString();
+      var upd = await supabaseClient.from('agendamentos')
+        .update({
+          status: 'concluido',
+          concluded_at: agora,
+          conclusion_type: 'manual',
+          updated_at: agora
+        })
+        .eq('id', agId);
+      if (upd.error) {
+        console.error('[concluir] update falhou:', upd.error);
+        if (!opts.silent && typeof showToast === 'function') showToast('Erro ao concluir atendimento.', 'error');
+        return false;
       }
-      if (typeof renderDayDetail === 'function') { try { renderDayDetail(); } catch(_){} }
-      if (typeof loadDashboard === 'function') { try { loadDashboard(); } catch(_){} }
-      if (typeof showToast === 'function') showToast('Atendimento concluído com sucesso');
+
+      // 5) Reflete no cache local imediatamente
+      try {
+        var agLocal = (window.appointments || []).find(function(x){ return x.id === agId; });
+        if (agLocal) {
+          agLocal.status = 'concluido';
+          agLocal.concluded_at = agora;
+          agLocal.conclusion_type = 'manual';
+        }
+      } catch(_){}
+
+      // 6) Atualiza a interface (o chamador pode desativar com refresh:false)
+      if (opts.refresh !== false) {
+        if (typeof loadAppointments === 'function') { try { await loadAppointments(); } catch(_){} }
+        if (typeof renderDayDetail === 'function')   { try { renderDayDetail(); } catch(_){} }
+        if (typeof loadDashboard === 'function')     { try { loadDashboard(); } catch(_){} }
+      }
+      return true;
 
     } catch(e) {
-      console.error('[concluir-manual] exceção:', e);
-      if (typeof showToast === 'function') showToast('Erro ao concluir atendimento.');
+      console.error('[concluir] exceção:', e);
+      if (!opts.silent && typeof showToast === 'function') showToast('Erro ao concluir atendimento.', 'error');
+      return false;
     } finally {
-      __concluindo = false;
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = btnTexto || '<i class="fa-solid fa-circle-check"></i> Concluir atendimento';
-      }
+      delete __concluindo[agId];
     }
   }
 
-  // exports globais
-  window.abrirModalConcluirAtendimento = abrirModalConcluirAtendimento;
-  window.confirmarConcluirAtendimento  = confirmarConcluirAtendimento;
-  window.isAppointmentManuallyCompleted = (typeof isAppointmentManuallyCompleted === 'function')
-    ? isAppointmentManuallyCompleted
-    : function(a){
-        if (!a) return false;
-        var s = String(a.status || '').toLowerCase();
-        return s === 'concluido' || s === 'concluído';
-      };
+  window.concluirAtendimentoAposPagamento = concluirAtendimentoAposPagamento;
 
-  console.log('✅ Módulo CONCLUSÃO MANUAL DE ATENDIMENTO carregado');
+  console.log('✅ Módulo CONCLUSÃO POR PAGAMENTO carregado');
 })();
+
 
 /* ============================================================
    PUSH NOTIFICATIONS — ATIVAÇÃO (v2)

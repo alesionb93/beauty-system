@@ -20,7 +20,7 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes-v2.js (backend-only · camada analítica Dashboard V2)',
+  console.log('%c💰 comissoes-v2.js v3 (histórico por EVENTO de comissão · backend como fonte da verdade)',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ------------------------------------------------------------------
@@ -597,39 +597,108 @@
     return r.data || {};
   }
 
+  // ------------------------------------------------------------------
+  // Histórico (timeline)
+  // ------------------------------------------------------------------
+  // Este módulo NÃO é relatório financeiro: cada linha mostra o que o
+  // profissional efetivamente recebeu naquele evento. Faturamento (ex.:
+  // preço cheio do pacote) nunca aparece aqui.
+  var TIPO_META = {
+    pacote_venda: { icon: '📦', label: 'Venda de pacote', cls: 'com-badge-pkg-sale' },
+    pacote_uso:   { icon: '🎁', label: 'Uso de pacote',   cls: 'com-badge-pkg-use'  },
+    produto:      { icon: '🛍', label: 'Produto',         cls: 'com-badge-prod'     },
+    servico:      { icon: '✂️', label: 'Serviço',         cls: 'com-badge-serv'     }
+  };
+
+  function ensureBadgeStyles(){
+    if (document.getElementById('com-badge-styles')) return;
+    var st = document.createElement('style');
+    st.id = 'com-badge-styles';
+    st.textContent = [
+      '.com-ev-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;',
+      ' line-height:1;padding:4px 8px;border-radius:999px;margin-bottom:4px;white-space:nowrap;}',
+      '.com-badge-pkg-sale{background:rgba(180,83,9,.12);color:#B45309;}',
+      '.com-badge-pkg-use{background:rgba(108,58,237,.12);color:#6C3AED;}',
+      '.com-badge-prod{background:rgba(37,99,235,.12);color:#2563EB;}',
+      '.com-badge-serv{background:rgba(22,163,74,.12);color:#16A34A;}',
+      '.com-val-zero{color:#6b7280 !important;font-weight:600;}'
+    ].join('');
+    document.head.appendChild(st);
+  }
+
+  // Lê o tipo do evento EXATAMENTE como o backend classificou.
+  // A RPC comissoes_v2_snapshot já retorna um evento por linha:
+  //   'pacote_venda' | 'pacote_uso' | 'produto' | 'servico'
+  // Nenhuma inferência financeira acontece aqui.
+  function tipoDoEvento(it){
+    var t = String(it && it.event_type || '').toLowerCase();
+    if (TIPO_META[t]) return t;
+    // Tolerância a nomenclaturas antigas da camada analítica.
+    if (t.indexOf('pacote_venda') >= 0 || t.indexOf('venda_pacote') >= 0) return 'pacote_venda';
+    if (t.indexOf('pacote') >= 0) return 'pacote_uso';
+    if (t.indexOf('produto') >= 0) return 'produto';
+    return 'servico';
+  }
+
   function renderAgenda(items){
+    ensureBadgeStyles();
     var box = document.getElementById('com-timeline');
     if (!items || !items.length) {
-      box.innerHTML = '<div class="com-empty">Nenhum atendimento concluído no período.</div>';
+      box.innerHTML = '<div class="com-empty">Nenhum evento no período.</div>';
       return;
     }
     box.innerHTML = items.map(function(it){
+      var tipo = tipoDoEvento(it);
+      var meta = TIPO_META[tipo] || TIPO_META.servico;
       var hora = it.hora || '';
       var serv = it.servico_nome || 'Atendimento';
       var cli  = it.cliente_nome ? ('Cliente: ' + it.cliente_nome) : '';
-      var com  = Number(it.comissao||0);
-      var cx   = Number(it.caixinha||0);
-      var isProd = !!it.is_produto;
-      var val  = isProd ? fmtBRL(Number(it.valor||0)) : fmtBRL(com + cx);
-      var hasCx = cx > 0;
-      var breakHtml = isProd
-        ? '<div class="com-val-break com-val-prod" style="font-size:11px;font-weight:500;color:#6b7280;white-space:normal;line-height:1.2;margin-top:2px;">Produto · sem comissão</div>'
-        : hasCx
-        ? '<div class="com-val-break" title="Comissão + Caixinha" style="font-size:11px;font-weight:500;color:#6b7280;white-space:normal;line-height:1.2;margin-top:2px;">Comissão '+fmtBRL(com)+'<br>+ Caixinha '+fmtBRL(cx)+'</div>'
-        : '<div class="com-val-break" style="font-size:11px;font-weight:500;color:#6b7280;white-space:nowrap;line-height:1.2;margin-top:2px;">Comissão</div>';
+      var com  = Number(it.comissao || 0);
+      var cx   = Number(it.caixinha || 0);
+      var val, breakHtml;
+
+      if (tipo === 'pacote_uso') {
+        // Uso de crédito: registro operacional. A comissão já foi paga na venda.
+        val = '<span class="com-val-zero">Sem comissão</span>';
+        breakHtml = subtxt('Pago na venda do pacote');
+      } else if (tipo === 'produto') {
+        // Produto não entra no repasse; o valor é apenas referência da venda.
+        val = fmtBRL(Number(it.valor || 0));
+        breakHtml = subtxt('Produto · sem comissão');
+      } else if ((com + cx) <= 0) {
+        val = '<span class="com-val-zero">Sem comissão</span>';
+        breakHtml = subtxt('R$ 0,00');
+      } else {
+        // Sempre o valor RECEBIDO pelo profissional — nunca o faturamento.
+        val = fmtBRL(com + cx);
+        breakHtml = cx > 0
+          ? subtxt('Comissão ' + fmtBRL(com) + '<br>+ Caixinha ' + fmtBRL(cx), true)
+          : subtxt('Comissão');
+      }
+
+      var badge = '<span class="com-ev-badge '+meta.cls+'">'+meta.icon+' '+meta.label+'</span>';
+
       return ''
-        + '<div class="com-timeline-row">'
-        +   '<div class="com-time">'+hora+'</div>'
+        + '<div class="com-timeline-row" data-ev-tipo="'+tipo+'" data-ev-id="'+escapeHtml(it.event_id||'')+'">'
+        +   '<div class="com-time">'+escapeHtml(hora)+'</div>'
         +   '<div class="com-dot-col"><span class="com-dot"></span></div>'
-        +   '<div class="com-info-col" style="min-width:0;"><div class="com-serv-name">'+escapeHtml(serv)+'</div>'
+        +   '<div class="com-info-col" style="min-width:0;">'
+        +        '<div>'+badge+'</div>'
+        +        '<div class="com-serv-name">'+escapeHtml(serv)+'</div>'
         +        '<div class="com-cli-name">'+escapeHtml(cli)+'</div></div>'
-        +   '<div class="com-val" style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;max-width:110px;">'
+        +   '<div class="com-val" style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.15;max-width:120px;">'
         +     '<span style="white-space:nowrap;">'+val+'</span>'
         +     breakHtml
         +   '</div>'
         +   '<div class="com-chev"><i class="fa-solid fa-chevron-right"></i></div>'
         + '</div>';
     }).join('');
+  }
+
+  function subtxt(html, wrap){
+    return '<div class="com-val-break" style="font-size:11px;font-weight:500;color:#6b7280;'
+      + (wrap ? 'white-space:normal;' : 'white-space:nowrap;')
+      + 'line-height:1.2;margin-top:2px;">' + html + '</div>';
   }
 
   function escapeHtml(s){

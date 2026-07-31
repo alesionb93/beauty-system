@@ -117,6 +117,47 @@ $$;
 ALTER FUNCTION "public"."_trg_recompute_financeiro"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."_venda_assert_tenant"("p_venda_id" "uuid") RETURNS "uuid"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare v_tenant uuid;
+begin
+  select tenant_id into v_tenant from public.vendas where id = p_venda_id;
+  if v_tenant is null then
+    raise exception 'venda % não encontrada', p_venda_id;
+  end if;
+  if v_tenant <> public.current_tenant_id() then
+    raise exception 'venda pertence a outro tenant';
+  end if;
+  return v_tenant;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."_venda_assert_tenant"("p_venda_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."_venda_mover_estoque"("p_venda_id" "uuid", "p_tipo" "public"."estoque_mov_tipo") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  insert into public.estoque_movimentacoes (tenant_id, produto_id, tipo, quantidade, observacao)
+  select i.tenant_id, i.produto_id, p_tipo, i.quantidade,
+         case when p_tipo = 'saida' then 'Venda de balcão ' else 'Estorno de venda ' end || i.venda_id
+    from public.venda_itens i
+    join public.produtos pr on pr.id = i.produto_id
+   where i.venda_id = p_venda_id
+     and i.produto_id is not null
+     and pr.tem_estoque = true;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."_venda_mover_estoque"("p_venda_id" "uuid", "p_tipo" "public"."estoque_mov_tipo") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."agenda_debug_auth_v6"() RETURNS "jsonb"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -676,6 +717,33 @@ COMMENT ON FUNCTION "public"."cancel_public_agendamento"("_tenant_id" "uuid", "_
 
 
 
+CREATE OR REPLACE FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text" DEFAULT NULL::"text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare v_status text;
+begin
+  perform public._venda_assert_tenant(p_venda_id);
+  select status into v_status from public.vendas where id = p_venda_id;
+  if v_status = 'cancelada' then
+    raise exception 'venda já cancelada';
+  end if;
+
+  perform public._venda_mover_estoque(p_venda_id, 'entrada'::estoque_mov_tipo);
+
+  update public.vendas
+     set status = 'cancelada',
+         cancelada_em = now(),
+         cancelada_por = auth.uid(),
+         motivo_cancelamento = p_motivo
+   where id = p_venda_id;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."check_tenant_active_users_limit"() RETURNS "trigger"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -728,6 +796,174 @@ $$;
 
 
 ALTER FUNCTION "public"."check_tenant_active_users_limit"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") RETURNS TABLE("comissao" numeric, "caixinha" numeric, "total_receber" numeric, "atendimentos" integer, "produtos_vendidos" numeric)
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  WITH ev AS (
+    SELECT *
+      FROM public.comissoes_v2_eventos e
+     WHERE e.tenant_id = p_tenant_id
+       AND e.profissional_id = p_profissional_id
+       AND e.event_date BETWEEN p_inicio AND p_fim
+  ),
+  cx AS (
+    SELECT COALESCE(SUM(a.caixinha_total), 0)::numeric AS total
+      FROM public.agendamentos a
+     WHERE a.tenant_id = p_tenant_id
+       AND a.profissional_id = p_profissional_id
+       AND a.data BETWEEN p_inicio AND p_fim
+       AND (a.status = 'concluido'::public.agendamento_status
+            OR a.conclusion_type = 'cancelado_com_venda')
+  )
+  SELECT ROUND(COALESCE((SELECT SUM(ev.comissao) FROM ev), 0), 2)                    AS comissao,
+         ROUND((SELECT total FROM cx), 2)                                            AS caixinha,
+         ROUND(COALESCE((SELECT SUM(ev.comissao) FROM ev), 0)
+               + (SELECT total FROM cx), 2)                                          AS total_receber,
+         COALESCE((SELECT COUNT(DISTINCT ev.agendamento_id)
+                     FROM ev WHERE ev.conta_atendimento), 0)::integer                AS atendimentos,
+         ROUND(COALESCE((SELECT SUM(ev.valor) FROM ev
+                          WHERE ev.event_type = 'produto'), 0), 2)                   AS produtos_vendidos;
+$$;
+
+
+ALTER FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid" DEFAULT NULL::"uuid") RETURNS "jsonb"
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_uid        uuid := auth.uid();
+  v_prof_id    uuid;
+  v_tenant_id  uuid;
+  v_is_admin   boolean := false;
+  v_nome       text;
+  v_dias       integer;
+  v_prev_ini   date;
+  v_prev_fim   date;
+  k            record;
+  a            record;
+  v_agenda     jsonb := '[]'::jsonb;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'unauthenticated');
+  END IF;
+
+  SELECT u.profissional_id, u.tenant_id
+    INTO v_prof_id, v_tenant_id
+    FROM public.usuarios u
+   WHERE u.id = v_uid
+     AND COALESCE(u.ativo, true) = true
+   LIMIT 1;
+
+  IF v_tenant_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'sem_vinculo');
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles ur
+     WHERE ur.user_id = v_uid
+       AND ur.tenant_id = v_tenant_id
+       AND ur.role::text = 'admin'
+  ) INTO v_is_admin;
+
+  -- Admin pode inspecionar outro profissional; colaborador vê só o próprio.
+  IF p_profissional_id IS NOT NULL AND v_is_admin THEN
+    v_prof_id := p_profissional_id;
+  END IF;
+
+  IF v_prof_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'sem_profissional');
+  END IF;
+
+  SELECT pf.nome INTO v_nome
+    FROM public.profissionais pf
+   WHERE pf.id = v_prof_id
+   LIMIT 1;
+
+  -- Período anterior equivalente
+  v_dias     := (p_fim - p_inicio) + 1;
+  v_prev_fim := p_inicio - 1;
+  v_prev_ini := v_prev_fim - (v_dias - 1);
+
+  SELECT * INTO k FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, p_inicio, p_fim);
+  SELECT * INTO a FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, v_prev_ini, v_prev_fim);
+
+  -- Histórico: UMA LINHA POR EVENTO.
+  SELECT COALESCE(jsonb_agg(x ORDER BY x.event_date, x.event_time NULLS FIRST, x.ord_evento, x.created_at), '[]'::jsonb)
+    INTO v_agenda
+    FROM (
+      SELECT e.event_type,
+             e.event_id,
+             e.event_date,
+             e.event_time,
+             e.ord_evento,
+             e.created_at,
+             e.agendamento_id,
+             to_char(e.event_date, 'DD/MM')                       AS data_label,
+             COALESCE(to_char(e.event_time, 'HH24:MI'), '')       AS hora,
+             e.titulo                                             AS servico_nome,
+             e.cliente_nome,
+             ROUND(e.valor, 2)                                    AS valor,
+             ROUND(e.comissao, 2)                                 AS comissao,
+             ROUND(COALESCE(cx.caixinha, 0), 2)                   AS caixinha,
+             e.conta_atendimento
+        FROM public.comissoes_v2_eventos e
+        -- Caixinha é 100% do profissional e pertence ao agendamento:
+        -- exibida apenas no primeiro evento remunerado daquele agendamento.
+        LEFT JOIN LATERAL (
+          SELECT ag.caixinha_total AS caixinha
+            FROM public.agendamentos ag
+           WHERE ag.id = e.agendamento_id
+             AND ag.profissional_id = v_prof_id
+             AND COALESCE(ag.caixinha_total, 0) > 0
+             AND e.event_id = (
+                   SELECT e2.event_id
+                     FROM public.comissoes_v2_eventos e2
+                    WHERE e2.agendamento_id = e.agendamento_id
+                      AND e2.profissional_id = v_prof_id
+                      AND e2.comissao > 0
+                    ORDER BY e2.ord_evento, e2.created_at
+                    LIMIT 1)
+        ) cx ON true
+       WHERE e.tenant_id = v_tenant_id
+         AND e.profissional_id = v_prof_id
+         AND e.event_date BETWEEN p_inicio AND p_fim
+    ) x;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'profissional', jsonb_build_object('id', v_prof_id, 'nome', COALESCE(v_nome, '')),
+    'periodo', jsonb_build_object('inicio', p_inicio, 'fim', p_fim),
+    'kpis', jsonb_build_object(
+      'totalReceber',     COALESCE(k.total_receber, 0),
+      'comissao',         COALESCE(k.comissao, 0),
+      'caixinha',         COALESCE(k.caixinha, 0),
+      'atendimentos',     COALESCE(k.atendimentos, 0),
+      'produtosVendidos', COALESCE(k.produtos_vendidos, 0)
+    ),
+    'anterior', jsonb_build_object(
+      'totalReceber',     COALESCE(a.total_receber, 0),
+      'comissao',         COALESCE(a.comissao, 0),
+      'caixinha',         COALESCE(a.caixinha, 0),
+      'atendimentos',     COALESCE(a.atendimentos, 0),
+      'produtosVendidos', COALESCE(a.produtos_vendidos, 0)
+    ),
+    'agenda', v_agenda
+  );
+END;
+$$;
+
+
+ALTER FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") IS 'Snapshot do módulo Comissões V2. agenda[] retorna EVENTOS de comissão (1 evento = 1 linha), não agendamentos.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."create_public_agendamento"("_tenant_id" "uuid", "_cliente_id" "uuid", "_cliente_nome" "text", "_cliente_telefone" "text", "_profissional_id" "uuid", "_data" "date", "_hora" "text", "_servico_id" "uuid", "_duracao" integer, "_preco" numeric, "_pacote_acao" "text" DEFAULT NULL::"text", "_cliente_pacote_id" "uuid" DEFAULT NULL::"uuid", "_pacote_def_id" "uuid" DEFAULT NULL::"uuid", "_servicos_extras" "jsonb" DEFAULT '[]'::"jsonb") RETURNS "uuid"
@@ -938,10 +1174,7 @@ CREATE OR REPLACE FUNCTION "public"."current_tenant_id"() RETURNS "uuid"
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-  select u.tenant_id
-  from public.usuarios u
-  where u.id = auth.uid()
-  limit 1;
+  select tenant_id from public.usuarios where id = auth.uid() limit 1
 $$;
 
 
@@ -1131,6 +1364,7 @@ CREATE TABLE IF NOT EXISTS "public"."agendamentos" (
     "base_comissao" numeric(10,2) DEFAULT 0 NOT NULL,
     "total" numeric(10,2) DEFAULT 0 NOT NULL,
     CONSTRAINT "agendamentos_conclusion_type_check" CHECK ((("conclusion_type" IS NULL) OR ("conclusion_type" = ANY (ARRAY['manual'::"text", 'automatic'::"text", 'cancelado_com_venda'::"text"])))),
+    CONSTRAINT "agendamentos_origem_check" CHECK (("origem" = ANY (ARRAY['manual'::"text", 'externo'::"text"]))),
     CONSTRAINT "agendamentos_origem_chk" CHECK (("origem" = ANY (ARRAY['manual'::"text", 'externo'::"text", 'BALCAO'::"text"]))),
     CONSTRAINT "agendamentos_status_pagamento_check" CHECK (("status_pagamento" = ANY (ARRAY['pendente'::"text", 'parcial'::"text", 'pago'::"text"])))
 );
@@ -1752,39 +1986,132 @@ CREATE OR REPLACE FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid"
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-    DECLARE
-      j            jsonb;
-      v_balcao     integer := 0;
-      v_ag         numeric;
-      v_fat        numeric;
-    BEGIN
-      j := to_jsonb(public.dashboard_v2_snapshot_base(p_tenant_id, p_data_inicio, p_data_fim, p_profissional_id));
+DECLARE
+  j              jsonb;
+  v_balcao       integer := 0;
+  v_ag           numeric;
+  v_fat_s        numeric;
+  v_rows         jsonb;
+  v_prod_total   numeric := 0;
+BEGIN
+  ------------------------------------------------------------------
+  -- 0) Snapshot base (fonte única da verdade dos demais números)
+  ------------------------------------------------------------------
+  j := to_jsonb(public.dashboard_v2_snapshot_base(
+         p_tenant_id, p_data_inicio, p_data_fim, p_profissional_id));
 
-      SELECT COUNT(*) INTO v_balcao
-        FROM public.agendamentos a
+  ------------------------------------------------------------------
+  -- 1) (mantido) Agendamentos de origem BALCAO não são atendimentos
+  ------------------------------------------------------------------
+  SELECT COUNT(*) INTO v_balcao
+    FROM public.agendamentos a
+   WHERE a.tenant_id = p_tenant_id
+     AND a.origem = 'BALCAO'
+     AND a.data BETWEEN p_data_inicio AND p_data_fim
+     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
+
+  IF j ? 'kpis' AND v_balcao > 0 THEN
+    v_ag    := GREATEST(COALESCE((j->'kpis'->>'agendamentos')::numeric, 0) - v_balcao, 0);
+    v_fat_s := COALESCE((j->'kpis'->>'faturamentoServicos')::numeric,
+                        (j->'kpis'->>'faturamento')::numeric, 0);
+    j := jsonb_set(j, '{kpis,agendamentos}',  to_jsonb(v_ag));
+    j := jsonb_set(j, '{kpis,ticketMedio}',
+                   to_jsonb(CASE WHEN v_ag > 0 THEN round(v_fat_s / v_ag, 2) ELSE 0 END));
+  END IF;
+
+  ------------------------------------------------------------------
+  -- 2) Produtos vendidos DENTRO do agendamento, por profissional.
+  --    Cálculo set-based: nada é inferido do JSON serializado.
+  ------------------------------------------------------------------
+  IF jsonb_typeof(j->'profissionaisTable') = 'array' THEN
+
+    WITH
+    -- 2.1 linhas do JSON preservando a ordem original
+    linhas AS (
+      SELECT elem, ord
+        FROM jsonb_array_elements(j->'profissionaisTable')
+             WITH ORDINALITY AS t(elem, ord)
+    ),
+    -- 2.2 chave real do profissional (id do JSON, se houver; senão por nome)
+    linhas_id AS (
+      SELECT l.ord,
+             l.elem,
+             COALESCE(
+               NULLIF(l.elem->>'profissionalId', '')::uuid,
+               NULLIF(l.elem->>'profissional_id','')::uuid,
+               NULLIF(l.elem->>'id','')::uuid,
+               p.id
+             ) AS profissional_id
+        FROM linhas l
+        LEFT JOIN public.profissionais p
+               ON p.tenant_id = p_tenant_id
+              AND lower(btrim(p.nome)) = lower(btrim(l.elem->>'nome'))
+    ),
+    -- 2.3 produtos do domínio agendamento, agregados por profissional
+    prod AS (
+      SELECT a.profissional_id,
+             SUM(ap.quantidade * ap.preco_unitario) AS total,
+             SUM(ap.quantidade)                     AS qtd
+        FROM public.agendamento_produtos ap
+        JOIN public.agendamentos a ON a.id = ap.agendamento_id
        WHERE a.tenant_id = p_tenant_id
-         AND a.origem = 'BALCAO'
          AND a.data BETWEEN p_data_inicio AND p_data_fim
-         AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
+         AND (a.status = 'concluido'::agendamento_status
+              OR a.conclusion_type = 'cancelado_com_venda')
+         AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+       GROUP BY a.profissional_id
+    ),
+    -- 2.4 recomposição da linha
+    montado AS (
+      SELECT li.ord,
+             li.elem
+               -- expõe a chave para o frontend e para patches futuros
+               || jsonb_build_object('profissionalId', li.profissional_id)
+               || jsonb_build_object(
+                    'produtosVendidos',
+                    round(COALESCE((li.elem->>'produtosVendidos')::numeric, 0)
+                          + COALESCE(pr.total, 0), 2),
+                    'produtosQtd',
+                    COALESCE((li.elem->>'produtosQtd')::numeric, 0)
+                          + COALESCE(pr.qtd, 0),
+                    -- invariante: produtos nunca entram no repasse
+                    'totalReceber',
+                    round(COALESCE((li.elem->>'comissao')::numeric, 0)
+                          + COALESCE((li.elem->>'caixinha')::numeric, 0), 2)
+                  ) AS elem
+        FROM linhas_id li
+        LEFT JOIN prod pr ON pr.profissional_id = li.profissional_id
+    )
+    SELECT jsonb_agg(m.elem ORDER BY m.ord) INTO v_rows FROM montado m;
 
-      IF j ? 'kpis' AND v_balcao > 0 THEN
-        v_ag  := GREATEST(COALESCE((j->'kpis'->>'agendamentos')::numeric, 0) - v_balcao, 0);
-        v_fat := COALESCE((j->'kpis'->>'faturamento')::numeric, 0);
-        j := jsonb_set(j, '{kpis,agendamentos}', to_jsonb(v_ag));
-        j := jsonb_set(j, '{kpis,ticketMedio}',
-                       to_jsonb(CASE WHEN v_ag > 0 THEN round(v_fat / v_ag, 2) ELSE 0 END));
-      END IF;
+    j := jsonb_set(j, '{profissionaisTable}', COALESCE(v_rows, '[]'::jsonb));
+  END IF;
 
-      RETURN j::jsonb;
-    END;
-    $$;
+  ------------------------------------------------------------------
+  -- 3) KPI global de produtos = soma consolidada da tabela
+  ------------------------------------------------------------------
+  IF j ? 'kpis' AND jsonb_typeof(j->'profissionaisTable') = 'array' THEN
+    SELECT COALESCE(SUM((e->>'produtosVendidos')::numeric), 0)
+      INTO v_prod_total
+      FROM jsonb_array_elements(j->'profissionaisTable') AS e;
+
+    j := jsonb_set(j, '{kpis,produtosVendidos}', to_jsonb(round(v_prod_total, 2)), true);
+  END IF;
+
+  RETURN j::jsonb;
+END;
+$$;
 
 
 ALTER FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
 
 
+COMMENT ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") IS 'Dashboard V2 · wrapper do snapshot. Consolida agendamentos + vendas de balcão. Produtos (agendamento_produtos e venda_itens) alimentam apenas Faturamento e Produtos Vendidos; nunca comissão, caixinha ou Total a Receber. Expõe profissionalId em profissionaisTable.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."dashboard_v2_snapshot_base"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid" DEFAULT NULL::"uuid") RETURNS "jsonb"
-    LANGUAGE "plpgsql" SECURITY DEFINER
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 DECLARE
@@ -1792,148 +2119,493 @@ DECLARE
   v_prev_ini date;
   v_prev_fim date;
 
-  cur_ag   integer := 0;
-  cur_srv  integer := 0;
-  cur_fat  numeric := 0;
-  cur_tkt  numeric := 0;
+  cur_ag        integer := 0;
+  cur_srv       integer := 0;
+  cur_fat_serv  numeric := 0;   -- receita vinda de agendamentos
+  cur_fat_vend  numeric := 0;   -- receita vinda do domínio de vendas
+  cur_fat       numeric := 0;   -- total
+  cur_tkt       numeric := 0;   -- ticket médio DE SERVIÇOS (não inclui vendas)
 
-  prev_ag  integer := 0;
-  prev_srv integer := 0;
-  prev_fat numeric := 0;
-  prev_tkt numeric := 0;
+  prev_ag       integer := 0;
+  prev_srv      integer := 0;
+  prev_fat_serv numeric := 0;
+  prev_fat_vend numeric := 0;
+  prev_fat      numeric := 0;
+  prev_tkt      numeric := 0;
 
-  com_prof numeric := 0;
-  com_est  numeric := 0;
-
-  fat_hora jsonb;
+  j_pagamentos   jsonb;
+  j_profissionais jsonb;
+  j_servicos     jsonb;
+  j_pacotes      jsonb;
+  j_clientes     jsonb;
+  j_cancel       jsonb;
+  j_produtos     jsonb;
 BEGIN
   v_days     := (p_data_fim - p_data_inicio) + 1;
   v_prev_fim := p_data_inicio - 1;
   v_prev_ini := v_prev_fim - (v_days - 1);
 
-  -- ------------------------------------------------------------------
-  -- KPIs período atual
-  -- ------------------------------------------------------------------
-  SELECT COUNT(*)
-    INTO cur_ag
+  -- ==================================================================
+  -- KPIs — período atual
+  -- ==================================================================
+  SELECT COUNT(*) INTO cur_ag
   FROM public.agendamentos a
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN p_data_inicio AND p_data_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
 
-  SELECT COUNT(*)
-    INTO cur_srv
+  SELECT COUNT(*) INTO cur_srv
   FROM public.agendamento_servicos s
   JOIN public.agendamentos a ON a.id = s.agendamento_id
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN p_data_inicio AND p_data_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
     AND s.origem IN ('avulso','pacote_uso');
 
-  SELECT COALESCE(SUM(pg.valor), 0)
-    INTO cur_fat
+  SELECT COALESCE(SUM(pg.valor), 0) INTO cur_fat_serv
   FROM public.agendamento_pagamentos pg
   JOIN public.agendamentos a ON a.id = pg.agendamento_id
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN p_data_inicio AND p_data_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
 
-  cur_tkt := CASE WHEN cur_ag > 0 THEN cur_fat / cur_ag ELSE 0 END;
+  -- Receita do domínio de VENDAS (Venda de Balcão) — entra só no faturamento
+  SELECT COALESCE(SUM(vr.valor), 0) INTO cur_fat_vend
+  FROM public.dv2_vendas_receita vr
+  WHERE vr.tenant_id = p_tenant_id
+    AND vr.data BETWEEN p_data_inicio AND p_data_fim
+    AND (p_profissional_id IS NULL OR vr.profissional_id = p_profissional_id);
 
-  -- ------------------------------------------------------------------
-  -- KPIs período anterior
-  -- ------------------------------------------------------------------
-  SELECT COUNT(*)
-    INTO prev_ag
+  cur_fat := cur_fat_serv + cur_fat_vend;
+  -- Ticket médio permanece um indicador de ATENDIMENTO: usa só serviços.
+  cur_tkt := CASE WHEN cur_ag > 0 THEN cur_fat_serv / cur_ag ELSE 0 END;
+
+  -- ==================================================================
+  -- KPIs — período anterior (para deltas)
+  -- ==================================================================
+  SELECT COUNT(*) INTO prev_ag
   FROM public.agendamentos a
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN v_prev_ini AND v_prev_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
 
-  SELECT COUNT(*)
-    INTO prev_srv
+  SELECT COUNT(*) INTO prev_srv
   FROM public.agendamento_servicos s
   JOIN public.agendamentos a ON a.id = s.agendamento_id
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN v_prev_ini AND v_prev_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
     AND s.origem IN ('avulso','pacote_uso');
 
-  SELECT COALESCE(SUM(pg.valor), 0)
-    INTO prev_fat
+  SELECT COALESCE(SUM(pg.valor), 0) INTO prev_fat_serv
   FROM public.agendamento_pagamentos pg
   JOIN public.agendamentos a ON a.id = pg.agendamento_id
   WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
+    AND a.status = 'concluido'
     AND a.data BETWEEN v_prev_ini AND v_prev_fim
     AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
 
-  prev_tkt := CASE WHEN prev_ag > 0 THEN prev_fat / prev_ag ELSE 0 END;
+  SELECT COALESCE(SUM(vr.valor), 0) INTO prev_fat_vend
+  FROM public.dv2_vendas_receita vr
+  WHERE vr.tenant_id = p_tenant_id
+    AND vr.data BETWEEN v_prev_ini AND v_prev_fim
+    AND (p_profissional_id IS NULL OR vr.profissional_id = p_profissional_id);
+
+  prev_fat := prev_fat_serv + prev_fat_vend;
+  prev_tkt := CASE WHEN prev_ag > 0 THEN prev_fat_serv / prev_ag ELSE 0 END;
 
   -- ==================================================================
-  -- Divisão de Comissões (CORRIGIDO)
-  -- ------------------------------------------------------------------
-  -- Regra oficial (V1):
-  --   comissao_agendamento = base_comissao × percentual_profissional
-  --   Profissionais        = SOMA(comissao_agendamento)
-  --   Estabelecimento      = Total Faturado − Profissionais
-  --
-  -- base_comissao é a coluna estruturada em agendamentos, mantida por
-  -- recompute_agendamento_financeiro. Ela já exclui caixinha e aplica
-  -- desconto/acréscimo. Percentual vem de comissoes_profissionais;
-  -- sem configuração, cai em 50% (mesmo default do V1).
+  -- PAGAMENTOS
+  -- (recebido / formas / por dia consideram agendamentos + vendas;
+  --  pendências continuam exclusivas de agendamentos, pois venda de
+  --  balcão é sempre paga no ato)
   -- ==================================================================
-  SELECT COALESCE(SUM(
-           COALESCE(a.base_comissao, 0)
-           * COALESCE(cp.percentual_profissional, 50)
-           / 100.0
-         ), 0)
-    INTO com_prof
-  FROM public.agendamentos a
-  LEFT JOIN LATERAL (
-    SELECT cx.percentual_profissional
-    FROM public.comissoes_profissionais cx
-    WHERE cx.profissional_id = a.profissional_id
-    LIMIT 1
-  ) cp ON TRUE
-  WHERE a.tenant_id = p_tenant_id
-    AND a.status    = 'concluido'
-    AND a.data BETWEEN p_data_inicio AND p_data_fim
-    AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id);
-
-  com_prof := ROUND(com_prof::numeric, 2);
-  com_est  := ROUND((cur_fat - com_prof)::numeric, 2);
-
-  -- ------------------------------------------------------------------
-  -- Faturamento por horário (inalterado)
-  -- ------------------------------------------------------------------
-  WITH horas AS (
-    SELECT generate_series(8, 20) AS h
-  ),
-  agg AS (
-    SELECT EXTRACT(HOUR FROM a.hora)::int AS h,
-           SUM(pg.valor)                  AS total
-    FROM public.agendamento_pagamentos pg
-    JOIN public.agendamentos a ON a.id = pg.agendamento_id
+  WITH ag AS (
+    SELECT a.*
+    FROM public.agendamentos a
     WHERE a.tenant_id = p_tenant_id
-      AND a.status    = 'concluido'
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND a.status::text NOT IN ('cancelado','excluido','deletado','removido')
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+  ),
+  pg AS (
+    SELECT p.forma_pagamento, p.valor, ag.data AS ag_data
+    FROM public.agendamento_pagamentos p
+    JOIN ag ON ag.id = p.agendamento_id
+    UNION ALL
+    SELECT vr.forma_pagamento, vr.valor, vr.data AS ag_data
+    FROM public.dv2_vendas_receita vr
+    WHERE vr.tenant_id = p_tenant_id
+      AND vr.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR vr.profissional_id = p_profissional_id)
+  ),
+  recebido AS (
+    SELECT COALESCE(SUM(valor),0) AS v FROM pg
+  ),
+  -- ------------------------------------------------------------------
+  -- PENDÊNCIAS FINANCEIRAS (receita futura ainda não recebida)
+  -- ------------------------------------------------------------------
+  pend AS (
+    SELECT ag.id, ag.cliente_nome, ag.data, ag.hora, ag.profissional_id,
+           ROUND(GREATEST(COALESCE(ag.total,0) - COALESCE(ag.valor_total_pago,0), 0), 2) AS restante
+    FROM ag
+    WHERE ag.status::text NOT IN ('cancelado','excluido','deletado','removido','nao_compareceu','no_show')
+      AND COALESCE(ag.total,0) > 0.009
+      AND GREATEST(COALESCE(ag.total,0) - COALESCE(ag.valor_total_pago,0), 0) > 0.009
+  ),
+  formas AS (
+    SELECT forma_pagamento AS forma,
+           SUM(valor)      AS valor,
+           COUNT(*)        AS qtd
+    FROM pg
+    GROUP BY 1
+  ),
+  por_dia AS (
+    SELECT ag_data AS dia, forma_pagamento AS forma, SUM(valor) AS valor
+    FROM pg
+    GROUP BY 1,2
+  ),
+  por_dia_json AS (
+    SELECT dia,
+           jsonb_object_agg(forma, ROUND(valor,2)) AS formas
+    FROM por_dia
+    GROUP BY dia
+  )
+  SELECT jsonb_build_object(
+    'recebido',      (SELECT ROUND(v,2) FROM recebido),
+    'pendente',      (SELECT COALESCE(ROUND(SUM(restante),2),0) FROM pend),
+    'pendenciasQtd', (SELECT COUNT(*) FROM pend),
+    'formas', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'forma', forma, 'valor', ROUND(valor,2), 'qtd', qtd
+             ) ORDER BY valor DESC) FROM formas
+    ), '[]'::jsonb),
+    'porDia', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'data', dia, 'formas', formas
+             ) ORDER BY dia) FROM por_dia_json
+    ), '[]'::jsonb),
+    'pendencias', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'cliente',      pend.cliente_nome,
+               'servico',      COALESCE((
+                 SELECT string_agg(sv.nome, ' + ' ORDER BY sv.nome)
+                 FROM public.agendamento_servicos asv
+                 JOIN public.servicos sv ON sv.id = asv.servico_id
+                 WHERE asv.agendamento_id = pend.id
+               ), '—'),
+               'servicos',     COALESCE((
+                 SELECT string_agg(sv.nome, ' + ' ORDER BY sv.nome)
+                 FROM public.agendamento_servicos asv
+                 JOIN public.servicos sv ON sv.id = asv.servico_id
+                 WHERE asv.agendamento_id = pend.id
+               ), '—'),
+               'profissional', COALESCE(pr.nome, '—'),
+               'valor',        ROUND(pend.restante,2),
+               'data',         pend.data,
+               'hora',         to_char(pend.hora, 'HH24:MI')
+             ) ORDER BY pend.data, pend.hora)
+      FROM pend
+      LEFT JOIN public.profissionais pr ON pr.id = pend.profissional_id
+    ), '[]'::jsonb)
+  ) INTO j_pagamentos;
+
+  -- ==================================================================
+  -- PROFISSIONAIS (performance individual)
+  --   atendimentos / serviços / comissão / caixinha → SOMENTE serviços
+  --   produtosVendidos                              → domínio de vendas
+  --   faturamento                                   → serviços + produtos
+  -- ==================================================================
+  WITH ag AS (
+    SELECT a.*
+    FROM public.agendamentos a
+    WHERE a.tenant_id = p_tenant_id
+      AND a.status = 'concluido'
       AND a.data BETWEEN p_data_inicio AND p_data_fim
       AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
-    GROUP BY 1
+  ),
+  base AS (
+    SELECT ag.profissional_id,
+           COUNT(*)                                            AS atendimentos,
+           COALESCE(SUM(ag.caixinha_total),0)                   AS caixinha,
+           COALESCE(SUM(ag.base_comissao
+             * COALESCE(cp.percentual_profissional, 50) / 100.0),0) AS comissao,
+           COALESCE((SELECT SUM(p.valor)
+                     FROM public.agendamento_pagamentos p
+                     WHERE p.agendamento_id = ANY(array_agg(ag.id))),0) AS faturamento_servicos,
+           COALESCE((SELECT COUNT(*)
+                     FROM public.agendamento_servicos s
+                     WHERE s.agendamento_id = ANY(array_agg(ag.id))
+                       AND s.origem IN ('avulso','pacote_uso')),0) AS servicos
+    FROM ag
+    LEFT JOIN LATERAL (
+      SELECT cx.percentual_profissional
+      FROM public.comissoes_profissionais cx
+      WHERE cx.profissional_id = ag.profissional_id
+        AND cx.tenant_id = p_tenant_id
+      LIMIT 1
+    ) cp ON TRUE
+    GROUP BY ag.profissional_id
+  ),
+  vend AS (
+    SELECT vi.profissional_id,
+           COALESCE(SUM(vi.valor),0)      AS produtos_valor,
+           COALESCE(SUM(vi.quantidade),0) AS produtos_qtd
+    FROM public.dv2_vendas_itens vi
+    WHERE vi.tenant_id = p_tenant_id
+      AND vi.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR vi.profissional_id = p_profissional_id)
+    GROUP BY vi.profissional_id
+  ),
+  uni AS (
+    SELECT COALESCE(base.profissional_id, vend.profissional_id) AS profissional_id,
+           COALESCE(base.atendimentos, 0)          AS atendimentos,
+           COALESCE(base.servicos, 0)              AS servicos,
+           COALESCE(base.faturamento_servicos, 0)  AS faturamento_servicos,
+           COALESCE(vend.produtos_valor, 0)        AS produtos_valor,
+           COALESCE(vend.produtos_qtd, 0)          AS produtos_qtd,
+           COALESCE(base.comissao, 0)              AS comissao,
+           COALESCE(base.caixinha, 0)              AS caixinha
+    FROM base
+    FULL OUTER JOIN vend ON vend.profissional_id = base.profissional_id
   )
-  SELECT COALESCE(jsonb_agg(COALESCE(agg.total, 0) ORDER BY horas.h), '[]'::jsonb)
-    INTO fat_hora
-  FROM horas
-  LEFT JOIN agg ON agg.h = horas.h;
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'nome',             COALESCE(pr.nome, '—'),
+           'atendimentos',     uni.atendimentos,
+           'servicos',         uni.servicos,
+           'faturamentoServicos', ROUND(uni.faturamento_servicos,2),
+           'produtosVendidos', ROUND(uni.produtos_valor,2),
+           'produtosQtd',      uni.produtos_qtd,
+           'faturamento',      ROUND(uni.faturamento_servicos + uni.produtos_valor,2),
+           'comissao',         ROUND(uni.comissao,2),
+           'caixinha',         ROUND(uni.caixinha,2),
+           'total',            ROUND(uni.comissao + uni.caixinha,2)
+         ) ORDER BY (uni.faturamento_servicos + uni.produtos_valor) DESC), '[]'::jsonb)
+    INTO j_profissionais
+  FROM uni
+  LEFT JOIN public.profissionais pr ON pr.id = uni.profissional_id;
 
-  -- ------------------------------------------------------------------
-  -- Retorno
-  -- ------------------------------------------------------------------
+  -- ==================================================================
+  -- SERVIÇOS (top 10) — inalterado (vendas não entram aqui)
+  -- ==================================================================
+  SELECT COALESCE(jsonb_agg(x ORDER BY (x->>'qtd')::int DESC), '[]'::jsonb)
+    INTO j_servicos
+  FROM (
+    SELECT jsonb_build_object(
+             'nome',  COALESCE(sv.nome, '—'),
+             'qtd',   COUNT(*),
+             'valor', ROUND(COALESCE(SUM(s.preco),0),2),
+             'pkg',   bool_or(s.origem = 'pacote_uso')
+           ) AS x
+    FROM public.agendamento_servicos s
+    JOIN public.agendamentos a ON a.id = s.agendamento_id
+    LEFT JOIN public.servicos sv ON sv.id = s.servico_id
+    WHERE a.tenant_id = p_tenant_id
+      AND a.status = 'concluido'
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+      AND s.origem IN ('avulso','pacote_uso')
+    GROUP BY sv.nome
+    ORDER BY COUNT(*) DESC
+    LIMIT 10
+  ) t;
+
+  -- ==================================================================
+  -- PACOTES vendidos no período
+  -- FONTE DE VERDADE: agendamento_servicos.origem = 'pacote_venda'
+  -- ==================================================================
+  WITH vendas AS (
+    SELECT
+      cp.pacote_id                        AS pacote_id,
+      COALESCE(asv.preco, 0)::numeric     AS preco_total
+    FROM public.agendamento_servicos asv
+    JOIN public.agendamentos a
+      ON a.id = asv.agendamento_id
+    LEFT JOIN public.cliente_pacotes cp
+      ON cp.id = asv.cliente_pacote_id
+    WHERE a.tenant_id = p_tenant_id
+      AND COALESCE(asv.origem::text,'') = 'pacote_venda'
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND a.status::text NOT IN ('cancelado','nao_compareceu','excluido','deletado','no_show')
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+      AND COALESCE(cp.status, 'ativo') <> 'cancelado'
+  )
+  SELECT jsonb_build_object(
+    'qtd',     (SELECT COUNT(*) FROM vendas),
+    'receita', (SELECT COALESCE(ROUND(SUM(preco_total),2),0) FROM vendas),
+    'lista', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+               'pacote',  COALESCE(pk.nome,'—'),
+               'qtd',     cnt,
+               'receita', ROUND(rec,2)
+             ) ORDER BY rec DESC)
+      FROM (
+        SELECT pacote_id, COUNT(*) AS cnt, SUM(preco_total) AS rec
+        FROM vendas GROUP BY pacote_id
+      ) g
+      LEFT JOIN public.pacotes pk ON pk.id = g.pacote_id
+    ), '[]'::jsonb)
+  ) INTO j_pacotes;
+
+  -- ==================================================================
+  -- CLIENTES (top 10 por atendimentos) — inalterado
+  -- ==================================================================
+  SELECT COALESCE(jsonb_agg(x ORDER BY (x->>'atendimentos')::int DESC), '[]'::jsonb)
+    INTO j_clientes
+  FROM (
+    SELECT jsonb_build_object(
+             'nome',         a.cliente_nome,
+             'atendimentos', COUNT(*),
+             'pkg',          bool_or(EXISTS (
+                               SELECT 1 FROM public.agendamento_servicos s
+                               WHERE s.agendamento_id = a.id AND s.origem = 'pacote_uso'
+                             ))
+           ) AS x
+    FROM public.agendamentos a
+    WHERE a.tenant_id = p_tenant_id
+      AND a.status = 'concluido'
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+    GROUP BY a.cliente_nome
+    ORDER BY COUNT(*) DESC
+    LIMIT 10
+  ) t;
+
+  -- ==================================================================
+  -- CANCELAMENTOS — inalterado
+  -- ==================================================================
+  WITH todos AS (
+    SELECT a.*
+    FROM public.agendamentos a
+    WHERE a.tenant_id = p_tenant_id
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+  ),
+  canc AS (
+    SELECT * FROM todos WHERE status = 'cancelado'
+  ),
+  com_venda AS (
+    SELECT * FROM todos WHERE conclusion_type = 'cancelado_com_venda'
+  )
+  SELECT jsonb_build_object(
+    'qtd',          (SELECT COUNT(*) FROM canc),
+    'taxa',         CASE WHEN (SELECT COUNT(*) FROM todos) > 0
+                         THEN ROUND((SELECT COUNT(*) FROM canc)::numeric
+                                    / (SELECT COUNT(*) FROM todos), 4)
+                         ELSE 0 END,
+    'valorPerdido', (SELECT COALESCE(ROUND(SUM(COALESCE(total,0)),2),0) FROM canc),
+    'comVenda',     (SELECT COUNT(*) FROM com_venda),
+    'motivos', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('label', label, 'v', v) ORDER BY v DESC)
+      FROM (
+        SELECT COALESCE(NULLIF(cl.motivo_nome,''), 'Não informado') AS label,
+               COUNT(*) AS v
+        FROM public.cancelamento_log cl
+        JOIN canc ON canc.id = cl.agendamento_id
+        WHERE cl.tenant_id = p_tenant_id
+        GROUP BY 1
+        ORDER BY 2 DESC
+        LIMIT 10
+      ) m
+    ), '[]'::jsonb),
+    'porProfissional', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('label', label, 'v', v) ORDER BY v DESC)
+      FROM (
+        SELECT COALESCE(pr.nome, '—') AS label, COUNT(*) AS v
+        FROM canc
+        LEFT JOIN public.profissionais pr ON pr.id = canc.profissional_id
+        GROUP BY 1
+        ORDER BY 2 DESC
+        LIMIT 10
+      ) p
+    ), '[]'::jsonb)
+  ) INTO j_cancel;
+
+  -- ==================================================================
+  -- PRODUTOS (Analytics)
+  --   Fonte 1: produtos lançados dentro de agendamentos
+  --   Fonte 2: NOVO domínio de vendas (Venda de Balcão)
+  -- ==================================================================
+  WITH itens AS (
+    SELECT ap.produto_id,
+           COALESCE(pr.nome, '—')                      AS nome,
+           ap.quantidade::numeric                      AS qtd,
+           (ap.quantidade * ap.preco_unitario)::numeric AS receita,
+           (ap.quantidade * COALESCE(pr.custo, 0))::numeric AS custo,
+           (pr.custo IS NOT NULL)                      AS tem_custo,
+           'agendamento'::text                         AS origem
+    FROM public.agendamento_produtos ap
+    JOIN public.agendamentos a ON a.id = ap.agendamento_id
+    LEFT JOIN public.produtos pr ON pr.id = ap.produto_id
+    WHERE a.tenant_id = p_tenant_id
+      AND a.data BETWEEN p_data_inicio AND p_data_fim
+      AND a.status <> 'cancelado'
+      AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
+
+    UNION ALL
+
+    SELECT vi.produto_id,
+           COALESCE(pr.nome, vi.descricao, '—')        AS nome,
+           vi.quantidade                               AS qtd,
+           vi.valor                                    AS receita,
+           (vi.quantidade * COALESCE(pr.custo, 0))     AS custo,
+           (pr.custo IS NOT NULL)                      AS tem_custo,
+           'venda'::text                               AS origem
+    FROM public.dv2_vendas_itens vi
+    LEFT JOIN public.produtos pr ON pr.id = vi.produto_id
+    WHERE vi.tenant_id = p_tenant_id
+      AND vi.data BETWEEN p_data_inicio AND p_data_fim
+      AND (p_profissional_id IS NULL OR vi.profissional_id = p_profissional_id)
+  ),
+  agg AS (
+    SELECT nome,
+           SUM(qtd)                     AS qtd,
+           SUM(receita)                 AS receita,
+           SUM(custo)                   AS custo,
+           bool_and(tem_custo)          AS tem_custo
+    FROM itens GROUP BY nome
+  ),
+  tot AS (
+    SELECT COALESCE(SUM(receita),0) AS receita,
+           COALESCE(SUM(custo),0)   AS custo,
+           COALESCE(SUM(qtd),0)     AS qtd,
+           COALESCE(SUM(receita) FILTER (WHERE origem = 'venda'),0)       AS receita_balcao,
+           COALESCE(SUM(receita) FILTER (WHERE origem = 'agendamento'),0) AS receita_atendimento
+    FROM itens
+  )
+  SELECT jsonb_build_object(
+    'faturamentoBruto',    (SELECT ROUND(receita,2) FROM tot),
+    'cmv',                 (SELECT ROUND(custo,2)   FROM tot),
+    'lucroBruto',          (SELECT ROUND(receita - custo,2) FROM tot),
+    'margem',              (SELECT CASE WHEN receita > 0
+                                        THEN ROUND((receita - custo)/receita, 4)
+                                        ELSE 0 END FROM tot),
+    'qtdVendida',          (SELECT ROUND(qtd,2) FROM tot),
+    'receitaBalcao',       (SELECT ROUND(receita_balcao,2) FROM tot),
+    'receitaAtendimento',  (SELECT ROUND(receita_atendimento,2) FROM tot),
+    'maisVendidos', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('nome',nome,'qtd',qtd,'valor',ROUND(receita,2)) ORDER BY qtd DESC)
+      FROM (SELECT * FROM agg ORDER BY qtd DESC LIMIT 5) a1
+    ), '[]'::jsonb),
+    'maisLucrativos', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('nome',nome,'qtd',qtd,'lucro',ROUND(receita - custo,2)) ORDER BY (receita - custo) DESC)
+      FROM (SELECT * FROM agg WHERE tem_custo ORDER BY (receita - custo) DESC LIMIT 5) a2
+    ), '[]'::jsonb),
+    'menorMargem', COALESCE((
+      SELECT jsonb_agg(jsonb_build_object('nome',nome,'margem',ROUND((receita - custo)/NULLIF(receita,0),4)) ORDER BY (receita - custo)/NULLIF(receita,0) ASC)
+      FROM (SELECT * FROM agg WHERE tem_custo AND receita > 0
+            ORDER BY (receita - custo)/receita ASC LIMIT 5) a3
+    ), '[]'::jsonb)
+  ) INTO j_produtos;
+
+  -- ==================================================================
+  -- RETORNO
+  -- ==================================================================
   RETURN jsonb_build_object(
     'periodo', jsonb_build_object(
       'inicio',          p_data_inicio,
@@ -1943,10 +2615,12 @@ BEGIN
       'dias',            v_days
     ),
     'kpis', jsonb_build_object(
-      'agendamentos', cur_ag,
-      'servicos',     cur_srv,
-      'faturamento',  cur_fat,
-      'ticketMedio',  cur_tkt,
+      'agendamentos',        cur_ag,
+      'servicos',            cur_srv,
+      'faturamento',         ROUND(cur_fat,2),
+      'faturamentoServicos', ROUND(cur_fat_serv,2),
+      'faturamentoVendas',   ROUND(cur_fat_vend,2),
+      'ticketMedio',         ROUND(cur_tkt,2),
       'delta', jsonb_build_object(
         'agendamentos', CASE WHEN prev_ag  > 0 THEN (cur_ag::numeric  - prev_ag)  / prev_ag  ELSE NULL END,
         'servicos',     CASE WHEN prev_srv > 0 THEN (cur_srv::numeric - prev_srv) / prev_srv ELSE NULL END,
@@ -1955,17 +2629,22 @@ BEGIN
       )
     ),
     'anterior', jsonb_build_object(
-      'agendamentos', prev_ag,
-      'servicos',     prev_srv,
-      'faturamento',  prev_fat,
-      'ticketMedio',  prev_tkt
+      'agendamentos',        prev_ag,
+      'servicos',            prev_srv,
+      'faturamento',         ROUND(prev_fat,2),
+      'faturamentoServicos', ROUND(prev_fat_serv,2),
+      'faturamentoVendas',   ROUND(prev_fat_vend,2),
+      'ticketMedio',         ROUND(prev_tkt,2)
     ),
-    'comissoes', jsonb_build_object(
-      'totalFaturado',   cur_fat,
-      'profissionais',   com_prof,
-      'estabelecimento', com_est
-    ),
-    'faturamentoPorHorario', fat_hora
+    'valor_pendente_total',   COALESCE(j_pagamentos->'pendente', '0'::jsonb),
+    'pendencias_financeiras', COALESCE(j_pagamentos->'pendencias', '[]'::jsonb),
+    'pagamentos',        j_pagamentos,
+    'profissionaisTable', j_profissionais,
+    'topServicos',       j_servicos,
+    'pacotes',           j_pacotes,
+    'topClientes',       j_clientes,
+    'cancelamentos',     j_cancel,
+    'produtos',          j_produtos
   );
 END;
 $$;
@@ -1974,7 +2653,7 @@ $$;
 ALTER FUNCTION "public"."dashboard_v2_snapshot_base"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."dashboard_v2_snapshot_base"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") IS 'Dashboard V2 · Snapshot KPI Core (Etapa 1) + Financeiro (Etapa 3: comissoes e faturamentoPorHorario). Fonte única — frontend não calcula.';
+COMMENT ON FUNCTION "public"."dashboard_v2_snapshot_base"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") IS 'Dashboard V2 · Snapshot completo (v7): agendamentos + domínio de Vendas (Venda de Balcão). Vendas somam faturamento, analytics de produtos e "Produtos Vendidos" por profissional; não afetam atendimentos, serviços, ticket médio, comissão nem caixinha.';
 
 
 
@@ -3565,22 +4244,19 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Serviços: apenas os que NÃO foram consumidos por crédito de pacote
-  -- (credito_consumido=true significa que já foi pago na venda do pacote).
+  -- Serviços: apenas os que NÃO foram consumidos por crédito de pacote.
   SELECT COALESCE(SUM(preco), 0)
     INTO v_subtotal_servicos
     FROM public.agendamento_servicos
    WHERE agendamento_id = p_agendamento_id
      AND COALESCE(credito_consumido, false) = false;
 
-  -- Produtos: preco_unitario * quantidade
+  -- Produtos vendidos durante o atendimento (entram só em faturamento).
   SELECT COALESCE(SUM(preco_unitario * quantidade), 0)
     INTO v_subtotal_produtos
     FROM public.agendamento_produtos
    WHERE agendamento_id = p_agendamento_id;
 
-  -- Descontos, caixinha, acréscimos: soma de colunas estruturadas +
-  -- fallback para markers legados em observacao (apenas quando a coluna = 0).
   SELECT
     COALESCE(SUM(
       CASE WHEN desconto_valor > 0
@@ -3604,15 +4280,14 @@ BEGIN
   FROM public.agendamento_pagamentos
   WHERE agendamento_id = p_agendamento_id;
 
-  -- Base de comissão:
-  --   serviços + produtos (todos considerados comissionáveis por padrão)
-  --   - desconto + acréscimo. Caixinha NUNCA entra.
-  -- Regra de negócio pode ser refinada aqui (ex.: excluir produtos não
-  -- comissionáveis) sem tocar em nenhum módulo do frontend.
+  -- >>> CORREÇÃO <<<
+  -- Base de comissão = SOMENTE SERVIÇOS (- desconto + acréscimo).
+  -- Produtos e caixinha nunca entram.
   v_base_comissao := ROUND(
-    v_subtotal_servicos + v_subtotal_produtos - v_desconto_total + v_acrescimo_total
+    v_subtotal_servicos - v_desconto_total + v_acrescimo_total
   , 2);
 
+  -- Total (faturamento do atendimento) continua incluindo produtos.
   v_total := ROUND(
     v_subtotal_servicos + v_subtotal_produtos
     - v_desconto_total + v_acrescimo_total + v_caixinha_total
@@ -3635,8 +4310,115 @@ $$;
 ALTER FUNCTION "public"."recompute_agendamento_financeiro"("p_agendamento_id" "uuid") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."recompute_agendamento_financeiro"("p_agendamento_id" "uuid") IS 'Recalcula subtotal_servicos, subtotal_produtos, desconto_total, acrescimo_total, caixinha_total, base_comissao e total do agendamento. Fonte única de verdade financeira.';
+COMMENT ON FUNCTION "public"."recompute_agendamento_financeiro"("p_agendamento_id" "uuid") IS 'Recalcula colunas financeiras do agendamento. base_comissao = SOMENTE serviços (- desconto + acréscimo). Produtos e caixinha nunca compõem comissão.';
 
+
+
+CREATE OR REPLACE FUNCTION "public"."registrar_venda"("p_payload" "jsonb") RETURNS "uuid"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_tenant     uuid := public.current_tenant_id();
+  v_prof       uuid := nullif(p_payload->>'profissional_id','')::uuid;
+  v_venda_id   uuid;
+  v_subtotal   numeric(12,2) := 0;
+  v_desconto   numeric(12,2) := round(coalesce((p_payload->>'desconto_valor')::numeric, 0), 2);
+  v_caixinha   numeric(12,2) := round(coalesce((p_payload->>'caixinha_valor')::numeric, 0), 2);
+  v_total      numeric(12,2) := 0;
+  v_pago       numeric(12,2) := 0;
+  v_item       jsonb;
+  v_cliente_id uuid := nullif(p_payload->>'cliente_id','')::uuid;
+begin
+  if v_tenant is null then
+    raise exception 'usuário sem tenant';
+  end if;
+  if v_prof is null then
+    raise exception 'profissional_id obrigatório';
+  end if;
+  if not exists (select 1 from public.profissionais
+                  where id = v_prof and tenant_id = v_tenant) then
+    raise exception 'profissional inválido para este tenant';
+  end if;
+  if v_cliente_id is not null and not exists (
+       select 1 from public.clientes where id = v_cliente_id and tenant_id = v_tenant) then
+    raise exception 'cliente inválido para este tenant';
+  end if;
+  if jsonb_array_length(coalesce(p_payload->'itens','[]'::jsonb)) = 0 then
+    raise exception 'venda sem itens';
+  end if;
+  if jsonb_array_length(coalesce(p_payload->'pagamentos','[]'::jsonb)) = 0 then
+    raise exception 'venda sem pagamentos';
+  end if;
+  if v_desconto < 0 or v_caixinha < 0 then
+    raise exception 'desconto e caixinha não podem ser negativos';
+  end if;
+
+  -- Totais SEMPRE calculados no servidor (o cliente não é fonte de verdade).
+  for v_item in select * from jsonb_array_elements(p_payload->'itens') loop
+    if coalesce((v_item->>'quantidade')::numeric, 0) <= 0 then
+      raise exception 'item com quantidade inválida';
+    end if;
+    if nullif(v_item->>'produto_id','') is not null
+       and not exists (select 1 from public.produtos
+                        where id = (v_item->>'produto_id')::uuid
+                          and tenant_id = v_tenant) then
+      raise exception 'produto % não pertence a este tenant', v_item->>'produto_id';
+    end if;
+    v_subtotal := v_subtotal + round(
+        coalesce((v_item->>'quantidade')::numeric,1)
+      * coalesce((v_item->>'valor_unitario')::numeric,0)
+      - coalesce((v_item->>'desconto_valor')::numeric,0), 2);
+  end loop;
+
+  v_total := round(v_subtotal - v_desconto, 2);
+  if v_total < 0 then
+    raise exception 'desconto maior que o subtotal da venda';
+  end if;
+
+  insert into public.vendas (
+    tenant_id, profissional_id, cliente_id, cliente_nome, cliente_telefone,
+    subtotal, desconto_valor, caixinha_valor, total, total_pago,
+    status, observacoes
+  ) values (
+    v_tenant, v_prof, v_cliente_id,
+    coalesce(nullif(p_payload->>'cliente_nome',''), 'Consumidor Final'),
+    nullif(p_payload->>'cliente_telefone',''),
+    v_subtotal, v_desconto, v_caixinha, v_total, 0,
+    'concluida',
+    nullif(p_payload->>'observacoes','')
+  ) returning id into v_venda_id;
+
+  -- Itens (snapshot imutável de descrição/valores)
+  for v_item in select * from jsonb_array_elements(p_payload->'itens') loop
+    insert into public.venda_itens (
+      tenant_id, venda_id, produto_id, descricao,
+      quantidade, valor_unitario, desconto_valor, total
+    ) values (
+      v_tenant, v_venda_id,
+      nullif(v_item->>'produto_id','')::uuid,
+      coalesce(nullif(v_item->>'descricao',''), 'Item'),
+      coalesce((v_item->>'quantidade')::numeric, 1),
+      coalesce((v_item->>'valor_unitario')::numeric, 0),
+      coalesce((v_item->>'desconto_valor')::numeric, 0),
+      round( coalesce((v_item->>'quantidade')::numeric,1)
+           * coalesce((v_item->>'valor_unitario')::numeric,0)
+           - coalesce((v_item->>'desconto_valor')::numeric,0), 2)
+    );
+  end loop;
+
+  -- Pagamentos + validação da soma (reaproveita a RPC de substituição)
+  v_pago := public.venda_substituir_pagamentos(v_venda_id, p_payload->'pagamentos');
+
+  -- Baixa de estoque
+  perform public._venda_mover_estoque(v_venda_id, 'saida'::estoque_mov_tipo);
+
+  return v_venda_id;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."registrar_venda"("p_payload" "jsonb") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."rls_auto_enable"() RETURNS "event_trigger"
@@ -4069,6 +4851,104 @@ $$;
 ALTER FUNCTION "public"."update_group_banner"("_group_id" "uuid", "_banner_url" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  perform public._venda_assert_tenant(p_venda_id);
+  delete from public.venda_pagamentos where venda_id = p_venda_id;
+  perform public.venda_recalcular_totais(p_venda_id);
+end;
+$$;
+
+
+ALTER FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_sub  numeric(12,2);
+  v_pago numeric(12,2);
+begin
+  perform public._venda_assert_tenant(p_venda_id);
+
+  select coalesce(sum(total),0) into v_sub
+    from public.venda_itens where venda_id = p_venda_id;
+  select coalesce(sum(valor),0) into v_pago
+    from public.venda_pagamentos where venda_id = p_venda_id;
+
+  update public.vendas
+     set subtotal   = v_sub,
+         total      = round(v_sub - desconto_valor, 2),
+         total_pago = v_pago
+   where id = p_venda_id;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") RETURNS numeric
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_tenant   uuid := public._venda_assert_tenant(p_venda_id);
+  v_venda    public.vendas%rowtype;
+  v_pag      jsonb;
+  v_idx      int := 0;
+  v_pago     numeric(12,2) := 0;
+begin
+  select * into v_venda from public.vendas where id = p_venda_id;
+  if v_venda.status <> 'concluida' then
+    raise exception 'venda cancelada não aceita alteração de pagamentos';
+  end if;
+  if jsonb_array_length(coalesce(p_pagamentos,'[]'::jsonb)) = 0 then
+    raise exception 'venda sem pagamentos';
+  end if;
+
+  for v_pag in select * from jsonb_array_elements(p_pagamentos) loop
+    v_pago := v_pago + round(coalesce((v_pag->>'valor')::numeric,0), 2);
+  end loop;
+
+  -- Regra do modal: pagamentos cobrem total + caixinha.
+  if abs(v_pago - round(v_venda.total + v_venda.caixinha_valor, 2)) >= 0.01 then
+    raise exception 'soma dos pagamentos (%) difere do total esperado (%)',
+      v_pago, round(v_venda.total + v_venda.caixinha_valor, 2);
+  end if;
+
+  delete from public.venda_pagamentos where venda_id = p_venda_id;
+
+  for v_pag in select * from jsonb_array_elements(p_pagamentos) loop
+    insert into public.venda_pagamentos (
+      tenant_id, venda_id, forma_pagamento, valor, parcelas,
+      caixinha_valor, desconto_valor, observacao
+    ) values (
+      v_tenant, p_venda_id,
+      coalesce(nullif(v_pag->>'forma_pagamento',''), 'pix'),
+      round(coalesce((v_pag->>'valor')::numeric,0), 2),
+      greatest(coalesce((v_pag->>'parcelas')::int, 1), 1),
+      case when v_idx = 0 then v_venda.caixinha_valor else 0 end,
+      case when v_idx = 0 then v_venda.desconto_valor else 0 end,
+      nullif(v_pag->>'observacao','')
+    );
+    v_idx := v_idx + 1;
+  end loop;
+
+  perform public.venda_recalcular_totais(p_venda_id);
+  return v_pago;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."wa_session_lookup"("p_token" "text") RETURNS TABLE("tenant_id" "uuid", "telefone" "text", "nome" "text", "expires_at" timestamp with time zone, "used_at" timestamp with time zone)
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -4130,6 +5010,35 @@ CREATE TABLE IF NOT EXISTS "public"."agendamento_servico_cores" (
 ALTER TABLE "public"."agendamento_servico_cores" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."backfill_balcao_map" (
+    "agendamento_id" "uuid" NOT NULL,
+    "venda_id" "uuid" NOT NULL,
+    "migrado_em" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."backfill_balcao_map" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."backup_agendamento_pagamentos_balcao" (
+    "id" "uuid",
+    "tenant_id" "uuid",
+    "agendamento_id" "uuid",
+    "forma_pagamento" "text",
+    "valor" numeric,
+    "parcelas" integer,
+    "observacao" "text",
+    "created_at" timestamp with time zone,
+    "created_by" "uuid",
+    "caixinha_valor" numeric(10,2),
+    "desconto_valor" numeric(10,2),
+    "acrescimo_valor" numeric(10,2)
+);
+
+
+ALTER TABLE "public"."backup_agendamento_pagamentos_balcao" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."backup_agendamento_pagamentos_observacao_desconto" (
     "backup_em" timestamp with time zone DEFAULT "now"() NOT NULL,
     "pagamento_id" "uuid",
@@ -4139,6 +5048,61 @@ CREATE TABLE IF NOT EXISTS "public"."backup_agendamento_pagamentos_observacao_de
 
 
 ALTER TABLE "public"."backup_agendamento_pagamentos_observacao_desconto" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."backup_agendamento_produtos_balcao" (
+    "id" "uuid",
+    "tenant_id" "uuid",
+    "agendamento_id" "uuid",
+    "produto_id" "uuid",
+    "quantidade" numeric,
+    "preco_unitario" numeric,
+    "observacao" "text",
+    "estoque_movimentacao_id" "uuid",
+    "cliente_levou" boolean,
+    "created_at" timestamp with time zone,
+    "created_by" "uuid"
+);
+
+
+ALTER TABLE "public"."backup_agendamento_produtos_balcao" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."backup_agendamentos_balcao" (
+    "id" "uuid",
+    "cliente_id" "uuid",
+    "cliente_nome" "text",
+    "cliente_telefone" "text",
+    "profissional_id" "uuid",
+    "data" "date",
+    "hora" time without time zone,
+    "status" "public"."agendamento_status",
+    "observacoes" "text",
+    "created_at" timestamp with time zone,
+    "updated_at" timestamp with time zone,
+    "tenant_id" "uuid",
+    "concluded_at" timestamp with time zone,
+    "conclusion_type" "text",
+    "origem" "text",
+    "status_pagamento" "text",
+    "valor_total_pago" numeric,
+    "possui_pagamento" boolean,
+    "reminder_24h_sent_at" timestamp with time zone,
+    "reminder_2h_sent_at" timestamp with time zone,
+    "prepaid" boolean,
+    "prepaid_origin_agendamento_id" "uuid",
+    "prepaid_origin_payment_id" "uuid",
+    "subtotal_servicos" numeric(10,2),
+    "subtotal_produtos" numeric(10,2),
+    "desconto_total" numeric(10,2),
+    "acrescimo_total" numeric(10,2),
+    "caixinha_total" numeric(10,2),
+    "base_comissao" numeric(10,2),
+    "total" numeric(10,2)
+);
+
+
+ALTER TABLE "public"."backup_agendamentos_balcao" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."backup_comissoes_desconto_retroativo_agendamentos" (
@@ -4201,6 +5165,254 @@ CREATE TABLE IF NOT EXISTS "public"."cancelamento_motivos" (
 ALTER TABLE "public"."cancelamento_motivos" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."usuarios" (
+    "id" "uuid" NOT NULL,
+    "nome" "text" NOT NULL,
+    "email" "text" NOT NULL,
+    "profissional_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "tenant_id" "uuid",
+    "ativo" boolean DEFAULT true NOT NULL,
+    "login" "text"
+);
+
+
+ALTER TABLE "public"."usuarios" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."usuarios" IS 'Usuários do sistema vinculados ao auth.users';
+
+
+
+COMMENT ON COLUMN "public"."usuarios"."login" IS 'Username amigável usado no login (lowercase). Auth do Supabase continua usando email. Sem NOT NULL/UNIQUE durante migração — adicionar em etapa futura após backfill.';
+
+
+
+CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"='true') AS
+ WITH "pct" AS (
+         SELECT "cp"."tenant_id",
+            "cp"."profissional_id",
+            COALESCE("cp"."percentual_profissional", (50)::numeric) AS "pct_prof"
+           FROM "public"."comissoes_profissionais" "cp"
+        ), "ag_ok" AS (
+         SELECT "a"."id",
+            "a"."cliente_id",
+            "a"."cliente_nome",
+            "a"."cliente_telefone",
+            "a"."profissional_id",
+            "a"."data",
+            "a"."hora",
+            "a"."status",
+            "a"."observacoes",
+            "a"."created_at",
+            "a"."updated_at",
+            "a"."tenant_id",
+            "a"."concluded_at",
+            "a"."conclusion_type",
+            "a"."origem",
+            "a"."status_pagamento",
+            "a"."valor_total_pago",
+            "a"."possui_pagamento",
+            "a"."reminder_24h_sent_at",
+            "a"."reminder_2h_sent_at",
+            "a"."prepaid",
+            "a"."prepaid_origin_agendamento_id",
+            "a"."prepaid_origin_payment_id",
+            "a"."subtotal_servicos",
+            "a"."subtotal_produtos",
+            "a"."desconto_total",
+            "a"."acrescimo_total",
+            "a"."caixinha_total",
+            "a"."base_comissao",
+            "a"."total"
+           FROM "public"."agendamentos" "a"
+          WHERE (("a"."status" = 'concluido'::"public"."agendamento_status") OR ("a"."conclusion_type" = 'cancelado_com_venda'::"text"))
+        ), "linhas" AS (
+         SELECT "ags"."id" AS "linha_id",
+            "ags"."tenant_id",
+            "a"."id" AS "agendamento_id",
+            "a"."data" AS "event_date",
+            "a"."hora" AS "event_time",
+            "a"."cliente_id",
+            "a"."cliente_nome",
+            COALESCE("ags"."profissional_id", "a"."profissional_id") AS "profissional_id",
+            "ags"."servico_id",
+            "s"."nome" AS "servico_nome",
+            COALESCE("ags"."preco", (0)::numeric) AS "preco",
+            COALESCE("ags"."origem", 'avulso'::"text") AS "origem",
+            "ags"."cliente_pacote_id",
+            "ags"."created_at"
+           FROM (("public"."agendamento_servicos" "ags"
+             JOIN "ag_ok" "a" ON (("a"."id" = "ags"."agendamento_id")))
+             LEFT JOIN "public"."servicos" "s" ON (("s"."id" = "ags"."servico_id")))
+        ), "ev_servico" AS (
+         SELECT 'servico'::"text" AS "event_type",
+            "l"."linha_id" AS "event_id",
+            "l"."tenant_id",
+            "l"."event_date",
+            "l"."event_time",
+            "l"."agendamento_id",
+            "l"."cliente_id",
+            "l"."cliente_nome",
+            "l"."profissional_id",
+            COALESCE("l"."servico_nome", 'Atendimento'::"text") AS "titulo",
+            "l"."preco" AS "valor",
+            "round"((("l"."preco" * COALESCE("p"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao",
+            true AS "conta_atendimento",
+            "l"."created_at",
+            1 AS "ord_evento"
+           FROM ("linhas" "l"
+             LEFT JOIN "pct" "p" ON ((("p"."tenant_id" = "l"."tenant_id") AND ("p"."profissional_id" = "l"."profissional_id"))))
+          WHERE ("l"."origem" = 'avulso'::"text")
+        ), "ev_pacote_uso" AS (
+         SELECT 'pacote_uso'::"text" AS "event_type",
+            "l"."linha_id" AS "event_id",
+            "l"."tenant_id",
+            "l"."event_date",
+            "l"."event_time",
+            "l"."agendamento_id",
+            "l"."cliente_id",
+            "l"."cliente_nome",
+            "l"."profissional_id",
+            COALESCE("l"."servico_nome", 'Atendimento'::"text") AS "titulo",
+            (0)::numeric AS "valor",
+            (0)::numeric AS "comissao",
+            true AS "conta_atendimento",
+            "l"."created_at",
+            2 AS "ord_evento"
+           FROM "linhas" "l"
+          WHERE (("l"."origem" = 'pacote_uso'::"text") OR (("l"."origem" <> 'pacote_venda'::"text") AND ("l"."cliente_pacote_id" IS NOT NULL)))
+        ), "venda_link" AS (
+         SELECT DISTINCT ON ("ags"."cliente_pacote_id") "ags"."cliente_pacote_id",
+            "a"."id" AS "agendamento_id",
+            "a"."data" AS "event_date",
+            "a"."hora" AS "event_time",
+            COALESCE("ags"."profissional_id", "a"."profissional_id") AS "profissional_id",
+            "ags"."created_at"
+           FROM ("public"."agendamento_servicos" "ags"
+             JOIN "ag_ok" "a" ON (("a"."id" = "ags"."agendamento_id")))
+          WHERE ("ags"."cliente_pacote_id" IS NOT NULL)
+          ORDER BY "ags"."cliente_pacote_id", ("ags"."origem" = 'pacote_venda'::"text") DESC, "a"."data", "a"."hora", "ags"."created_at"
+        ), "ev_pacote_venda" AS (
+         SELECT 'pacote_venda'::"text" AS "event_type",
+            "cp"."id" AS "event_id",
+            "cp"."tenant_id",
+            COALESCE("vl"."event_date", "cp"."data_inicio") AS "event_date",
+            "vl"."event_time",
+            "vl"."agendamento_id",
+            "cp"."cliente_id",
+            COALESCE("cl"."nome", 'Cliente'::"text") AS "cliente_nome",
+            COALESCE("vl"."profissional_id", "u"."profissional_id") AS "profissional_id",
+            COALESCE("pk"."nome", 'Pacote'::"text") AS "titulo",
+            COALESCE("cp"."preco_total", (0)::numeric) AS "valor",
+            "round"(((COALESCE("cp"."preco_total", (0)::numeric) * COALESCE("pr"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao",
+            false AS "conta_atendimento",
+            "cp"."created_at",
+            0 AS "ord_evento"
+           FROM ((((("public"."cliente_pacotes" "cp"
+             LEFT JOIN "venda_link" "vl" ON (("vl"."cliente_pacote_id" = "cp"."id")))
+             LEFT JOIN "public"."pacotes" "pk" ON (("pk"."id" = "cp"."pacote_id")))
+             LEFT JOIN "public"."clientes" "cl" ON (("cl"."id" = "cp"."cliente_id")))
+             LEFT JOIN "public"."usuarios" "u" ON (("u"."id" = "cp"."user_id")))
+             LEFT JOIN "pct" "pr" ON ((("pr"."tenant_id" = "cp"."tenant_id") AND ("pr"."profissional_id" = COALESCE("vl"."profissional_id", "u"."profissional_id")))))
+          WHERE ("cp"."status" <> 'cancelado'::"text")
+        ), "ev_produto" AS (
+         SELECT 'produto'::"text" AS "event_type",
+            "ap"."id" AS "event_id",
+            "ap"."tenant_id",
+            "a"."data" AS "event_date",
+            "a"."hora" AS "event_time",
+            "a"."id" AS "agendamento_id",
+            "a"."cliente_id",
+            "a"."cliente_nome",
+            "a"."profissional_id",
+            COALESCE("pr"."nome", 'Produto'::"text") AS "titulo",
+            (COALESCE("ap"."quantidade", (0)::numeric) * COALESCE("ap"."preco_unitario", (0)::numeric)) AS "valor",
+            (0)::numeric AS "comissao",
+            false AS "conta_atendimento",
+            "ap"."created_at",
+            3 AS "ord_evento"
+           FROM (("public"."agendamento_produtos" "ap"
+             JOIN "ag_ok" "a" ON (("a"."id" = "ap"."agendamento_id")))
+             LEFT JOIN "public"."produtos" "pr" ON (("pr"."id" = "ap"."produto_id")))
+        )
+ SELECT "ev_pacote_venda"."event_type",
+    "ev_pacote_venda"."event_id",
+    "ev_pacote_venda"."tenant_id",
+    "ev_pacote_venda"."event_date",
+    "ev_pacote_venda"."event_time",
+    "ev_pacote_venda"."agendamento_id",
+    "ev_pacote_venda"."cliente_id",
+    "ev_pacote_venda"."cliente_nome",
+    "ev_pacote_venda"."profissional_id",
+    "ev_pacote_venda"."titulo",
+    "ev_pacote_venda"."valor",
+    "ev_pacote_venda"."comissao",
+    "ev_pacote_venda"."conta_atendimento",
+    "ev_pacote_venda"."created_at",
+    "ev_pacote_venda"."ord_evento"
+   FROM "ev_pacote_venda"
+UNION ALL
+ SELECT "ev_servico"."event_type",
+    "ev_servico"."event_id",
+    "ev_servico"."tenant_id",
+    "ev_servico"."event_date",
+    "ev_servico"."event_time",
+    "ev_servico"."agendamento_id",
+    "ev_servico"."cliente_id",
+    "ev_servico"."cliente_nome",
+    "ev_servico"."profissional_id",
+    "ev_servico"."titulo",
+    "ev_servico"."valor",
+    "ev_servico"."comissao",
+    "ev_servico"."conta_atendimento",
+    "ev_servico"."created_at",
+    "ev_servico"."ord_evento"
+   FROM "ev_servico"
+UNION ALL
+ SELECT "ev_pacote_uso"."event_type",
+    "ev_pacote_uso"."event_id",
+    "ev_pacote_uso"."tenant_id",
+    "ev_pacote_uso"."event_date",
+    "ev_pacote_uso"."event_time",
+    "ev_pacote_uso"."agendamento_id",
+    "ev_pacote_uso"."cliente_id",
+    "ev_pacote_uso"."cliente_nome",
+    "ev_pacote_uso"."profissional_id",
+    "ev_pacote_uso"."titulo",
+    "ev_pacote_uso"."valor",
+    "ev_pacote_uso"."comissao",
+    "ev_pacote_uso"."conta_atendimento",
+    "ev_pacote_uso"."created_at",
+    "ev_pacote_uso"."ord_evento"
+   FROM "ev_pacote_uso"
+UNION ALL
+ SELECT "ev_produto"."event_type",
+    "ev_produto"."event_id",
+    "ev_produto"."tenant_id",
+    "ev_produto"."event_date",
+    "ev_produto"."event_time",
+    "ev_produto"."agendamento_id",
+    "ev_produto"."cliente_id",
+    "ev_produto"."cliente_nome",
+    "ev_produto"."profissional_id",
+    "ev_produto"."titulo",
+    "ev_produto"."valor",
+    "ev_produto"."comissao",
+    "ev_produto"."conta_atendimento",
+    "ev_produto"."created_at",
+    "ev_produto"."ord_evento"
+   FROM "ev_produto";
+
+
+ALTER VIEW "public"."comissoes_v2_eventos" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."comissoes_v2_eventos" IS 'Grão = evento de comissão (não agendamento). Um agendamento com venda de pacote + 1º uso gera 2 linhas. Fonte única do histórico do módulo Comissões V2.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."cores" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "nome" "text" NOT NULL,
@@ -4234,6 +5446,118 @@ CREATE TABLE IF NOT EXISTS "public"."custom_reports" (
 
 
 ALTER TABLE "public"."custom_reports" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."venda_itens" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "tenant_id" "uuid" NOT NULL,
+    "venda_id" "uuid" NOT NULL,
+    "produto_id" "uuid",
+    "descricao" "text" NOT NULL,
+    "quantidade" numeric(12,3) DEFAULT 1 NOT NULL,
+    "valor_unitario" numeric(12,2) DEFAULT 0 NOT NULL,
+    "desconto_valor" numeric(12,2) DEFAULT 0 NOT NULL,
+    "total" numeric(12,2) DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "venda_itens_desconto_valor_check" CHECK (("desconto_valor" >= (0)::numeric)),
+    CONSTRAINT "venda_itens_quantidade_check" CHECK (("quantidade" > (0)::numeric)),
+    CONSTRAINT "venda_itens_valor_unitario_check" CHECK (("valor_unitario" >= (0)::numeric))
+);
+
+
+ALTER TABLE "public"."venda_itens" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."vendas" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "tenant_id" "uuid" NOT NULL,
+    "profissional_id" "uuid" NOT NULL,
+    "cliente_id" "uuid",
+    "cliente_nome" "text" DEFAULT 'Consumidor Final'::"text" NOT NULL,
+    "cliente_telefone" "text",
+    "data_venda" "date" DEFAULT (("now"() AT TIME ZONE 'America/Sao_Paulo'::"text"))::"date" NOT NULL,
+    "hora_venda" time without time zone DEFAULT (("now"() AT TIME ZONE 'America/Sao_Paulo'::"text"))::time without time zone NOT NULL,
+    "vendida_em" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "subtotal" numeric(12,2) DEFAULT 0 NOT NULL,
+    "desconto_valor" numeric(12,2) DEFAULT 0 NOT NULL,
+    "caixinha_valor" numeric(12,2) DEFAULT 0 NOT NULL,
+    "total" numeric(12,2) DEFAULT 0 NOT NULL,
+    "total_pago" numeric(12,2) DEFAULT 0 NOT NULL,
+    "status" "text" DEFAULT 'concluida'::"text" NOT NULL,
+    "observacoes" "text",
+    "cancelada_em" timestamp with time zone,
+    "cancelada_por" "uuid",
+    "motivo_cancelamento" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_by" "uuid" DEFAULT "auth"."uid"(),
+    CONSTRAINT "vendas_status_check" CHECK (("status" = ANY (ARRAY['concluida'::"text", 'cancelada'::"text"])))
+);
+
+
+ALTER TABLE "public"."vendas" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."dv2_vendas_itens" AS
+ SELECT "v"."tenant_id",
+    "v"."id" AS "venda_id",
+    "i"."id" AS "item_id",
+    "v"."data_venda" AS "data",
+    "v"."profissional_id",
+    "i"."produto_id",
+    COALESCE("i"."descricao", "pr"."nome", '—'::"text") AS "descricao",
+    COALESCE("i"."quantidade", (0)::numeric) AS "quantidade",
+    COALESCE("i"."total", (0)::numeric) AS "valor"
+   FROM (("public"."venda_itens" "i"
+     JOIN "public"."vendas" "v" ON (("v"."id" = "i"."venda_id")))
+     LEFT JOIN "public"."produtos" "pr" ON (("pr"."id" = "i"."produto_id")))
+  WHERE (true AND (COALESCE("v"."status", ''::"text") <> ALL (ARRAY['cancelada'::"text", 'cancelado'::"text", 'estornada'::"text", 'estornado'::"text", 'excluida'::"text", 'excluido'::"text", 'rascunho'::"text"])));
+
+
+ALTER VIEW "public"."dv2_vendas_itens" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."dv2_vendas_itens" IS 'Dashboard V2 · itens do domínio de Vendas (Venda de Balcão) normalizados.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."venda_pagamentos" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "tenant_id" "uuid" NOT NULL,
+    "venda_id" "uuid" NOT NULL,
+    "forma_pagamento" "text" NOT NULL,
+    "valor" numeric(12,2) NOT NULL,
+    "parcelas" integer DEFAULT 1 NOT NULL,
+    "caixinha_valor" numeric(12,2) DEFAULT 0 NOT NULL,
+    "desconto_valor" numeric(12,2) DEFAULT 0 NOT NULL,
+    "observacao" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "created_by" "uuid" DEFAULT "auth"."uid"(),
+    CONSTRAINT "venda_pagamentos_forma_pagamento_check" CHECK (("forma_pagamento" = ANY (ARRAY['pix'::"text", 'dinheiro'::"text", 'debito'::"text", 'credito'::"text", 'credito_parcelado'::"text"]))),
+    CONSTRAINT "venda_pagamentos_parcelas_check" CHECK ((("parcelas" >= 1) AND ("parcelas" <= 24))),
+    CONSTRAINT "venda_pagamentos_valor_check" CHECK (("valor" > (0)::numeric))
+);
+
+
+ALTER TABLE "public"."venda_pagamentos" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."dv2_vendas_receita" AS
+ SELECT "v"."tenant_id",
+    "v"."id" AS "venda_id",
+    "v"."data_venda" AS "data",
+    "v"."profissional_id",
+    COALESCE("p"."forma_pagamento", 'Não informado'::"text") AS "forma_pagamento",
+    COALESCE("p"."valor", (0)::numeric) AS "valor"
+   FROM ("public"."venda_pagamentos" "p"
+     JOIN "public"."vendas" "v" ON (("v"."id" = "p"."venda_id")))
+  WHERE (true AND (COALESCE("v"."status", ''::"text") <> ALL (ARRAY['cancelada'::"text", 'cancelado'::"text", 'estornada'::"text", 'estornado'::"text", 'excluida'::"text", 'excluido'::"text", 'rascunho'::"text"])));
+
+
+ALTER VIEW "public"."dv2_vendas_receita" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."dv2_vendas_receita" IS 'Dashboard V2 · receita (pagamentos) do domínio de Vendas normalizada.';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."estoque_movimentacoes" (
@@ -4629,55 +5953,6 @@ COMMENT ON COLUMN "public"."user_roles"."multi_unit_access" IS 'Quando true, per
 
 
 
-CREATE TABLE IF NOT EXISTS "public"."usuarios" (
-    "id" "uuid" NOT NULL,
-    "nome" "text" NOT NULL,
-    "email" "text" NOT NULL,
-    "profissional_id" "uuid",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    "tenant_id" "uuid",
-    "ativo" boolean DEFAULT true NOT NULL,
-    "login" "text"
-);
-
-
-ALTER TABLE "public"."usuarios" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."usuarios" IS 'Usuários do sistema vinculados ao auth.users';
-
-
-
-COMMENT ON COLUMN "public"."usuarios"."login" IS 'Username amigável usado no login (lowercase). Auth do Supabase continua usando email. Sem NOT NULL/UNIQUE durante migração — adicionar em etapa futura após backfill.';
-
-
-
-CREATE OR REPLACE VIEW "public"."v_vendas_balcao" AS
- SELECT "a"."id" AS "agendamento_id",
-    "a"."tenant_id",
-    "a"."data",
-    "a"."hora",
-    "a"."cliente_id",
-    "a"."cliente_nome",
-    "a"."status",
-    "a"."subtotal_produtos",
-    "a"."total",
-    COALESCE("pg"."total_pago", (0)::numeric) AS "total_pago",
-    COALESCE("pg"."qtd_pagamentos", (0)::bigint) AS "qtd_pagamentos",
-    "a"."created_at"
-   FROM ("public"."agendamentos" "a"
-     LEFT JOIN ( SELECT "agendamento_pagamentos"."agendamento_id",
-            "sum"("agendamento_pagamentos"."valor") AS "total_pago",
-            "count"(*) AS "qtd_pagamentos"
-           FROM "public"."agendamento_pagamentos"
-          GROUP BY "agendamento_pagamentos"."agendamento_id") "pg" ON (("pg"."agendamento_id" = "a"."id")))
-  WHERE ("a"."origem" = 'BALCAO'::"text");
-
-
-ALTER VIEW "public"."v_vendas_balcao" OWNER TO "postgres";
-
-
 CREATE TABLE IF NOT EXISTS "public"."whatsapp_inbound_seen" (
     "message_id" "text" NOT NULL,
     "tenant_id" "uuid",
@@ -4767,6 +6042,11 @@ ALTER TABLE ONLY "public"."agendamento_servicos"
 
 ALTER TABLE ONLY "public"."agendamentos"
     ADD CONSTRAINT "agendamentos_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."backfill_balcao_map"
+    ADD CONSTRAINT "backfill_balcao_map_pkey" PRIMARY KEY ("agendamento_id");
 
 
 
@@ -4997,6 +6277,21 @@ ALTER TABLE ONLY "public"."usuarios"
 
 ALTER TABLE ONLY "public"."usuarios"
     ADD CONSTRAINT "usuarios_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."venda_itens"
+    ADD CONSTRAINT "venda_itens_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."venda_pagamentos"
+    ADD CONSTRAINT "venda_pagamentos_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."vendas"
+    ADD CONSTRAINT "vendas_pkey" PRIMARY KEY ("id");
 
 
 
@@ -5317,6 +6612,34 @@ CREATE INDEX "idx_usuarios_tenant_ativo" ON "public"."usuarios" USING "btree" ("
 
 
 CREATE INDEX "idx_usuarios_tenant_id" ON "public"."usuarios" USING "btree" ("tenant_id");
+
+
+
+CREATE INDEX "idx_venda_itens_produto" ON "public"."venda_itens" USING "btree" ("tenant_id", "produto_id");
+
+
+
+CREATE INDEX "idx_venda_itens_venda" ON "public"."venda_itens" USING "btree" ("venda_id");
+
+
+
+CREATE INDEX "idx_venda_pagamentos_venda" ON "public"."venda_pagamentos" USING "btree" ("venda_id");
+
+
+
+CREATE INDEX "idx_vendas_cliente" ON "public"."vendas" USING "btree" ("tenant_id", "cliente_id");
+
+
+
+CREATE INDEX "idx_vendas_profissional" ON "public"."vendas" USING "btree" ("tenant_id", "profissional_id");
+
+
+
+CREATE INDEX "idx_vendas_status" ON "public"."vendas" USING "btree" ("tenant_id", "status");
+
+
+
+CREATE INDEX "idx_vendas_tenant_data" ON "public"."vendas" USING "btree" ("tenant_id", "data_venda" DESC);
 
 
 
@@ -5814,6 +7137,41 @@ ALTER TABLE ONLY "public"."usuarios"
 
 
 
+ALTER TABLE ONLY "public"."venda_itens"
+    ADD CONSTRAINT "venda_itens_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id");
+
+
+
+ALTER TABLE ONLY "public"."venda_itens"
+    ADD CONSTRAINT "venda_itens_venda_id_fkey" FOREIGN KEY ("venda_id") REFERENCES "public"."vendas"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."venda_pagamentos"
+    ADD CONSTRAINT "venda_pagamentos_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id");
+
+
+
+ALTER TABLE ONLY "public"."venda_pagamentos"
+    ADD CONSTRAINT "venda_pagamentos_venda_id_fkey" FOREIGN KEY ("venda_id") REFERENCES "public"."vendas"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."vendas"
+    ADD CONSTRAINT "vendas_cliente_id_fkey" FOREIGN KEY ("cliente_id") REFERENCES "public"."clientes"("id");
+
+
+
+ALTER TABLE ONLY "public"."vendas"
+    ADD CONSTRAINT "vendas_profissional_id_fkey" FOREIGN KEY ("profissional_id") REFERENCES "public"."profissionais"("id");
+
+
+
+ALTER TABLE ONLY "public"."vendas"
+    ADD CONSTRAINT "vendas_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id");
+
+
+
 ALTER TABLE ONLY "public"."whatsapp_notifications_log"
     ADD CONSTRAINT "whatsapp_notifications_log_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
 
@@ -6062,7 +7420,19 @@ CREATE POLICY "allow insert push subscriptions" ON "public"."push_subscriptions"
 
 
 
+ALTER TABLE "public"."backfill_balcao_map" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."backup_agendamento_pagamentos_balcao" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."backup_agendamento_pagamentos_observacao_desconto" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."backup_agendamento_produtos_balcao" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."backup_agendamentos_balcao" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."backup_comissoes_desconto_retroativo_agendamentos" ENABLE ROW LEVEL SECURITY;
@@ -6694,6 +8064,27 @@ CREATE POLICY "usuarios_update" ON "public"."usuarios" FOR UPDATE TO "authentica
 
 
 
+ALTER TABLE "public"."venda_itens" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "venda_itens_select_tenant" ON "public"."venda_itens" FOR SELECT TO "authenticated" USING (("tenant_id" = "public"."current_tenant_id"()));
+
+
+
+ALTER TABLE "public"."venda_pagamentos" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "venda_pagamentos_select_tenant" ON "public"."venda_pagamentos" FOR SELECT TO "authenticated" USING (("tenant_id" = "public"."current_tenant_id"()));
+
+
+
+ALTER TABLE "public"."vendas" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "vendas_select_tenant" ON "public"."vendas" FOR SELECT TO "authenticated" USING (("tenant_id" = "public"."current_tenant_id"()));
+
+
+
 CREATE POLICY "wa_log_read" ON "public"."whatsapp_notifications_log" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."user_roles" "ur"
   WHERE (("ur"."user_id" = "auth"."uid"()) AND ("ur"."tenant_id" = "whatsapp_notifications_log"."tenant_id")))));
@@ -6729,6 +8120,18 @@ GRANT ALL ON FUNCTION "public"."_fin_parse_marker"("p_obs" "text", "p_key" "text
 GRANT ALL ON FUNCTION "public"."_trg_recompute_financeiro"() TO "anon";
 GRANT ALL ON FUNCTION "public"."_trg_recompute_financeiro"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."_trg_recompute_financeiro"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."_venda_assert_tenant"("p_venda_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."_venda_assert_tenant"("p_venda_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."_venda_assert_tenant"("p_venda_id" "uuid") TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."_venda_mover_estoque"("p_venda_id" "uuid", "p_tipo" "public"."estoque_mov_tipo") TO "anon";
+GRANT ALL ON FUNCTION "public"."_venda_mover_estoque"("p_venda_id" "uuid", "p_tipo" "public"."estoque_mov_tipo") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."_venda_mover_estoque"("p_venda_id" "uuid", "p_tipo" "public"."estoque_mov_tipo") TO "service_role";
 
 
 
@@ -6864,9 +8267,30 @@ GRANT ALL ON FUNCTION "public"."cancel_public_agendamento"("_tenant_id" "uuid", 
 
 
 
+REVOKE ALL ON FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."cancelar_venda"("p_venda_id" "uuid", "p_motivo" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."check_tenant_active_users_limit"() TO "anon";
 GRANT ALL ON FUNCTION "public"."check_tenant_active_users_limit"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."check_tenant_active_users_limit"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") TO "anon";
+GRANT ALL ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") TO "service_role";
 
 
 
@@ -6996,6 +8420,7 @@ GRANT ALL ON FUNCTION "public"."dashboard_v2_auditoria"("p_tenant" "uuid", "p_in
 
 
 
+REVOKE ALL ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") TO "service_role";
@@ -7307,6 +8732,13 @@ GRANT ALL ON FUNCTION "public"."recompute_agendamento_financeiro"("p_agendamento
 
 
 
+REVOKE ALL ON FUNCTION "public"."registrar_venda"("p_payload" "jsonb") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."registrar_venda"("p_payload" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."registrar_venda"("p_payload" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."registrar_venda"("p_payload" "jsonb") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "anon";
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."rls_auto_enable"() TO "service_role";
@@ -7386,6 +8818,27 @@ GRANT ALL ON FUNCTION "public"."update_group_banner"("_group_id" "uuid", "_banne
 
 
 
+REVOKE ALL ON FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."venda_limpar_pagamentos"("p_venda_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."venda_recalcular_totais"("p_venda_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") TO "anon";
+GRANT ALL ON FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."venda_substituir_pagamentos"("p_venda_id" "uuid", "p_pagamentos" "jsonb") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."wa_session_lookup"("p_token" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."wa_session_lookup"("p_token" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."wa_session_lookup"("p_token" "text") TO "authenticated";
@@ -7412,9 +8865,33 @@ GRANT ALL ON TABLE "public"."agendamento_servico_cores" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."backfill_balcao_map" TO "anon";
+GRANT ALL ON TABLE "public"."backfill_balcao_map" TO "authenticated";
+GRANT ALL ON TABLE "public"."backfill_balcao_map" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_balcao" TO "anon";
+GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_balcao" TO "authenticated";
+GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_balcao" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_observacao_desconto" TO "anon";
 GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_observacao_desconto" TO "authenticated";
 GRANT ALL ON TABLE "public"."backup_agendamento_pagamentos_observacao_desconto" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."backup_agendamento_produtos_balcao" TO "anon";
+GRANT ALL ON TABLE "public"."backup_agendamento_produtos_balcao" TO "authenticated";
+GRANT ALL ON TABLE "public"."backup_agendamento_produtos_balcao" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."backup_agendamentos_balcao" TO "anon";
+GRANT ALL ON TABLE "public"."backup_agendamentos_balcao" TO "authenticated";
+GRANT ALL ON TABLE "public"."backup_agendamentos_balcao" TO "service_role";
 
 
 
@@ -7442,6 +8919,18 @@ GRANT ALL ON TABLE "public"."cancelamento_motivos" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."usuarios" TO "anon";
+GRANT ALL ON TABLE "public"."usuarios" TO "authenticated";
+GRANT ALL ON TABLE "public"."usuarios" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "anon";
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "authenticated";
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."cores" TO "anon";
 GRANT ALL ON TABLE "public"."cores" TO "authenticated";
 GRANT ALL ON TABLE "public"."cores" TO "service_role";
@@ -7451,6 +8940,36 @@ GRANT ALL ON TABLE "public"."cores" TO "service_role";
 GRANT ALL ON TABLE "public"."custom_reports" TO "anon";
 GRANT ALL ON TABLE "public"."custom_reports" TO "authenticated";
 GRANT ALL ON TABLE "public"."custom_reports" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."venda_itens" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."venda_itens" TO "authenticated";
+GRANT ALL ON TABLE "public"."venda_itens" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."vendas" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."vendas" TO "authenticated";
+GRANT ALL ON TABLE "public"."vendas" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."dv2_vendas_itens" TO "anon";
+GRANT ALL ON TABLE "public"."dv2_vendas_itens" TO "authenticated";
+GRANT ALL ON TABLE "public"."dv2_vendas_itens" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."venda_pagamentos" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."venda_pagamentos" TO "authenticated";
+GRANT ALL ON TABLE "public"."venda_pagamentos" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."dv2_vendas_receita" TO "anon";
+GRANT ALL ON TABLE "public"."dv2_vendas_receita" TO "authenticated";
+GRANT ALL ON TABLE "public"."dv2_vendas_receita" TO "service_role";
 
 
 
@@ -7577,18 +9096,6 @@ GRANT ALL ON SEQUENCE "public"."tenants_display_id_seq" TO "service_role";
 GRANT ALL ON TABLE "public"."user_roles" TO "anon";
 GRANT ALL ON TABLE "public"."user_roles" TO "authenticated";
 GRANT ALL ON TABLE "public"."user_roles" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."usuarios" TO "anon";
-GRANT ALL ON TABLE "public"."usuarios" TO "authenticated";
-GRANT ALL ON TABLE "public"."usuarios" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."v_vendas_balcao" TO "anon";
-GRANT ALL ON TABLE "public"."v_vendas_balcao" TO "authenticated";
-GRANT ALL ON TABLE "public"."v_vendas_balcao" TO "service_role";
 
 
 
