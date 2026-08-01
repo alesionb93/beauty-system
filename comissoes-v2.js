@@ -20,7 +20,7 @@
   if (window.__SLOTIFY_COMISSOES_LOADED__) return;
   window.__SLOTIFY_COMISSOES_LOADED__ = true;
 
-  console.log('%c💰 comissoes-v2.js v3 (histórico por EVENTO de comissão · backend como fonte da verdade)',
+  console.log('%c💰 comissoes-v2.js v4 · ETAPA 6 (comissão de produtos · paridade total com Dashboard V2)',
     'background:var(--gold,#6c3aed);color:#fff;padding:3px 7px;border-radius:4px;font-weight:700');
 
   // ------------------------------------------------------------------
@@ -483,7 +483,7 @@
       + '<div class="com-hero">'
       +   '<div class="com-hero-label">Total a receber <i class="fa-solid fa-circle-info" style="opacity:.7;font-size:12px;"></i></div>'
       +   '<div class="com-hero-value" id="com-total">R$ 0,00</div>'
-      +   '<div class="com-hero-sub">Comissão + Caixinha</div>'
+      +   '<div class="com-hero-sub">Comissão Serviços + Comissão Produtos + Caixinha</div>'
       +   '<i class="fa-solid fa-wallet com-hero-icon"></i>'
       + '</div>'
 
@@ -495,15 +495,15 @@
       +   '<div class="com-stat"><div class="com-stat-ic"><i class="fa-solid fa-percent"></i></div>'
       +     '<div class="com-stat-label">Comissão</div>'
       +     '<div class="com-stat-value" id="com-comissao">R$ 0,00</div>'
-      +     '<div class="com-stat-sub">Total de comissões</div></div>'
+      +     '<div class="com-stat-sub">Serviços + Produtos</div></div>'
       +   '<div class="com-stat com-stat-tip"><div class="com-stat-ic"><i class="fa-solid fa-gift"></i></div>'
       +     '<div class="com-stat-label">Caixinha</div>'
       +     '<div class="com-stat-value" id="com-caixinha">R$ 0,00</div>'
       +     '<div class="com-stat-sub">Gorjetas recebidas</div></div>'
       +   '<div class="com-stat com-stat-prod"><div class="com-stat-ic"><i class="fa-solid fa-box"></i></div>'
-      +     '<div class="com-stat-label">Produtos vendidos</div>'
+      +     '<div class="com-stat-label">Comissão Produtos</div>'
       +     '<div class="com-stat-value" id="com-produtos">R$ 0,00</div>'
-      +     '<div class="com-stat-sub">Não gera comissão</div></div>'
+      +     '<div class="com-stat-sub">Total de comissão por vendas</div></div>'
       + '</div>'
 
       + '<div class="com-agenda-card">'
@@ -662,9 +662,11 @@
         val = '<span class="com-val-zero">Sem comissão</span>';
         breakHtml = subtxt('Pago na venda do pacote');
       } else if (tipo === 'produto') {
-        // Produto não entra no repasse; o valor é apenas referência da venda.
-        val = fmtBRL(Number(it.valor || 0));
-        breakHtml = subtxt('Produto · sem comissão');
+        // ETAPA 6: exibe o snapshot de comissão do produto (backend).
+        // Nada é calculado aqui — o valor vem pronto de comissao_produto.
+        var comProd = Number(it.comissao_produto || 0);
+        val = fmtBRL(comProd);
+        breakHtml = subtxt('Comissão Produto');
       } else if ((com + cx) <= 0) {
         val = '<span class="com-val-zero">Sem comissão</span>';
         breakHtml = subtxt('R$ 0,00');
@@ -774,10 +776,13 @@
       // O front apenas exibe os números já calculados pelo backend.
       document.getElementById('com-total').textContent    = fmtBRL(k.totalReceber);
       document.getElementById('com-atend').textContent    = (k.atendimentos || 0);
-      document.getElementById('com-comissao').textContent = fmtBRL(k.comissao);
+      // Card "Comissão" = Serviços + Produtos (já consolidado pelo backend).
+      document.getElementById('com-comissao').textContent =
+        fmtBRL(k.comissaoTotal != null ? k.comissaoTotal : k.comissao);
       document.getElementById('com-caixinha').textContent = fmtBRL(k.caixinha);
+      // Card "Comissão Produtos" = SUM(commission_amount) (snapshot).
       var elProd = document.getElementById('com-produtos');
-      if (elProd) elProd.textContent = fmtBRL(k.produtosVendidos);
+      if (elProd) elProd.textContent = fmtBRL(k.comissaoProdutos || 0);
 
       if (snap.profissional && snap.profissional.nome && !STATE.profNome) {
         STATE.profNome = String(snap.profissional.nome).trim().split(/\s+/)[0];

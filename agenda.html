@@ -32,6 +32,8 @@
   <link rel="stylesheet" href="/dashboard-loading.css?v=2" onerror="this.onerror=null;this.href='dashboard-loading.css?v=2'">
   <link rel="stylesheet" href="/relatorios-customizados.css" onerror="this.onerror=null;this.href='relatorios-customizados.css'">
   <link rel="stylesheet" href="/dashboard-v2.css?v=1">
+  <!-- junto dos demais <link>, no <head> -->
+  <link rel="stylesheet" href="/categorias-produtos.css?v=1" onerror="this.onerror=null;this.href='categorias-produtos.css?v=1'">
   <style>
     .pickr .pcr-button { width:52px; height:52px; border-radius:14px; border:1px solid var(--border,#e5e7eb); box-shadow:inset 0 0 0 1px rgba(0,0,0,0.03); }
     .pcr-app { z-index: 99999 !important; position: fixed !important; }
@@ -3275,6 +3277,13 @@
         </div>
 
         <div class="form-group">
+          <label>Categoria <small style="color:var(--text-muted);font-weight:400;">(opcional)</small></label>
+          <select id="produto-categoria">
+            <option value="">Sem categoria</option>
+          </select>
+        </div>
+
+        <div class="form-group">
           <label>Descrição</label>
           <textarea id="produto-descricao" rows="3" maxlength="500" placeholder="Detalhes do produto (opcional)"></textarea>
         </div>
@@ -3440,6 +3449,8 @@
 
   <script src="/dashboard-v2.js?v=1" defer></script>
 
+  <!-- junto dos demais <script>, no final do body (depois de script.js) -->
+  <script src="/categorias-produtos.js?v=1" defer onerror="this.onerror=null;this.src='categorias-produtos.js?v=1'"></script>
 
 </body>
 </html>

@@ -689,7 +689,7 @@
       return Utils.el('section',{class:'dv2-section'},[
         Utils.el('div',{class:'dv2-section-head'},[
           Utils.el('h2',{},[ icon('users'), 'Profissionais' ]),
-          Utils.el('span',{class:'dv2-section-sub'},'Performance individual — Faturamento = Serviços + Produtos. Comissão, Caixinha e Total a Receber consideram apenas serviços.')
+          Utils.el('span',{class:'dv2-section-sub'},'Performance individual — Faturamento = Serviços + Produtos. Total a Receber = Comissão + Comissão Produtos + Caixinha.')
         ]),
         Utils.el('div',{class:'dv2-card'},[
           Utils.el('div',{class:'dv2-table-wrap'},
@@ -707,6 +707,7 @@
         { key:'produtosVendidos', label:'Produtos Vendidos', type:'brl' },
         { key:'faturamento',      label:'Faturamento',      type:'brl' },
         { key:'comissao',     label:'Comissão',     type:'brl'  },
+        { key:'commission_products', label:'Comissão Produtos', type:'brl' },
         { key:'caixinha',     label:'Caixinha',     type:'brl'  },
         { key:'total',        label:'Total a Receber', type:'brl' }
       ];
@@ -746,6 +747,7 @@
             Utils.el('td',{class:'num'}, Utils.fmtBRL(r.produtosVendidos)),
             Utils.el('td',{class:'num'}, Utils.fmtBRL(r.faturamento)),
             Utils.el('td',{class:'num'}, Utils.fmtBRL(r.comissao)),
+            Utils.el('td',{class:'num'}, Utils.fmtBRL(r.commission_products)),
             Utils.el('td',{class:'num'}, Utils.fmtBRL(r.caixinha)),
             Utils.el('td',{class:'num strong'}, Utils.fmtBRL(r.total))
           ]));

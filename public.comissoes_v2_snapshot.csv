@@ -1,0 +1,135 @@
+pg_get_functiondef
+"CREATE OR REPLACE FUNCTION public.comissoes_v2_snapshot(p_inicio date, p_fim date, p_profissional_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_uid        uuid := auth.uid();
+  v_prof_id    uuid;
+  v_tenant_id  uuid;
+  v_is_admin   boolean := false;
+  v_nome       text;
+  v_dias       integer;
+  v_prev_ini   date;
+  v_prev_fim   date;
+  k            record;
+  a            record;
+  v_agenda     jsonb := '[]'::jsonb;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'unauthenticated');
+  END IF;
+
+  SELECT u.profissional_id, u.tenant_id
+    INTO v_prof_id, v_tenant_id
+    FROM public.usuarios u
+   WHERE u.id = v_uid
+     AND COALESCE(u.ativo, true) = true
+   LIMIT 1;
+
+  IF v_tenant_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'sem_vinculo');
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.user_roles ur
+     WHERE ur.user_id = v_uid
+       AND ur.tenant_id = v_tenant_id
+       AND ur.role::text = 'admin'
+  ) INTO v_is_admin;
+
+  IF p_profissional_id IS NOT NULL AND v_is_admin THEN
+    v_prof_id := p_profissional_id;
+  END IF;
+
+  IF v_prof_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'motivo', 'sem_profissional');
+  END IF;
+
+  SELECT pf.nome INTO v_nome
+    FROM public.profissionais pf
+   WHERE pf.id = v_prof_id
+   LIMIT 1;
+
+  v_dias     := (p_fim - p_inicio) + 1;
+  v_prev_fim := p_inicio - 1;
+  v_prev_ini := v_prev_fim - (v_dias - 1);
+
+  SELECT * INTO k FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, p_inicio, p_fim);
+  SELECT * INTO a FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, v_prev_ini, v_prev_fim);
+
+  -- Histórico: UMA LINHA POR EVENTO (valores já líquidos).
+  SELECT COALESCE(jsonb_agg(x ORDER BY x.event_date, x.event_time NULLS FIRST, x.ord_evento, x.created_at), '[]'::jsonb)
+    INTO v_agenda
+    FROM (
+      SELECT e.event_type,
+             e.event_id,
+             e.event_date,
+             e.event_time,
+             e.ord_evento,
+             e.created_at,
+             e.agendamento_id,
+             to_char(e.event_date, 'DD/MM')                       AS data_label,
+             COALESCE(to_char(e.event_time, 'HH24:MI'), '')       AS hora,
+             e.titulo                                             AS servico_nome,
+             e.cliente_nome,
+             ROUND(e.valor, 2)                                    AS valor,
+             ROUND(e.comissao, 2)                                 AS comissao,
+             -- ETAPA 6: snapshot da comissão de produto (nunca recalculado)
+             ROUND(COALESCE(e.comissao_produto, 0), 2)            AS comissao_produto,
+             ROUND(COALESCE(cx.caixinha, 0), 2)                   AS caixinha,
+             e.conta_atendimento
+        FROM public.comissoes_v2_eventos e
+        -- Caixinha pertence ao agendamento: exibida uma única vez,
+        -- no primeiro evento remunerado daquele agendamento.
+        LEFT JOIN LATERAL (
+          SELECT ag.caixinha_total AS caixinha
+            FROM public.agendamentos ag
+           WHERE ag.id = e.agendamento_id
+             AND ag.profissional_id = v_prof_id
+             AND COALESCE(ag.caixinha_total, 0) > 0
+             AND e.event_id = (
+                   SELECT e2.event_id
+                     FROM public.comissoes_v2_eventos e2
+                    WHERE e2.agendamento_id = e.agendamento_id
+                      AND e2.profissional_id = v_prof_id
+                      AND e2.comissao > 0
+                    ORDER BY e2.ord_evento, e2.created_at
+                    LIMIT 1)
+        ) cx ON true
+       WHERE e.tenant_id = v_tenant_id
+         AND e.profissional_id = v_prof_id
+         AND e.event_date BETWEEN p_inicio AND p_fim
+    ) x;
+
+  RETURN jsonb_build_object(
+    'ok', true,
+    'profissional', jsonb_build_object('id', v_prof_id, 'nome', COALESCE(v_nome, '')),
+    'periodo', jsonb_build_object('inicio', p_inicio, 'fim', p_fim),
+    'kpis', jsonb_build_object(
+      'totalReceber',      COALESCE(k.total_receber, 0),
+      'comissao',          COALESCE(k.comissao, 0),
+      'comissaoServicos',  COALESCE(k.comissao, 0),
+      'comissaoProdutos',  COALESCE(k.comissao_produtos, 0),
+      'comissaoTotal',     COALESCE(k.comissao_total, 0),
+      'caixinha',          COALESCE(k.caixinha, 0),
+      'atendimentos',      COALESCE(k.atendimentos, 0),
+      'produtosVendidos',  COALESCE(k.produtos_vendidos, 0)
+    ),
+    'anterior', jsonb_build_object(
+      'totalReceber',      COALESCE(a.total_receber, 0),
+      'comissao',          COALESCE(a.comissao, 0),
+      'comissaoServicos',  COALESCE(a.comissao, 0),
+      'comissaoProdutos',  COALESCE(a.comissao_produtos, 0),
+      'comissaoTotal',     COALESCE(a.comissao_total, 0),
+      'caixinha',          COALESCE(a.caixinha, 0),
+      'atendimentos',      COALESCE(a.atendimentos, 0),
+      'produtosVendidos',  COALESCE(a.produtos_vendidos, 0)
+    ),
+    'agenda', v_agenda
+  );
+END;
+$function$
+"

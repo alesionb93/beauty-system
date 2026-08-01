@@ -799,37 +799,36 @@ ALTER FUNCTION "public"."check_tenant_active_users_limit"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") RETURNS TABLE("comissao" numeric, "caixinha" numeric, "total_receber" numeric, "atendimentos" integer, "produtos_vendidos" numeric)
-    LANGUAGE "sql" STABLE SECURITY DEFINER
+    LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-  WITH ev AS (
-    SELECT *
-      FROM public.comissoes_v2_eventos e
-     WHERE e.tenant_id = p_tenant_id
-       AND e.profissional_id = p_profissional_id
-       AND e.event_date BETWEEN p_inicio AND p_fim
-  ),
-  cx AS (
-    SELECT COALESCE(SUM(a.caixinha_total), 0)::numeric AS total
-      FROM public.agendamentos a
-     WHERE a.tenant_id = p_tenant_id
-       AND a.profissional_id = p_profissional_id
-       AND a.data BETWEEN p_inicio AND p_fim
-       AND (a.status = 'concluido'::public.agendamento_status
-            OR a.conclusion_type = 'cancelado_com_venda')
-  )
-  SELECT ROUND(COALESCE((SELECT SUM(ev.comissao) FROM ev), 0), 2)                    AS comissao,
-         ROUND((SELECT total FROM cx), 2)                                            AS caixinha,
-         ROUND(COALESCE((SELECT SUM(ev.comissao) FROM ev), 0)
-               + (SELECT total FROM cx), 2)                                          AS total_receber,
-         COALESCE((SELECT COUNT(DISTINCT ev.agendamento_id)
-                     FROM ev WHERE ev.conta_atendimento), 0)::integer                AS atendimentos,
-         ROUND(COALESCE((SELECT SUM(ev.valor) FROM ev
-                          WHERE ev.event_type = 'produto'), 0), 2)                   AS produtos_vendidos;
+DECLARE
+  j    jsonb;
+  linha jsonb;
+BEGIN
+  -- MESMA fonte do Dashboard V2 (inclusive filtro por profissional).
+  j := public.dashboard_v2_snapshot(p_tenant_id, p_inicio, p_fim, p_profissional_id);
+
+  SELECT e INTO linha
+    FROM jsonb_array_elements(COALESCE(j->'profissionaisTable', '[]'::jsonb)) AS t(e)
+   LIMIT 1;
+
+  comissao          := ROUND(COALESCE((linha->>'comissao')::numeric, 0), 2);
+  caixinha          := ROUND(COALESCE((linha->>'caixinha')::numeric, 0), 2);
+  total_receber     := ROUND(COALESCE((linha->>'total')::numeric, comissao + caixinha), 2);
+  atendimentos      := COALESCE((linha->>'atendimentos')::integer, 0);
+  produtos_vendidos := ROUND(COALESCE((linha->>'produtosVendidos')::numeric, 0), 2);
+
+  RETURN NEXT;
+END;
 $$;
 
 
 ALTER FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") IS 'KPIs do Comissões V2 lidos de dashboard_v2_snapshot(). Não recalcula nada: garante paridade exata com o Dashboard V2.';
+
 
 
 CREATE OR REPLACE FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid" DEFAULT NULL::"uuid") RETURNS "jsonb"
@@ -871,7 +870,6 @@ BEGIN
        AND ur.role::text = 'admin'
   ) INTO v_is_admin;
 
-  -- Admin pode inspecionar outro profissional; colaborador vê só o próprio.
   IF p_profissional_id IS NOT NULL AND v_is_admin THEN
     v_prof_id := p_profissional_id;
   END IF;
@@ -885,7 +883,6 @@ BEGIN
    WHERE pf.id = v_prof_id
    LIMIT 1;
 
-  -- Período anterior equivalente
   v_dias     := (p_fim - p_inicio) + 1;
   v_prev_fim := p_inicio - 1;
   v_prev_ini := v_prev_fim - (v_dias - 1);
@@ -893,7 +890,7 @@ BEGIN
   SELECT * INTO k FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, p_inicio, p_fim);
   SELECT * INTO a FROM public.comissoes_v2_kpis(v_tenant_id, v_prof_id, v_prev_ini, v_prev_fim);
 
-  -- Histórico: UMA LINHA POR EVENTO.
+  -- Histórico: UMA LINHA POR EVENTO (valores já líquidos).
   SELECT COALESCE(jsonb_agg(x ORDER BY x.event_date, x.event_time NULLS FIRST, x.ord_evento, x.created_at), '[]'::jsonb)
     INTO v_agenda
     FROM (
@@ -913,8 +910,8 @@ BEGIN
              ROUND(COALESCE(cx.caixinha, 0), 2)                   AS caixinha,
              e.conta_atendimento
         FROM public.comissoes_v2_eventos e
-        -- Caixinha é 100% do profissional e pertence ao agendamento:
-        -- exibida apenas no primeiro evento remunerado daquele agendamento.
+        -- Caixinha pertence ao agendamento: exibida uma única vez,
+        -- no primeiro evento remunerado daquele agendamento.
         LEFT JOIN LATERAL (
           SELECT ag.caixinha_total AS caixinha
             FROM public.agendamentos ag
@@ -962,7 +959,7 @@ $$;
 ALTER FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") IS 'Snapshot do módulo Comissões V2. agenda[] retorna EVENTOS de comissão (1 evento = 1 linha), não agendamentos.';
+COMMENT ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") IS 'Snapshot do Comissões V2. KPIs vêm de dashboard_v2_snapshot (paridade garantida). agenda[] = eventos de comissão com valores líquidos.';
 
 
 
@@ -1295,12 +1292,22 @@ CREATE TABLE IF NOT EXISTS "public"."agendamento_produtos" (
     "cliente_levou" boolean,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "created_by" "uuid" DEFAULT "auth"."uid"(),
+    "commission_percentage" numeric(5,2),
+    "commission_amount" numeric(10,2),
     CONSTRAINT "agendamento_produtos_preco_unitario_check" CHECK (("preco_unitario" >= (0)::numeric)),
     CONSTRAINT "agendamento_produtos_quantidade_check" CHECK (("quantidade" > (0)::numeric))
 );
 
 
 ALTER TABLE "public"."agendamento_produtos" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."agendamento_produtos"."commission_percentage" IS 'Etapa 4 · Snapshot do % de comissão da categoria do produto no momento da venda. Nunca recalcular.';
+
+
+
+COMMENT ON COLUMN "public"."agendamento_produtos"."commission_amount" IS 'Etapa 4 · Snapshot do valor da comissão do item no momento da venda. Nunca recalcular.';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."agendamento_servicos" (
@@ -1536,6 +1543,7 @@ CREATE TABLE IF NOT EXISTS "public"."produtos" (
     "order_index" integer,
     "preco" numeric(10,2) DEFAULT 0,
     "custo" numeric,
+    "category_id" "uuid",
     CONSTRAINT "produtos_custo_check" CHECK ((("custo" IS NULL) OR ("custo" >= (0)::numeric))),
     CONSTRAINT "produtos_valor_check" CHECK (("valor" >= (0)::numeric))
 );
@@ -1545,6 +1553,10 @@ ALTER TABLE "public"."produtos" OWNER TO "postgres";
 
 
 COMMENT ON COLUMN "public"."produtos"."custo" IS 'Preço de custo do produto (opcional). Usado para futuras métricas de lucro/margem/CMV.';
+
+
+
+COMMENT ON COLUMN "public"."produtos"."category_id" IS 'Categoria do produto (public.product_categories). Opcional — nulo mantém compatibilidade.';
 
 
 
@@ -2020,8 +2032,8 @@ BEGIN
   END IF;
 
   ------------------------------------------------------------------
-  -- 2) Produtos vendidos DENTRO do agendamento, por profissional.
-  --    Cálculo set-based: nada é inferido do JSON serializado.
+  -- 2) Produtos vendidos DENTRO do agendamento, por profissional
+  --    + ETAPA 5: comissão de produtos (snapshot) por profissional.
   ------------------------------------------------------------------
   IF jsonb_typeof(j->'profissionaisTable') = 'array' THEN
 
@@ -2050,8 +2062,9 @@ BEGIN
     -- 2.3 produtos do domínio agendamento, agregados por profissional
     prod AS (
       SELECT a.profissional_id,
-             SUM(ap.quantidade * ap.preco_unitario) AS total,
-             SUM(ap.quantidade)                     AS qtd
+             SUM(ap.quantidade * ap.preco_unitario)   AS total,
+             SUM(ap.quantidade)                       AS qtd,
+             SUM(COALESCE(ap.commission_amount, 0))   AS comissao_prod
         FROM public.agendamento_produtos ap
         JOIN public.agendamentos a ON a.id = ap.agendamento_id
        WHERE a.tenant_id = p_tenant_id
@@ -2060,6 +2073,19 @@ BEGIN
               OR a.conclusion_type = 'cancelado_com_venda')
          AND (p_profissional_id IS NULL OR a.profissional_id = p_profissional_id)
        GROUP BY a.profissional_id
+    ),
+    -- 2.3b ETAPA 5: comissão de produtos vendidos no BALCÃO (snapshot)
+    prod_balcao AS (
+      SELECT v.profissional_id,
+             SUM(COALESCE(vi.commission_amount, 0)) AS comissao_prod
+        FROM public.venda_itens vi
+        JOIN public.vendas v ON v.id = vi.venda_id
+       WHERE v.tenant_id = p_tenant_id
+         AND vi.tenant_id = p_tenant_id
+         AND v.status = 'concluida'
+         AND v.data_venda BETWEEN p_data_inicio AND p_data_fim
+         AND (p_profissional_id IS NULL OR v.profissional_id = p_profissional_id)
+       GROUP BY v.profissional_id
     ),
     -- 2.4 recomposição da linha
     montado AS (
@@ -2074,13 +2100,25 @@ BEGIN
                     'produtosQtd',
                     COALESCE((li.elem->>'produtosQtd')::numeric, 0)
                           + COALESCE(pr.qtd, 0),
-                    -- invariante: produtos nunca entram no repasse
+                    -- ETAPA 5: comissão de produtos (somente snapshot)
+                    'commission_products',
+                    round(COALESCE(pr.comissao_prod, 0)
+                          + COALESCE(pb.comissao_prod, 0), 2),
+                    -- Total a Receber = comissão serviços + comissão produtos + caixinha
+                    'total',
+                    round(COALESCE((li.elem->>'comissao')::numeric, 0)
+                          + COALESCE(pr.comissao_prod, 0)
+                          + COALESCE(pb.comissao_prod, 0)
+                          + COALESCE((li.elem->>'caixinha')::numeric, 0), 2),
                     'totalReceber',
                     round(COALESCE((li.elem->>'comissao')::numeric, 0)
+                          + COALESCE(pr.comissao_prod, 0)
+                          + COALESCE(pb.comissao_prod, 0)
                           + COALESCE((li.elem->>'caixinha')::numeric, 0), 2)
                   ) AS elem
         FROM linhas_id li
-        LEFT JOIN prod pr ON pr.profissional_id = li.profissional_id
+        LEFT JOIN prod        pr ON pr.profissional_id = li.profissional_id
+        LEFT JOIN prod_balcao pb ON pb.profissional_id = li.profissional_id
     )
     SELECT jsonb_agg(m.elem ORDER BY m.ord) INTO v_rows FROM montado m;
 
@@ -2088,7 +2126,7 @@ BEGIN
   END IF;
 
   ------------------------------------------------------------------
-  -- 3) KPI global de produtos = soma consolidada da tabela
+  -- 3) KPI global de produtos = soma consolidada da tabela (inalterado)
   ------------------------------------------------------------------
   IF j ? 'kpis' AND jsonb_typeof(j->'profissionaisTable') = 'array' THEN
     SELECT COALESCE(SUM((e->>'produtosVendidos')::numeric), 0)
@@ -2106,7 +2144,7 @@ $$;
 ALTER FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") IS 'Dashboard V2 · wrapper do snapshot. Consolida agendamentos + vendas de balcão. Produtos (agendamento_produtos e venda_itens) alimentam apenas Faturamento e Produtos Vendidos; nunca comissão, caixinha ou Total a Receber. Expõe profissionalId em profissionaisTable.';
+COMMENT ON FUNCTION "public"."dashboard_v2_snapshot"("p_tenant_id" "uuid", "p_data_inicio" "date", "p_data_fim" "date", "p_profissional_id" "uuid") IS 'Dashboard V2 · Etapa 5: expõe commission_products por profissional (snapshot commission_amount de agendamento_produtos + venda_itens) e soma no Total a Receber. Nenhum recálculo de comissão.';
 
 
 
@@ -4062,6 +4100,28 @@ $$;
 ALTER FUNCTION "public"."listar_clientes_inativos_para_campanha"("p_tenant_id" "uuid", "p_inactivity_days" integer, "p_cooldown_days" integer, "p_limit" integer) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") RETURNS numeric
+    LANGUAGE "sql" STABLE SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  SELECT COALESCE(pc.commission_percentage, 0)
+    FROM public.produtos p
+    JOIN public.product_categories pc
+      ON pc.id = p.category_id
+     AND pc.tenant_id = p.tenant_id
+   WHERE p.id = p_produto_id
+     AND p.tenant_id = p_tenant_id
+   LIMIT 1;
+$$;
+
+
+ALTER FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") IS 'Etapa 4 · Retorna o commission_percentage da categoria do produto (0 se sem categoria / sem percentual).';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."public_agendamentos_dia"("p_tenant" "uuid", "p_data" "date", "p_profs" "uuid"[]) RETURNS TABLE("profissional_id" "uuid", "hora" time without time zone, "duracao_total" integer)
     LANGUAGE "sql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -4794,6 +4854,41 @@ END $$;
 ALTER FUNCTION "public"."tenant_settings_set_updated_at"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."tg_agendamento_produtos_commission"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_pct  numeric := 0;
+  v_base numeric := 0;
+BEGIN
+  -- snapshot só na criação e só se ainda não informado
+  IF NEW.commission_percentage IS NOT NULL AND NEW.commission_amount IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  BEGIN
+    v_pct := COALESCE(public.product_commission_percentage(NEW.produto_id, NEW.tenant_id), 0);
+  EXCEPTION WHEN OTHERS THEN
+    v_pct := 0;  -- nunca impedir a venda
+  END;
+
+  IF v_pct < 0 THEN v_pct := 0; END IF;
+
+  v_base := COALESCE(NEW.quantidade, 0) * COALESCE(NEW.preco_unitario, 0);
+  IF v_base < 0 THEN v_base := 0; END IF;
+
+  NEW.commission_percentage := ROUND(v_pct, 2);
+  NEW.commission_amount     := ROUND(v_base * v_pct / 100.0, 2);
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."tg_agendamento_produtos_commission"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."tg_set_updated_at"() RETURNS "trigger"
     LANGUAGE "plpgsql"
     AS $$
@@ -4805,6 +4900,45 @@ $$;
 
 
 ALTER FUNCTION "public"."tg_set_updated_at"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."tg_venda_itens_commission"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+DECLARE
+  v_pct  numeric := 0;
+  v_base numeric := 0;
+BEGIN
+  IF NEW.commission_percentage IS NOT NULL AND NEW.commission_amount IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.produto_id IS NOT NULL THEN
+    BEGIN
+      v_pct := COALESCE(public.product_commission_percentage(NEW.produto_id, NEW.tenant_id), 0);
+    EXCEPTION WHEN OTHERS THEN
+      v_pct := 0;  -- nunca impedir a venda
+    END;
+  END IF;
+
+  IF v_pct < 0 THEN v_pct := 0; END IF;
+
+  v_base := COALESCE(
+    NULLIF(NEW.total, 0),
+    COALESCE(NEW.quantidade, 0) * COALESCE(NEW.valor_unitario, 0) - COALESCE(NEW.desconto_valor, 0)
+  );
+  IF v_base IS NULL OR v_base < 0 THEN v_base := 0; END IF;
+
+  NEW.commission_percentage := ROUND(v_pct, 2);
+  NEW.commission_amount     := ROUND(v_base * v_pct / 100.0, 2);
+
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."tg_venda_itens_commission"() OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."update_group_banner"("_group_id" "uuid", "_banner_url" "text") RETURNS boolean
@@ -5165,30 +5299,6 @@ CREATE TABLE IF NOT EXISTS "public"."cancelamento_motivos" (
 ALTER TABLE "public"."cancelamento_motivos" OWNER TO "postgres";
 
 
-CREATE TABLE IF NOT EXISTS "public"."usuarios" (
-    "id" "uuid" NOT NULL,
-    "nome" "text" NOT NULL,
-    "email" "text" NOT NULL,
-    "profissional_id" "uuid",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "updated_at" timestamp with time zone DEFAULT "now"(),
-    "tenant_id" "uuid",
-    "ativo" boolean DEFAULT true NOT NULL,
-    "login" "text"
-);
-
-
-ALTER TABLE "public"."usuarios" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."usuarios" IS 'Usuários do sistema vinculados ao auth.users';
-
-
-
-COMMENT ON COLUMN "public"."usuarios"."login" IS 'Username amigável usado no login (lowercase). Auth do Supabase continua usando email. Sem NOT NULL/UNIQUE durante migração — adicionar em etapa futura após backfill.';
-
-
-
 CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"='true') AS
  WITH "pct" AS (
          SELECT "cp"."tenant_id",
@@ -5238,85 +5348,149 @@ CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"=
             "a"."cliente_nome",
             COALESCE("ags"."profissional_id", "a"."profissional_id") AS "profissional_id",
             "ags"."servico_id",
-            "s"."nome" AS "servico_nome",
-            COALESCE("ags"."preco", (0)::numeric) AS "preco",
+            COALESCE("pk"."nome", "s"."nome", 'Atendimento'::"text") AS "titulo",
+            COALESCE("ags"."preco", (0)::numeric) AS "preco_bruto",
             COALESCE("ags"."origem", 'avulso'::"text") AS "origem",
+            COALESCE("ags"."credito_consumido", false) AS "credito_consumido",
             "ags"."cliente_pacote_id",
-            "ags"."created_at"
-           FROM (("public"."agendamento_servicos" "ags"
+            "ags"."created_at",
+            COALESCE("a"."base_comissao", (0)::numeric) AS "base_comissao_ag"
+           FROM (((("public"."agendamento_servicos" "ags"
              JOIN "ag_ok" "a" ON (("a"."id" = "ags"."agendamento_id")))
              LEFT JOIN "public"."servicos" "s" ON (("s"."id" = "ags"."servico_id")))
-        ), "ev_servico" AS (
-         SELECT 'servico'::"text" AS "event_type",
-            "l"."linha_id" AS "event_id",
+             LEFT JOIN "public"."cliente_pacotes" "cpk" ON ((("cpk"."id" = "ags"."cliente_pacote_id") AND (COALESCE("ags"."origem", 'avulso'::"text") = 'pacote_venda'::"text"))))
+             LEFT JOIN "public"."pacotes" "pk" ON (("pk"."id" = "cpk"."pacote_id")))
+        ), "rateio" AS (
+         SELECT "l"."linha_id",
             "l"."tenant_id",
+            "l"."agendamento_id",
             "l"."event_date",
             "l"."event_time",
-            "l"."agendamento_id",
             "l"."cliente_id",
             "l"."cliente_nome",
             "l"."profissional_id",
-            COALESCE("l"."servico_nome", 'Atendimento'::"text") AS "titulo",
-            "l"."preco" AS "valor",
-            "round"((("l"."preco" * COALESCE("p"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao",
-            true AS "conta_atendimento",
+            "l"."servico_id",
+            "l"."titulo",
+            "l"."preco_bruto",
+            "l"."origem",
+            "l"."credito_consumido",
+            "l"."cliente_pacote_id",
             "l"."created_at",
-            1 AS "ord_evento"
-           FROM ("linhas" "l"
-             LEFT JOIN "pct" "p" ON ((("p"."tenant_id" = "l"."tenant_id") AND ("p"."profissional_id" = "l"."profissional_id"))))
-          WHERE ("l"."origem" = 'avulso'::"text")
-        ), "ev_pacote_uso" AS (
-         SELECT 'pacote_uso'::"text" AS "event_type",
-            "l"."linha_id" AS "event_id",
-            "l"."tenant_id",
-            "l"."event_date",
-            "l"."event_time",
-            "l"."agendamento_id",
-            "l"."cliente_id",
-            "l"."cliente_nome",
-            "l"."profissional_id",
-            COALESCE("l"."servico_nome", 'Atendimento'::"text") AS "titulo",
-            (0)::numeric AS "valor",
-            (0)::numeric AS "comissao",
-            true AS "conta_atendimento",
-            "l"."created_at",
-            2 AS "ord_evento"
+            "l"."base_comissao_ag",
+            "sum"(
+                CASE
+                    WHEN "l"."credito_consumido" THEN (0)::numeric
+                    ELSE "l"."preco_bruto"
+                END) OVER (PARTITION BY "l"."agendamento_id") AS "soma_cobravel",
+            "row_number"() OVER (PARTITION BY "l"."agendamento_id" ORDER BY
+                CASE
+                    WHEN "l"."credito_consumido" THEN 1
+                    ELSE 0
+                END, "l"."preco_bruto" DESC, "l"."created_at", "l"."linha_id") AS "rn",
+            "count"(*) FILTER (WHERE (NOT "l"."credito_consumido")) OVER (PARTITION BY "l"."agendamento_id") AS "qtd_cobravel"
            FROM "linhas" "l"
-          WHERE (("l"."origem" = 'pacote_uso'::"text") OR (("l"."origem" <> 'pacote_venda'::"text") AND ("l"."cliente_pacote_id" IS NOT NULL)))
-        ), "venda_link" AS (
-         SELECT DISTINCT ON ("ags"."cliente_pacote_id") "ags"."cliente_pacote_id",
-            "a"."id" AS "agendamento_id",
-            "a"."data" AS "event_date",
-            "a"."hora" AS "event_time",
-            COALESCE("ags"."profissional_id", "a"."profissional_id") AS "profissional_id",
-            "ags"."created_at"
-           FROM ("public"."agendamento_servicos" "ags"
-             JOIN "ag_ok" "a" ON (("a"."id" = "ags"."agendamento_id")))
-          WHERE ("ags"."cliente_pacote_id" IS NOT NULL)
-          ORDER BY "ags"."cliente_pacote_id", ("ags"."origem" = 'pacote_venda'::"text") DESC, "a"."data", "a"."hora", "ags"."created_at"
-        ), "ev_pacote_venda" AS (
-         SELECT 'pacote_venda'::"text" AS "event_type",
-            "cp"."id" AS "event_id",
-            "cp"."tenant_id",
-            COALESCE("vl"."event_date", "cp"."data_inicio") AS "event_date",
-            "vl"."event_time",
-            "vl"."agendamento_id",
-            "cp"."cliente_id",
-            COALESCE("cl"."nome", 'Cliente'::"text") AS "cliente_nome",
-            COALESCE("vl"."profissional_id", "u"."profissional_id") AS "profissional_id",
-            COALESCE("pk"."nome", 'Pacote'::"text") AS "titulo",
-            COALESCE("cp"."preco_total", (0)::numeric) AS "valor",
-            "round"(((COALESCE("cp"."preco_total", (0)::numeric) * COALESCE("pr"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao",
-            false AS "conta_atendimento",
-            "cp"."created_at",
-            0 AS "ord_evento"
-           FROM ((((("public"."cliente_pacotes" "cp"
-             LEFT JOIN "venda_link" "vl" ON (("vl"."cliente_pacote_id" = "cp"."id")))
-             LEFT JOIN "public"."pacotes" "pk" ON (("pk"."id" = "cp"."pacote_id")))
-             LEFT JOIN "public"."clientes" "cl" ON (("cl"."id" = "cp"."cliente_id")))
-             LEFT JOIN "public"."usuarios" "u" ON (("u"."id" = "cp"."user_id")))
-             LEFT JOIN "pct" "pr" ON ((("pr"."tenant_id" = "cp"."tenant_id") AND ("pr"."profissional_id" = COALESCE("vl"."profissional_id", "u"."profissional_id")))))
-          WHERE ("cp"."status" <> 'cancelado'::"text")
+        ), "liq" AS (
+         SELECT "r"."linha_id",
+            "r"."tenant_id",
+            "r"."agendamento_id",
+            "r"."event_date",
+            "r"."event_time",
+            "r"."cliente_id",
+            "r"."cliente_nome",
+            "r"."profissional_id",
+            "r"."servico_id",
+            "r"."titulo",
+            "r"."preco_bruto",
+            "r"."origem",
+            "r"."credito_consumido",
+            "r"."cliente_pacote_id",
+            "r"."created_at",
+            "r"."base_comissao_ag",
+            "r"."soma_cobravel",
+            "r"."rn",
+            "r"."qtd_cobravel",
+                CASE
+                    WHEN ("r"."credito_consumido" OR ("r"."preco_bruto" = (0)::numeric) OR ("r"."soma_cobravel" = (0)::numeric)) THEN (0)::numeric
+                    ELSE "round"((("r"."preco_bruto" * "r"."base_comissao_ag") / "r"."soma_cobravel"), 2)
+                END AS "valor_liq_bruto"
+           FROM "rateio" "r"
+        ), "liq_aj" AS (
+         SELECT "q"."linha_id",
+            "q"."tenant_id",
+            "q"."agendamento_id",
+            "q"."event_date",
+            "q"."event_time",
+            "q"."cliente_id",
+            "q"."cliente_nome",
+            "q"."profissional_id",
+            "q"."servico_id",
+            "q"."titulo",
+            "q"."preco_bruto",
+            "q"."origem",
+            "q"."credito_consumido",
+            "q"."cliente_pacote_id",
+            "q"."created_at",
+            "q"."base_comissao_ag",
+            "q"."soma_cobravel",
+            "q"."rn",
+            "q"."qtd_cobravel",
+            "q"."valor_liq_bruto",
+            ("q"."valor_liq_bruto" +
+                CASE
+                    WHEN (("q"."rn" = 1) AND (NOT "q"."credito_consumido")) THEN ("q"."base_comissao_ag" - "sum"("q"."valor_liq_bruto") OVER (PARTITION BY "q"."agendamento_id"))
+                    ELSE (0)::numeric
+                END) AS "valor_liq"
+           FROM "liq" "q"
+        ), "eventos" AS (
+         SELECT
+                CASE
+                    WHEN ("l"."origem" = 'pacote_venda'::"text") THEN 'pacote_venda'::"text"
+                    WHEN (("l"."origem" = 'pacote_uso'::"text") OR "l"."credito_consumido" OR (("l"."preco_bruto" = (0)::numeric) AND ("l"."cliente_pacote_id" IS NOT NULL))) THEN 'pacote_uso'::"text"
+                    ELSE 'servico'::"text"
+                END AS "event_type",
+            "l"."linha_id" AS "event_id",
+            "l"."tenant_id",
+            "l"."event_date",
+            "l"."event_time",
+            "l"."agendamento_id",
+            "l"."cliente_id",
+            "l"."cliente_nome",
+            "l"."profissional_id",
+            "l"."titulo",
+            "round"(GREATEST("l"."valor_liq", (0)::numeric), 2) AS "valor",
+            "round"(((GREATEST("l"."valor_liq", (0)::numeric) * COALESCE("p"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao_bruta",
+            "round"((("l"."base_comissao_ag" * COALESCE("p"."pct_prof", (50)::numeric)) / 100.0), 2) AS "comissao_ag",
+            true AS "conta_atendimento",
+            "l"."created_at",
+            "l"."rn",
+                CASE
+                    WHEN ("l"."origem" = 'pacote_venda'::"text") THEN 0
+                    WHEN (("l"."origem" = 'pacote_uso'::"text") OR "l"."credito_consumido") THEN 2
+                    ELSE 1
+                END AS "ord_evento"
+           FROM ("liq_aj" "l"
+             LEFT JOIN "pct" "p" ON ((("p"."tenant_id" = "l"."tenant_id") AND ("p"."profissional_id" = "l"."profissional_id"))))
+        ), "eventos_aj" AS (
+         SELECT "e"."event_type",
+            "e"."event_id",
+            "e"."tenant_id",
+            "e"."event_date",
+            "e"."event_time",
+            "e"."agendamento_id",
+            "e"."cliente_id",
+            "e"."cliente_nome",
+            "e"."profissional_id",
+            "e"."titulo",
+            "e"."valor",
+            ("e"."comissao_bruta" +
+                CASE
+                    WHEN ("e"."rn" = 1) THEN ("e"."comissao_ag" - "sum"("e"."comissao_bruta") OVER (PARTITION BY "e"."agendamento_id"))
+                    ELSE (0)::numeric
+                END) AS "comissao",
+            "e"."conta_atendimento",
+            "e"."created_at",
+            "e"."ord_evento"
+           FROM "eventos" "e"
         ), "ev_produto" AS (
          SELECT 'produto'::"text" AS "event_type",
             "ap"."id" AS "event_id",
@@ -5337,56 +5511,22 @@ CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"=
              JOIN "ag_ok" "a" ON (("a"."id" = "ap"."agendamento_id")))
              LEFT JOIN "public"."produtos" "pr" ON (("pr"."id" = "ap"."produto_id")))
         )
- SELECT "ev_pacote_venda"."event_type",
-    "ev_pacote_venda"."event_id",
-    "ev_pacote_venda"."tenant_id",
-    "ev_pacote_venda"."event_date",
-    "ev_pacote_venda"."event_time",
-    "ev_pacote_venda"."agendamento_id",
-    "ev_pacote_venda"."cliente_id",
-    "ev_pacote_venda"."cliente_nome",
-    "ev_pacote_venda"."profissional_id",
-    "ev_pacote_venda"."titulo",
-    "ev_pacote_venda"."valor",
-    "ev_pacote_venda"."comissao",
-    "ev_pacote_venda"."conta_atendimento",
-    "ev_pacote_venda"."created_at",
-    "ev_pacote_venda"."ord_evento"
-   FROM "ev_pacote_venda"
-UNION ALL
- SELECT "ev_servico"."event_type",
-    "ev_servico"."event_id",
-    "ev_servico"."tenant_id",
-    "ev_servico"."event_date",
-    "ev_servico"."event_time",
-    "ev_servico"."agendamento_id",
-    "ev_servico"."cliente_id",
-    "ev_servico"."cliente_nome",
-    "ev_servico"."profissional_id",
-    "ev_servico"."titulo",
-    "ev_servico"."valor",
-    "ev_servico"."comissao",
-    "ev_servico"."conta_atendimento",
-    "ev_servico"."created_at",
-    "ev_servico"."ord_evento"
-   FROM "ev_servico"
-UNION ALL
- SELECT "ev_pacote_uso"."event_type",
-    "ev_pacote_uso"."event_id",
-    "ev_pacote_uso"."tenant_id",
-    "ev_pacote_uso"."event_date",
-    "ev_pacote_uso"."event_time",
-    "ev_pacote_uso"."agendamento_id",
-    "ev_pacote_uso"."cliente_id",
-    "ev_pacote_uso"."cliente_nome",
-    "ev_pacote_uso"."profissional_id",
-    "ev_pacote_uso"."titulo",
-    "ev_pacote_uso"."valor",
-    "ev_pacote_uso"."comissao",
-    "ev_pacote_uso"."conta_atendimento",
-    "ev_pacote_uso"."created_at",
-    "ev_pacote_uso"."ord_evento"
-   FROM "ev_pacote_uso"
+ SELECT "eventos_aj"."event_type",
+    "eventos_aj"."event_id",
+    "eventos_aj"."tenant_id",
+    "eventos_aj"."event_date",
+    "eventos_aj"."event_time",
+    "eventos_aj"."agendamento_id",
+    "eventos_aj"."cliente_id",
+    "eventos_aj"."cliente_nome",
+    "eventos_aj"."profissional_id",
+    "eventos_aj"."titulo",
+    "eventos_aj"."valor",
+    "eventos_aj"."comissao",
+    "eventos_aj"."conta_atendimento",
+    "eventos_aj"."created_at",
+    "eventos_aj"."ord_evento"
+   FROM "eventos_aj"
 UNION ALL
  SELECT "ev_produto"."event_type",
     "ev_produto"."event_id",
@@ -5409,7 +5549,7 @@ UNION ALL
 ALTER VIEW "public"."comissoes_v2_eventos" OWNER TO "postgres";
 
 
-COMMENT ON VIEW "public"."comissoes_v2_eventos" IS 'Grão = evento de comissão (não agendamento). Um agendamento com venda de pacote + 1º uso gera 2 linhas. Fonte única do histórico do módulo Comissões V2.';
+COMMENT ON VIEW "public"."comissoes_v2_eventos" IS 'Grão = evento de comissão. Valores LÍQUIDOS: rateio de agendamentos.base_comissao entre as linhas cobráveis. SUM(comissao) por agendamento == comissão do Dashboard V2.';
 
 
 
@@ -5459,6 +5599,8 @@ CREATE TABLE IF NOT EXISTS "public"."venda_itens" (
     "desconto_valor" numeric(12,2) DEFAULT 0 NOT NULL,
     "total" numeric(12,2) DEFAULT 0 NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "commission_percentage" numeric(5,2),
+    "commission_amount" numeric(10,2),
     CONSTRAINT "venda_itens_desconto_valor_check" CHECK (("desconto_valor" >= (0)::numeric)),
     CONSTRAINT "venda_itens_quantidade_check" CHECK (("quantidade" > (0)::numeric)),
     CONSTRAINT "venda_itens_valor_unitario_check" CHECK (("valor_unitario" >= (0)::numeric))
@@ -5466,6 +5608,14 @@ CREATE TABLE IF NOT EXISTS "public"."venda_itens" (
 
 
 ALTER TABLE "public"."venda_itens" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."venda_itens"."commission_percentage" IS 'Etapa 4 · Snapshot do % de comissão da categoria do produto no momento da venda. Nunca recalcular.';
+
+
+
+COMMENT ON COLUMN "public"."venda_itens"."commission_amount" IS 'Etapa 4 · Snapshot do valor da comissão do item no momento da venda. Nunca recalcular.';
+
 
 
 CREATE TABLE IF NOT EXISTS "public"."vendas" (
@@ -5668,6 +5818,30 @@ CREATE TABLE IF NOT EXISTS "public"."master_tenant_history" (
 
 
 ALTER TABLE "public"."master_tenant_history" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."product_categories" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "tenant_id" "uuid" NOT NULL,
+    "name" "text" NOT NULL,
+    "description" "text",
+    "commission_percentage" numeric(5,2) DEFAULT 0 NOT NULL,
+    "is_active" boolean DEFAULT true NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "product_categories_commission_percentage_check" CHECK ((("commission_percentage" >= (0)::numeric) AND ("commission_percentage" <= (100)::numeric)))
+);
+
+
+ALTER TABLE "public"."product_categories" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."product_categories" IS 'Categorias de produtos por tenant, com percentual base de comissão (uso futuro).';
+
+
+
+COMMENT ON COLUMN "public"."product_categories"."commission_percentage" IS 'Comissão base (%) da categoria. Estrutural nesta etapa — ainda não utilizada em cálculos.';
+
 
 
 CREATE OR REPLACE VIEW "public"."produtos_estoque_saldo" AS
@@ -5953,6 +6127,30 @@ COMMENT ON COLUMN "public"."user_roles"."multi_unit_access" IS 'Quando true, per
 
 
 
+CREATE TABLE IF NOT EXISTS "public"."usuarios" (
+    "id" "uuid" NOT NULL,
+    "nome" "text" NOT NULL,
+    "email" "text" NOT NULL,
+    "profissional_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "updated_at" timestamp with time zone DEFAULT "now"(),
+    "tenant_id" "uuid",
+    "ativo" boolean DEFAULT true NOT NULL,
+    "login" "text"
+);
+
+
+ALTER TABLE "public"."usuarios" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."usuarios" IS 'Usuários do sistema vinculados ao auth.users';
+
+
+
+COMMENT ON COLUMN "public"."usuarios"."login" IS 'Username amigável usado no login (lowercase). Auth do Supabase continua usando email. Sem NOT NULL/UNIQUE durante migração — adicionar em etapa futura após backfill.';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."whatsapp_inbound_seen" (
     "message_id" "text" NOT NULL,
     "tenant_id" "uuid",
@@ -6137,6 +6335,11 @@ ALTER TABLE ONLY "public"."master_tenant_history"
 
 ALTER TABLE ONLY "public"."pacotes"
     ADD CONSTRAINT "pacotes_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."product_categories"
+    ADD CONSTRAINT "product_categories_pkey" PRIMARY KEY ("id");
 
 
 
@@ -6503,6 +6706,22 @@ CREATE INDEX "idx_pacotes_user_id" ON "public"."pacotes" USING "btree" ("user_id
 
 
 
+CREATE INDEX "idx_product_categories_tenant" ON "public"."product_categories" USING "btree" ("tenant_id");
+
+
+
+CREATE INDEX "idx_product_categories_tenant_active" ON "public"."product_categories" USING "btree" ("tenant_id", "is_active");
+
+
+
+CREATE INDEX "idx_product_categories_tenant_name" ON "public"."product_categories" USING "btree" ("tenant_id", "name");
+
+
+
+CREATE INDEX "idx_produtos_category_id" ON "public"."produtos" USING "btree" ("category_id");
+
+
+
 CREATE INDEX "idx_produtos_tenant" ON "public"."produtos" USING "btree" ("tenant_id");
 
 
@@ -6659,6 +6878,10 @@ CREATE UNIQUE INDEX "idx_whatsapp_sessions_token" ON "public"."whatsapp_sessions
 
 
 
+CREATE UNIQUE INDEX "product_categories_tenant_name_uidx" ON "public"."product_categories" USING "btree" ("tenant_id", "lower"("name"));
+
+
+
 CREATE UNIQUE INDEX "unique_telefone_tenant" ON "public"."clientes" USING "btree" ("tenant_id", "telefone");
 
 
@@ -6676,6 +6899,10 @@ CREATE UNIQUE INDEX "user_roles_unique_per_tenant" ON "public"."user_roles" USIN
 
 
 CREATE INDEX "usuarios_login_lower_idx" ON "public"."usuarios" USING "btree" ("lower"("login"));
+
+
+
+CREATE OR REPLACE TRIGGER "trg_agendamento_produtos_commission" BEFORE INSERT ON "public"."agendamento_produtos" FOR EACH ROW EXECUTE FUNCTION "public"."tg_agendamento_produtos_commission"();
 
 
 
@@ -6712,6 +6939,10 @@ CREATE OR REPLACE TRIGGER "trg_fin_recalc_servicos" AFTER INSERT OR DELETE OR UP
 
 
 CREATE OR REPLACE TRIGGER "trg_marcar_origem_externo" BEFORE INSERT ON "public"."agendamentos" FOR EACH ROW EXECUTE FUNCTION "public"."fn_marcar_origem_externo"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_product_categories_updated_at" BEFORE UPDATE ON "public"."product_categories" FOR EACH ROW EXECUTE FUNCTION "public"."tg_set_updated_at"();
 
 
 
@@ -6764,6 +6995,10 @@ CREATE OR REPLACE TRIGGER "trg_usuarios_limite_ativos" BEFORE INSERT OR UPDATE O
 
 
 CREATE OR REPLACE TRIGGER "trg_usuarios_updated_at" BEFORE UPDATE ON "public"."usuarios" FOR EACH ROW EXECUTE FUNCTION "public"."set_updated_at"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_venda_itens_commission" BEFORE INSERT ON "public"."venda_itens" FOR EACH ROW EXECUTE FUNCTION "public"."tg_venda_itens_commission"();
 
 
 
@@ -7009,6 +7244,16 @@ ALTER TABLE ONLY "public"."pacotes"
 
 ALTER TABLE ONLY "public"."pacotes"
     ADD CONSTRAINT "pacotes_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "auth"."users"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."product_categories"
+    ADD CONSTRAINT "product_categories_tenant_id_fkey" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."produtos"
+    ADD CONSTRAINT "produtos_category_id_fkey" FOREIGN KEY ("category_id") REFERENCES "public"."product_categories"("id") ON DELETE SET NULL;
 
 
 
@@ -7770,6 +8015,25 @@ CREATE POLICY "pacotes_select_own" ON "public"."pacotes" FOR SELECT TO "authenti
 
 
 CREATE POLICY "pacotes_update_own" ON "public"."pacotes" FOR UPDATE TO "authenticated" USING (("user_id" = "auth"."uid"())) WITH CHECK (("user_id" = "auth"."uid"()));
+
+
+
+ALTER TABLE "public"."product_categories" ENABLE ROW LEVEL SECURITY;
+
+
+CREATE POLICY "product_categories_delete_same_tenant" ON "public"."product_categories" FOR DELETE TO "authenticated" USING ("public"."can_access_tenant"("tenant_id"));
+
+
+
+CREATE POLICY "product_categories_insert_same_tenant" ON "public"."product_categories" FOR INSERT TO "authenticated" WITH CHECK ("public"."can_access_tenant"("tenant_id"));
+
+
+
+CREATE POLICY "product_categories_select_same_tenant" ON "public"."product_categories" FOR SELECT TO "authenticated" USING ("public"."can_access_tenant"("tenant_id"));
+
+
+
+CREATE POLICY "product_categories_update_same_tenant" ON "public"."product_categories" FOR UPDATE TO "authenticated" USING ("public"."can_access_tenant"("tenant_id")) WITH CHECK ("public"."can_access_tenant"("tenant_id"));
 
 
 
@@ -8696,6 +8960,12 @@ GRANT ALL ON FUNCTION "public"."listar_clientes_inativos_para_campanha"("p_tenan
 
 
 
+GRANT ALL ON FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."product_commission_percentage"("p_produto_id" "uuid", "p_tenant_id" "uuid") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."public_agendamentos_dia"("p_tenant" "uuid", "p_data" "date", "p_profs" "uuid"[]) TO "anon";
 GRANT ALL ON FUNCTION "public"."public_agendamentos_dia"("p_tenant" "uuid", "p_data" "date", "p_profs" "uuid"[]) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."public_agendamentos_dia"("p_tenant" "uuid", "p_data" "date", "p_profs" "uuid"[]) TO "service_role";
@@ -8806,9 +9076,21 @@ GRANT ALL ON FUNCTION "public"."tenant_settings_set_updated_at"() TO "service_ro
 
 
 
+GRANT ALL ON FUNCTION "public"."tg_agendamento_produtos_commission"() TO "anon";
+GRANT ALL ON FUNCTION "public"."tg_agendamento_produtos_commission"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."tg_agendamento_produtos_commission"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."tg_set_updated_at"() TO "anon";
 GRANT ALL ON FUNCTION "public"."tg_set_updated_at"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."tg_set_updated_at"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."tg_venda_itens_commission"() TO "anon";
+GRANT ALL ON FUNCTION "public"."tg_venda_itens_commission"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."tg_venda_itens_commission"() TO "service_role";
 
 
 
@@ -8919,12 +9201,6 @@ GRANT ALL ON TABLE "public"."cancelamento_motivos" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."usuarios" TO "anon";
-GRANT ALL ON TABLE "public"."usuarios" TO "authenticated";
-GRANT ALL ON TABLE "public"."usuarios" TO "service_role";
-
-
-
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "anon";
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "authenticated";
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "service_role";
@@ -9006,6 +9282,12 @@ GRANT ALL ON TABLE "public"."inactive_customer_campaigns" TO "service_role";
 GRANT ALL ON TABLE "public"."master_tenant_history" TO "anon";
 GRANT ALL ON TABLE "public"."master_tenant_history" TO "authenticated";
 GRANT ALL ON TABLE "public"."master_tenant_history" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."product_categories" TO "anon";
+GRANT ALL ON TABLE "public"."product_categories" TO "authenticated";
+GRANT ALL ON TABLE "public"."product_categories" TO "service_role";
 
 
 
@@ -9096,6 +9378,12 @@ GRANT ALL ON SEQUENCE "public"."tenants_display_id_seq" TO "service_role";
 GRANT ALL ON TABLE "public"."user_roles" TO "anon";
 GRANT ALL ON TABLE "public"."user_roles" TO "authenticated";
 GRANT ALL ON TABLE "public"."user_roles" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."usuarios" TO "anon";
+GRANT ALL ON TABLE "public"."usuarios" TO "authenticated";
+GRANT ALL ON TABLE "public"."usuarios" TO "service_role";
 
 
 

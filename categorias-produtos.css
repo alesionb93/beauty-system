@@ -1,0 +1,176 @@
+/* =====================================================================
+   CATEGORIAS-PRODUTOS.CSS — Slotify
+   Estilos da tela "Categorias de Produtos" (Etapa 2).
+   Usa exclusivamente os tokens de tema já existentes no projeto
+   (--gold, --text-muted, --border, etc.) para manter o padrão visual.
+   ===================================================================== */
+
+/* Cabeçalho da página (botão voltar + título + ação) */
+#page-categorias-produtos .cat-page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#page-categorias-produtos .cat-page-header h2 {
+  flex: 1;
+  margin: 0;
+}
+
+/* Wrapper */
+#page-categorias-produtos .cat-wrapper {
+  margin-top: 8px;
+}
+
+/* Tabela */
+#page-categorias-produtos .cat-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, rgba(0, 0, 0, .08));
+  border-radius: 14px;
+}
+
+#page-categorias-produtos .cat-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+#page-categorias-produtos .cat-table thead th {
+  text-align: left;
+  font-size: .8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-muted, #6b7280);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, .08));
+  white-space: nowrap;
+}
+
+#page-categorias-produtos .cat-table tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border, rgba(0, 0, 0, .06));
+  font-size: .95rem;
+  vertical-align: middle;
+}
+
+#page-categorias-produtos .cat-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+#page-categorias-produtos .cat-table tbody tr:hover {
+  background: rgba(var(--gold-rgb, 108, 58, 237), .04);
+}
+
+#page-categorias-produtos .cat-nome {
+  font-weight: 600;
+}
+
+#page-categorias-produtos .cat-desc {
+  font-size: .82rem;
+  color: var(--text-muted, #6b7280);
+  margin-top: 2px;
+}
+
+#page-categorias-produtos .cat-loading {
+  text-align: center;
+  color: var(--text-muted, #6b7280);
+  padding: 24px 16px;
+}
+
+/* Badge de status */
+.cat-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.cat-badge--on {
+  background: rgba(22, 163, 74, .12);
+  color: #16a34a;
+}
+.cat-badge--off {
+  background: rgba(107, 114, 128, .14);
+  color: #6b7280;
+}
+
+/* Ações */
+#page-categorias-produtos .cat-col-acoes {
+  text-align: right;
+  white-space: nowrap;
+}
+.cat-action {
+  border: 1px solid var(--border, rgba(0, 0, 0, .1));
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  cursor: pointer;
+  margin-left: 6px;
+  transition: all .15s ease;
+}
+.cat-action:hover {
+  color: var(--gold, #6c3aed);
+  border-color: var(--gold, #6c3aed);
+}
+.cat-action--danger:hover {
+  color: #dc2626;
+  border-color: #dc2626;
+}
+
+/* Estado vazio */
+#page-categorias-produtos .cat-empty {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--text-muted, #6b7280);
+}
+#page-categorias-produtos .cat-empty-icon {
+  font-size: 2.2rem;
+  color: var(--gold, #6c3aed);
+  opacity: .5;
+  margin-bottom: 10px;
+}
+#page-categorias-produtos .cat-empty-title {
+  font-weight: 600;
+}
+
+/* Modal */
+#modal-categoria-produto textarea {
+  width: 100%;
+  resize: vertical;
+}
+.cat-feedback {
+  margin: 10px 0 0;
+  font-size: .88rem;
+  color: #16a34a;
+}
+.cat-feedback.is-error {
+  color: #dc2626;
+}
+.cat-confirm-text {
+  font-size: .95rem;
+  color: var(--text-muted, #6b7280);
+  margin: 4px 0 16px;
+}
+.cat-btn-danger {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+}
+.cat-btn-danger:hover {
+  background: #b91c1c !important;
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  #page-categorias-produtos .cat-table thead th,
+  #page-categorias-produtos .cat-table tbody td {
+    padding: 12px 10px;
+  }
+  #page-categorias-produtos .cat-page-header h2 {
+    font-size: 1.15rem;
+  }
+}

@@ -10941,6 +10941,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
     var f = el('form-produto');
     if (f) f.reset();
     var ativo = el('produto-ativo'); if (ativo) ativo.checked = true;
+    var selCat = el('produto-categoria'); if (selCat) selCat.value = '';
     var est = el('produto-tem-estoque'); if (est) est.checked = false;
     atualizarPreviewFoto();
   }
@@ -10959,10 +10960,52 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
     }
   }
 
+  // ---------- CATEGORIAS DE PRODUTO (Etapa 3) ----------
+  var produtoCategoriasCache = null;
+
+  async function carregarCategoriasProduto(force){
+    if (produtoCategoriasCache && !force) return produtoCategoriasCache;
+    var tenantId = tid();
+    if (!tenantId) return [];
+    try {
+      var resp = await supabaseClient
+        .from('product_categories')
+        .select('id, name')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      if (resp.error) throw resp.error;
+      produtoCategoriasCache = resp.data || [];
+    } catch (err) {
+      console.error('[produtos] erro ao carregar categorias:', err);
+      produtoCategoriasCache = [];
+    }
+    return produtoCategoriasCache;
+  }
+
+  async function preencherSelectCategorias(selectedId){
+    var sel = el('produto-categoria');
+    if (!sel) return;
+    var cats = await carregarCategoriasProduto();
+    var html = '<option value="">Sem categoria</option>';
+    for (var i = 0; i < cats.length; i++) {
+      html += '<option value="' + escHtml(cats[i].id) + '">' + escHtml(cats[i].name) + '</option>';
+    }
+    sel.innerHTML = html;
+    sel.value = selectedId || '';
+    if (selectedId && sel.value !== selectedId) {
+      // categoria inativa/removida vinculada ao produto: mantém visível
+      sel.insertAdjacentHTML('beforeend',
+        '<option value="' + escHtml(selectedId) + '">(categoria inativa)</option>');
+      sel.value = selectedId;
+    }
+  }
+
   function openModalNovoProduto(){
     resetForm();
     var t = el('modal-produto-titulo');
     if (t) t.textContent = 'Novo produto';
+    preencherSelectCategorias('');
     if (typeof openModal === 'function') openModal('modal-produto');
     else { var m = el('modal-produto'); if (m) m.classList.add('active'); }
   }
@@ -10978,6 +11021,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
     var custoInput = el('produto-custo');
     if (custoInput) custoInput.value = (p.custo != null) ? p.custo : '';
     el('produto-descricao').value = p.descricao || '';
+    preencherSelectCategorias(p.category_id || '');
     el('produto-tem-estoque').checked = !!p.tem_estoque;
     el('produto-ativo').checked = !!p.ativo;
     produtoFotoUrlAtual = p.foto_url || '';
@@ -11108,6 +11152,8 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
       }
     }
     var descricao = (el('produto-descricao').value || '').trim();
+    var categoriaSel = el('produto-categoria');
+    var categoryId = categoriaSel && categoriaSel.value ? categoriaSel.value : null;
     var temEstoque = el('produto-tem-estoque').checked;
     var ativo = el('produto-ativo').checked;
 
@@ -11133,6 +11179,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
         valor: valor,
         custo: custo,
         descricao: descricao || null,
+        category_id: categoryId,
         tem_estoque: temEstoque,
         ativo: ativo,
         foto_url: fotoUrl || null
@@ -11194,6 +11241,7 @@ function renderDashProfCardsMobile(rows, comissoesAtivas) {
   });
 
   // ---------- EXPORTS GLOBAIS (usados por onclick="...") ----------
+  window.recarregarCategoriasProduto = function(){ produtoCategoriasCache = null; return carregarCategoriasProduto(true); };
   window.openModalNovoProduto    = openModalNovoProduto;
   window.editarProduto           = editarProduto;
   window.toggleProdutoAtivo      = toggleProdutoAtivo;
