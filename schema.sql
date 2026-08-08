@@ -798,15 +798,15 @@ $$;
 ALTER FUNCTION "public"."check_tenant_active_users_limit"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") RETURNS TABLE("comissao" numeric, "caixinha" numeric, "total_receber" numeric, "atendimentos" integer, "produtos_vendidos" numeric)
+CREATE OR REPLACE FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") RETURNS TABLE("comissao" numeric, "comissao_produtos" numeric, "caixinha" numeric, "total_receber" numeric, "atendimentos" integer, "produtos_vendidos" numeric)
     LANGUAGE "plpgsql" STABLE SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
 DECLARE
-  j    jsonb;
+  j     jsonb;
   linha jsonb;
 BEGIN
-  -- MESMA fonte do Dashboard V2 (inclusive filtro por profissional).
+  -- ÚNICA fonte da verdade: a mesma RPC do Dashboard V2.
   j := public.dashboard_v2_snapshot(p_tenant_id, p_inicio, p_fim, p_profissional_id);
 
   SELECT e INTO linha
@@ -814,8 +814,10 @@ BEGIN
    LIMIT 1;
 
   comissao          := ROUND(COALESCE((linha->>'comissao')::numeric, 0), 2);
+  comissao_produtos := ROUND(COALESCE((linha->>'commission_products')::numeric, 0), 2);
   caixinha          := ROUND(COALESCE((linha->>'caixinha')::numeric, 0), 2);
-  total_receber     := ROUND(COALESCE((linha->>'total')::numeric, comissao + caixinha), 2);
+  total_receber     := ROUND(COALESCE((linha->>'totalReceber')::numeric,
+                                      comissao + comissao_produtos + caixinha), 2);
   atendimentos      := COALESCE((linha->>'atendimentos')::integer, 0);
   produtos_vendidos := ROUND(COALESCE((linha->>'produtosVendidos')::numeric, 0), 2);
 
@@ -827,7 +829,7 @@ $$;
 ALTER FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") IS 'KPIs do Comissões V2 lidos de dashboard_v2_snapshot(). Não recalcula nada: garante paridade exata com o Dashboard V2.';
+COMMENT ON FUNCTION "public"."comissoes_v2_kpis"("p_tenant_id" "uuid", "p_profissional_id" "uuid", "p_inicio" "date", "p_fim" "date") IS 'KPIs do Comissões V2 = espelho da linha de profissionaisTable do dashboard_v2_snapshot. comissao = SOMENTE serviços. Sem campos consolidados próprios.';
 
 
 
@@ -907,11 +909,10 @@ BEGIN
              e.cliente_nome,
              ROUND(e.valor, 2)                                    AS valor,
              ROUND(e.comissao, 2)                                 AS comissao,
+             ROUND(COALESCE(e.comissao_produto, 0), 2)            AS comissao_produto,
              ROUND(COALESCE(cx.caixinha, 0), 2)                   AS caixinha,
              e.conta_atendimento
         FROM public.comissoes_v2_eventos e
-        -- Caixinha pertence ao agendamento: exibida uma única vez,
-        -- no primeiro evento remunerado daquele agendamento.
         LEFT JOIN LATERAL (
           SELECT ag.caixinha_total AS caixinha
             FROM public.agendamentos ag
@@ -936,19 +937,22 @@ BEGIN
     'ok', true,
     'profissional', jsonb_build_object('id', v_prof_id, 'nome', COALESCE(v_nome, '')),
     'periodo', jsonb_build_object('inicio', p_inicio, 'fim', p_fim),
+    -- MESMOS campos/significados do Dashboard V2. Sem consolidados extras.
     'kpis', jsonb_build_object(
-      'totalReceber',     COALESCE(k.total_receber, 0),
-      'comissao',         COALESCE(k.comissao, 0),
-      'caixinha',         COALESCE(k.caixinha, 0),
-      'atendimentos',     COALESCE(k.atendimentos, 0),
-      'produtosVendidos', COALESCE(k.produtos_vendidos, 0)
+      'totalReceber',      COALESCE(k.total_receber, 0),
+      'comissao',          COALESCE(k.comissao, 0),
+      'comissaoProdutos',  COALESCE(k.comissao_produtos, 0),
+      'caixinha',          COALESCE(k.caixinha, 0),
+      'atendimentos',      COALESCE(k.atendimentos, 0),
+      'produtosVendidos',  COALESCE(k.produtos_vendidos, 0)
     ),
     'anterior', jsonb_build_object(
-      'totalReceber',     COALESCE(a.total_receber, 0),
-      'comissao',         COALESCE(a.comissao, 0),
-      'caixinha',         COALESCE(a.caixinha, 0),
-      'atendimentos',     COALESCE(a.atendimentos, 0),
-      'produtosVendidos', COALESCE(a.produtos_vendidos, 0)
+      'totalReceber',      COALESCE(a.total_receber, 0),
+      'comissao',          COALESCE(a.comissao, 0),
+      'comissaoProdutos',  COALESCE(a.comissao_produtos, 0),
+      'caixinha',          COALESCE(a.caixinha, 0),
+      'atendimentos',      COALESCE(a.atendimentos, 0),
+      'produtosVendidos',  COALESCE(a.produtos_vendidos, 0)
     ),
     'agenda', v_agenda
   );
@@ -959,7 +963,7 @@ $$;
 ALTER FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") OWNER TO "postgres";
 
 
-COMMENT ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") IS 'Snapshot do Comissões V2. KPIs vêm de dashboard_v2_snapshot (paridade garantida). agenda[] = eventos de comissão com valores líquidos.';
+COMMENT ON FUNCTION "public"."comissoes_v2_snapshot"("p_inicio" "date", "p_fim" "date", "p_profissional_id" "uuid") IS 'Snapshot do Comissões V2. Paridade total com dashboard_v2_snapshot: comissao (serviços), comissaoProdutos, caixinha, totalReceber. Nenhuma regra financeira própria.';
 
 
 
@@ -5299,7 +5303,7 @@ CREATE TABLE IF NOT EXISTS "public"."cancelamento_motivos" (
 ALTER TABLE "public"."cancelamento_motivos" OWNER TO "postgres";
 
 
-CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"='true') AS
+CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos_base" WITH ("security_invoker"='true') AS
  WITH "pct" AS (
          SELECT "cp"."tenant_id",
             "cp"."profissional_id",
@@ -5546,46 +5550,11 @@ UNION ALL
    FROM "ev_produto";
 
 
-ALTER VIEW "public"."comissoes_v2_eventos" OWNER TO "postgres";
+ALTER VIEW "public"."comissoes_v2_eventos_base" OWNER TO "postgres";
 
 
-COMMENT ON VIEW "public"."comissoes_v2_eventos" IS 'Grão = evento de comissão. Valores LÍQUIDOS: rateio de agendamentos.base_comissao entre as linhas cobráveis. SUM(comissao) por agendamento == comissão do Dashboard V2.';
+COMMENT ON VIEW "public"."comissoes_v2_eventos_base" IS 'Etapa 6 · Cópia fiel da definição original de comissoes_v2_eventos (serviços/pacotes + produtos de agendamento). Não contém comissão de produtos.';
 
-
-
-CREATE TABLE IF NOT EXISTS "public"."cores" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "nome" "text" NOT NULL,
-    "hex" "text" NOT NULL,
-    "tipo" "public"."cor_tipo" NOT NULL,
-    "servico_id" "uuid",
-    "created_at" timestamp with time zone DEFAULT "now"(),
-    "tenant_id" "uuid"
-);
-
-
-ALTER TABLE "public"."cores" OWNER TO "postgres";
-
-
-COMMENT ON TABLE "public"."cores" IS 'Cores (bases/pigmentos) vinculadas a serviços';
-
-
-
-CREATE TABLE IF NOT EXISTS "public"."custom_reports" (
-    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
-    "slug" "text" NOT NULL,
-    "name" "text" NOT NULL,
-    "description" "text",
-    "icon" "text" DEFAULT '📈'::"text",
-    "filters" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
-    "export_formats" "jsonb" DEFAULT '["csv"]'::"jsonb" NOT NULL,
-    "active" boolean DEFAULT true NOT NULL,
-    "display_order" integer DEFAULT 0 NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
-);
-
-
-ALTER TABLE "public"."custom_reports" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."venda_itens" (
@@ -5645,6 +5614,93 @@ CREATE TABLE IF NOT EXISTS "public"."vendas" (
 
 
 ALTER TABLE "public"."vendas" OWNER TO "postgres";
+
+
+CREATE OR REPLACE VIEW "public"."comissoes_v2_eventos" WITH ("security_invoker"='true') AS
+ SELECT "b"."event_type",
+    "b"."event_id",
+    "b"."tenant_id",
+    "b"."event_date",
+    "b"."event_time",
+    "b"."agendamento_id",
+    "b"."cliente_id",
+    "b"."cliente_nome",
+    "b"."profissional_id",
+    "b"."titulo",
+    "b"."valor",
+    "b"."comissao",
+    "b"."conta_atendimento",
+    "b"."created_at",
+    "b"."ord_evento",
+        CASE
+            WHEN ("b"."event_type" = 'produto'::"text") THEN "round"(COALESCE("ap"."commission_amount", (0)::numeric), 2)
+            ELSE (0)::numeric
+        END AS "comissao_produto"
+   FROM ("public"."comissoes_v2_eventos_base" "b"
+     LEFT JOIN "public"."agendamento_produtos" "ap" ON ((("b"."event_type" = 'produto'::"text") AND ("ap"."id" = "b"."event_id"))))
+UNION ALL
+ SELECT 'produto'::"text" AS "event_type",
+    "vi"."id" AS "event_id",
+    "vi"."tenant_id",
+    "v"."data_venda" AS "event_date",
+    "v"."hora_venda" AS "event_time",
+    NULL::"uuid" AS "agendamento_id",
+    "v"."cliente_id",
+    "v"."cliente_nome",
+    "v"."profissional_id",
+    COALESCE("pr"."nome", "vi"."descricao", 'Produto'::"text") AS "titulo",
+    "round"(COALESCE("vi"."total", (0)::numeric), 2) AS "valor",
+    (0)::numeric AS "comissao",
+    false AS "conta_atendimento",
+    "vi"."created_at",
+    3 AS "ord_evento",
+    "round"(COALESCE("vi"."commission_amount", (0)::numeric), 2) AS "comissao_produto"
+   FROM (("public"."venda_itens" "vi"
+     JOIN "public"."vendas" "v" ON (("v"."id" = "vi"."venda_id")))
+     LEFT JOIN "public"."produtos" "pr" ON (("pr"."id" = "vi"."produto_id")))
+  WHERE ("v"."status" = 'concluida'::"text");
+
+
+ALTER VIEW "public"."comissoes_v2_eventos" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."comissoes_v2_eventos" IS 'Grão = evento de comissão. Serviços/pacotes: comissao (líquida, rateio de base_comissao). Produtos (agendamento + balcão): comissao_produto = snapshot commission_amount da Etapa 4. Nunca recalcula.';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."cores" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "nome" "text" NOT NULL,
+    "hex" "text" NOT NULL,
+    "tipo" "public"."cor_tipo" NOT NULL,
+    "servico_id" "uuid",
+    "created_at" timestamp with time zone DEFAULT "now"(),
+    "tenant_id" "uuid"
+);
+
+
+ALTER TABLE "public"."cores" OWNER TO "postgres";
+
+
+COMMENT ON TABLE "public"."cores" IS 'Cores (bases/pigmentos) vinculadas a serviços';
+
+
+
+CREATE TABLE IF NOT EXISTS "public"."custom_reports" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "slug" "text" NOT NULL,
+    "name" "text" NOT NULL,
+    "description" "text",
+    "icon" "text" DEFAULT '📈'::"text",
+    "filters" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    "export_formats" "jsonb" DEFAULT '["csv"]'::"jsonb" NOT NULL,
+    "active" boolean DEFAULT true NOT NULL,
+    "display_order" integer DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."custom_reports" OWNER TO "postgres";
 
 
 CREATE OR REPLACE VIEW "public"."dv2_vendas_itens" AS
@@ -5733,7 +5789,9 @@ CREATE TABLE IF NOT EXISTS "public"."evolution_settings" (
     "api_key" "text" NOT NULL,
     "ativo" boolean DEFAULT true NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "provider" "text" DEFAULT 'evolution-classic'::"text" NOT NULL,
+    CONSTRAINT "evolution_settings_provider_check" CHECK (("provider" = ANY (ARRAY['evolution-go'::"text", 'evolution-classic'::"text"])))
 );
 
 
@@ -9201,6 +9259,24 @@ GRANT ALL ON TABLE "public"."cancelamento_motivos" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos_base" TO "anon";
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos_base" TO "authenticated";
+GRANT ALL ON TABLE "public"."comissoes_v2_eventos_base" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."venda_itens" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."venda_itens" TO "authenticated";
+GRANT ALL ON TABLE "public"."venda_itens" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."vendas" TO "anon";
+GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."vendas" TO "authenticated";
+GRANT ALL ON TABLE "public"."vendas" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "anon";
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "authenticated";
 GRANT ALL ON TABLE "public"."comissoes_v2_eventos" TO "service_role";
@@ -9216,18 +9292,6 @@ GRANT ALL ON TABLE "public"."cores" TO "service_role";
 GRANT ALL ON TABLE "public"."custom_reports" TO "anon";
 GRANT ALL ON TABLE "public"."custom_reports" TO "authenticated";
 GRANT ALL ON TABLE "public"."custom_reports" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."venda_itens" TO "anon";
-GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."venda_itens" TO "authenticated";
-GRANT ALL ON TABLE "public"."venda_itens" TO "service_role";
-
-
-
-GRANT ALL ON TABLE "public"."vendas" TO "anon";
-GRANT SELECT,REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."vendas" TO "authenticated";
-GRANT ALL ON TABLE "public"."vendas" TO "service_role";
 
 
 

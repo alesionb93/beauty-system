@@ -4,6 +4,39 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ============================================================
+// PROVIDER EVOLUTION (fonte da verdade: evolution_settings.provider)
+// ------------------------------------------------------------
+// provider = "evolution-go"      -> POST {base_url}/send/text
+// provider = "evolution-classic" -> POST {base_url}/message/sendText/{instance}
+//
+// Fallback (apenas quando a coluna provider estiver NULL/vazia):
+// heurística por domínio, agora incluindo "evolution-api".
+// ============================================================
+type EvolutionProvider = "evolution-go" | "evolution-classic";
+
+function resolveEvolutionProvider(cfg: any): EvolutionProvider {
+  const explicit = String(cfg?.provider ?? "").trim().toLowerCase();
+  if (explicit === "evolution-go" || explicit === "go") return "evolution-go";
+  if (explicit === "evolution-classic" || explicit === "classic") return "evolution-classic";
+
+  const baseUrlClean = String(cfg?.base_url ?? "").replace(/\/+$/, "");
+  return /evolution-go|evogo|evolution-api/i.test(baseUrlClean)
+    ? "evolution-go"
+    : "evolution-classic";
+}
+
+function buildEvolutionSendUrl(cfg: any): { provider: EvolutionProvider; url: string; baseUrlClean: string } {
+  const baseUrlClean = String(cfg?.base_url ?? "").replace(/\/+$/, "");
+  const provider = resolveEvolutionProvider(cfg);
+  const url =
+    provider === "evolution-go"
+      ? `${baseUrlClean}/send/text`
+      : `${baseUrlClean}/message/sendText/${encodeURIComponent(String(cfg?.instance ?? ""))}`;
+  return { provider, url, baseUrlClean };
+}
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -130,7 +163,7 @@ Deno.serve(async (req) => {
   // =========================
   const { data: cfg } = await supabase
     .from("evolution_settings")
-    .select("base_url, instance, api_key, ativo")
+    .select("base_url, instance, api_key, ativo, provider")
     .eq("tenant_id", ag.tenant_id)
     .maybeSingle();
 
@@ -170,13 +203,7 @@ Deno.serve(async (req) => {
    //                  endpoint: /send/text  (sem instance na URL)
    // Evolution clássica (default) -> /message/sendText/{instance}
    // =========================
-   const baseUrlClean = String(cfg.base_url || "").replace(/\/$/, "");
-   const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
-   const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
-
-   const url = isEvolutionGo
-     ? `${baseUrlClean}/send/text`
-     : `${baseUrlClean}/message/sendText/${encodeURIComponent(cfg.instance)}`;
+   const { provider, url } = buildEvolutionSendUrl(cfg);
 
    const payload = { number: telefone, text };
 

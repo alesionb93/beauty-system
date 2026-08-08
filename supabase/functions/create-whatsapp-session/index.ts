@@ -34,6 +34,39 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// ============================================================
+// PROVIDER EVOLUTION (fonte da verdade: evolution_settings.provider)
+// ------------------------------------------------------------
+// provider = "evolution-go"      -> POST {base_url}/send/text
+// provider = "evolution-classic" -> POST {base_url}/message/sendText/{instance}
+//
+// Fallback (apenas quando a coluna provider estiver NULL/vazia):
+// heurística por domínio, agora incluindo "evolution-api".
+// ============================================================
+type EvolutionProvider = "evolution-go" | "evolution-classic";
+
+function resolveEvolutionProvider(cfg: any): EvolutionProvider {
+  const explicit = String(cfg?.provider ?? "").trim().toLowerCase();
+  if (explicit === "evolution-go" || explicit === "go") return "evolution-go";
+  if (explicit === "evolution-classic" || explicit === "classic") return "evolution-classic";
+
+  const baseUrlClean = String(cfg?.base_url ?? "").replace(/\/+$/, "");
+  return /evolution-go|evogo|evolution-api/i.test(baseUrlClean)
+    ? "evolution-go"
+    : "evolution-classic";
+}
+
+function buildEvolutionSendUrl(cfg: any): { provider: EvolutionProvider; url: string; baseUrlClean: string } {
+  const baseUrlClean = String(cfg?.base_url ?? "").replace(/\/+$/, "");
+  const provider = resolveEvolutionProvider(cfg);
+  const url =
+    provider === "evolution-go"
+      ? `${baseUrlClean}/send/text`
+      : `${baseUrlClean}/message/sendText/${encodeURIComponent(String(cfg?.instance ?? ""))}`;
+  return { provider, url, baseUrlClean };
+}
+
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -427,7 +460,7 @@ Deno.serve(async (req) => {
       { data: evo, error: evoErr },
     ] = await Promise.all([
       supabase.from("tenants").select("id, nome, nome_fantasia").eq("id", tenant_id).maybeSingle(),
-      supabase.from("evolution_settings").select("base_url, instance, api_key, ativo")
+      supabase.from("evolution_settings").select("base_url, instance, api_key, ativo, provider")
         .eq("tenant_id", tenant_id).maybeSingle(),
     ]);
     if (tenantErr) console.error(`${LOG_PREFIX} ${reqId} tenant lookup error`, { error: tenantErr.message });
@@ -593,12 +626,7 @@ Deno.serve(async (req) => {
     // ---------- [STEP 10/11] ENVIO EVOLUTION ----------
     let envio: any = { skipped: true };
     if (evo?.ativo && evo.base_url && evo.instance && evo.api_key) {
-      const baseUrlClean = String(evo.base_url || "").replace(/\/+$/, "");
-      const isEvolutionGo = /evolution-go|evogo/i.test(baseUrlClean);
-      const provider = isEvolutionGo ? "evolution-go" : "evolution-classic";
-      const url = isEvolutionGo
-        ? `${baseUrlClean}/send/text`
-        : `${baseUrlClean}/message/sendText/${encodeURIComponent(evo.instance)}`;
+      const { provider, url } = buildEvolutionSendUrl(evo);
       const sendNumber = whatsappSendNumber(telefone);
       const payload = { number: sendNumber, text: mensagem, textMessage: { text: mensagem } };
 

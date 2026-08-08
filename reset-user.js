@@ -7,9 +7,9 @@ const supabase = createClient(
 
 async function atualizarUsuario() {
   const { data, error } = await supabase.auth.admin.updateUserById(
-    'f83f2edb-ec98-4b9f-b49d-3ca1ae807e05',
+    'b5229382-fdaf-4693-bd57-d7682d37dd51',
     {
-      password: 'Facundo.123',
+      password: 'Caetano.123',
       email_confirm: true
     }
   )

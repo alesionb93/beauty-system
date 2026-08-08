@@ -1,0 +1,61 @@
+/* =====================================================================
+   RESUMO-FINANCEIRO-DETALHES.CSS (v1)
+   Estilo do bloco "Resumo financeiro" no detalhe do agendamento.
+   Somente visual — não altera nenhuma regra de negócio.
+   ===================================================================== */
+.apt-fin-card{
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2, #f4f5f7);
+  border: 1px solid rgba(0,0,0,.06);
+}
+.apt-fin-title{
+  font-size: .70rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted, #7b8190);
+  margin-bottom: 8px;
+}
+.apt-fin-row{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: .95rem;
+}
+.apt-fin-label{
+  color: var(--text-muted, #6b7280);
+}
+.apt-fin-value{
+  font-weight: 600;
+  color: var(--text, #16181d);
+  white-space: nowrap;
+}
+.apt-fin-neg{ color: #dc2626; }
+.apt-fin-pos{ color: #16a34a; }
+
+.apt-fin-total{
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0,0,0,.12);
+}
+.apt-fin-total .apt-fin-label{
+  font-weight: 700;
+  color: var(--text, #16181d);
+  text-transform: uppercase;
+  font-size: .78rem;
+  letter-spacing: .05em;
+}
+.apt-fin-total .apt-fin-value{
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.apt-fin-forma{
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0,0,0,.06);
+}
