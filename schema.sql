@@ -6209,6 +6209,32 @@ COMMENT ON COLUMN "public"."usuarios"."login" IS 'Username amigável usado no lo
 
 
 
+CREATE OR REPLACE VIEW "public"."vw_clientes_atendimento" WITH ("security_invoker"='true') AS
+ SELECT "c"."id",
+    "c"."nome",
+    "c"."telefone",
+    "c"."nascimento",
+    "c"."created_at",
+    "c"."updated_at",
+    "c"."tenant_id",
+    "la"."ultimo_atendimento",
+        CASE
+            WHEN ("la"."ultimo_atendimento" IS NOT NULL) THEN 'ja_atendido'::"text"
+            ELSE 'nunca_atendido'::"text"
+        END AS "situacao_atendimento"
+   FROM ("public"."clientes" "c"
+     LEFT JOIN LATERAL ( SELECT "max"("a"."data") AS "ultimo_atendimento"
+           FROM "public"."agendamentos" "a"
+          WHERE (("a"."cliente_id" = "c"."id") AND ("a"."tenant_id" = "c"."tenant_id") AND ("a"."status" = 'concluido'::"public"."agendamento_status"))) "la" ON (true));
+
+
+ALTER VIEW "public"."vw_clientes_atendimento" OWNER TO "postgres";
+
+
+COMMENT ON VIEW "public"."vw_clientes_atendimento" IS 'Clientes + último atendimento (MAX(agendamentos.data) com status=concluido, mesmo tenant) e situação derivada. Sem persistência, security_invoker (RLS preservada).';
+
+
+
 CREATE TABLE IF NOT EXISTS "public"."whatsapp_inbound_seen" (
     "message_id" "text" NOT NULL,
     "tenant_id" "uuid",
@@ -6681,6 +6707,10 @@ CREATE INDEX "idx_agendamentos_status_concluded" ON "public"."agendamentos" USIN
 
 
 CREATE INDEX "idx_agendamentos_tenant_cliente_concluded" ON "public"."agendamentos" USING "btree" ("tenant_id", "cliente_id", "concluded_at" DESC) WHERE ("concluded_at" IS NOT NULL);
+
+
+
+CREATE INDEX "idx_agendamentos_tenant_cliente_status_data" ON "public"."agendamentos" USING "btree" ("tenant_id", "cliente_id", "status", "data" DESC);
 
 
 
@@ -9448,6 +9478,12 @@ GRANT ALL ON TABLE "public"."user_roles" TO "service_role";
 GRANT ALL ON TABLE "public"."usuarios" TO "anon";
 GRANT ALL ON TABLE "public"."usuarios" TO "authenticated";
 GRANT ALL ON TABLE "public"."usuarios" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."vw_clientes_atendimento" TO "anon";
+GRANT ALL ON TABLE "public"."vw_clientes_atendimento" TO "authenticated";
+GRANT ALL ON TABLE "public"."vw_clientes_atendimento" TO "service_role";
 
 
 

@@ -27,6 +27,8 @@
    <link rel="stylesheet" href="comissoes-v2.css?v=1" onerror="this.onerror=null;this.href='comissoes-v2.css?v=1'">
    <link rel="stylesheet" href="/bloqueio-colaborador-concluido.css?v=2" onerror="this.onerror=null;this.href='bloqueio-colaborador-concluido.css?v=2'">
   <link rel="stylesheet" href="/qrcode-agendamento.css?v=1" onerror="this.onerror=null;this.href='qrcode-agendamento.css'">
+  <!-- Clientes: situação de atendimento, filtros e ordenação -->
+  <link rel="stylesheet" href="/clientes-situacao.css?v=1" onerror="this.onerror=null;this.href='clientes-situacao.css?v=1'">
   <!-- Resumo financeiro no detalhe do agendamento (somente exibição) -->
   <link rel="stylesheet" href="/resumo-financeiro-detalhes.css?v=1" onerror="this.onerror=null;this.href='resumo-financeiro-detalhes.css?v=1'">
   <!-- Agendamento Compartilhado (Grupo de Unidades) -->
@@ -422,21 +424,59 @@
           <h2>Clientes</h2>
           <button class="btn-novo" id="btn-novo-cliente"><i class="fa-solid fa-plus"></i> Novo Cliente</button>
         </div>
-        <div class="search-bar">
-          <i class="fa-solid fa-magnifying-glass search-bar-icon" aria-hidden="true"></i>
-          <input type="text" id="clients-search-input" class="search-bar-input" placeholder="Buscar cliente por nome..." autocomplete="off" aria-label="Buscar cliente por nome">
-          <button type="button" id="clients-search-clear" class="search-bar-clear" aria-label="Limpar busca" hidden>
-            <i class="fa-solid fa-xmark"></i>
+        <div class="clients-toolbar">
+          <div class="search-bar">
+            <i class="fa-solid fa-magnifying-glass search-bar-icon" aria-hidden="true"></i>
+            <input type="text" id="clients-search-input" class="search-bar-input" placeholder="Buscar cliente por nome ou telefone..." autocomplete="off" aria-label="Buscar cliente por nome ou telefone">
+            <button type="button" id="clients-search-clear" class="search-bar-clear" aria-label="Limpar busca" hidden>
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <button type="button" class="btn-filter" id="btn-clients-filtros" aria-expanded="false" aria-controls="clients-filtros">
+            <i class="fa-solid fa-filter"></i> Filtros
+            <i class="fa-solid fa-chevron-down cf-caret" aria-hidden="true"></i>
           </button>
+        </div>
+        <div class="clients-filtros" id="clients-filtros" hidden>
+          <div class="cf-group">
+            <label class="cf-group-label">Período de cadastro</label>
+            <div class="cf-row">
+              <label class="cf-field"><span>De</span><input type="date" id="cf-cadastro-de"></label>
+              <label class="cf-field"><span>Até</span><input type="date" id="cf-cadastro-ate"></label>
+            </div>
+          </div>
+          <div class="cf-group">
+            <label class="cf-group-label" for="cf-situacao">Situação de atendimento</label>
+            <select id="cf-situacao" class="cf-select">
+              <option value="todos">Todos</option>
+              <option value="ja_atendido">Já atendido</option>
+              <option value="nunca_atendido">Nunca atendido</option>
+            </select>
+          </div>
+          <div class="cf-actions">
+            <button type="button" class="btn-cancel" id="cf-limpar"><i class="fa-solid fa-rotate-left"></i> Limpar filtros</button>
+            <button type="button" class="btn-novo" id="cf-aplicar"><i class="fa-solid fa-magnifying-glass"></i> Aplicar filtros</button>
+          </div>
         </div>
         <div class="birthday-banner" id="birthday-banner" style="display:none;"></div>
         <div class="clients-table-wrapper">
           <table class="clients-table">
-            <thead><tr><th>Nome</th><th>Telefone</th><th>Nascimento</th><th class="col-acoes">Ações</th></tr></thead>
+            <thead>
+              <tr>
+                <th class="cf-sortable" data-sort="nome">Nome <span class="cf-sort-ico" aria-hidden="true"></span></th>
+                <th>Telefone</th>
+                <th>Nascimento</th>
+                <th class="cf-sortable" data-sort="created_at">Data de cadastro <span class="cf-sort-ico" aria-hidden="true"></span></th>
+                <th class="cf-sortable" data-sort="ultimo_atendimento">Último atendimento <span class="cf-sort-ico" aria-hidden="true"></span></th>
+                <th class="col-acoes">Ações</th>
+              </tr>
+            </thead>
             <tbody id="clients-tbody"></tbody>
           </table>
         </div>
+        <div class="clients-count" id="clients-count"></div>
       </div>
+
 
       <!-- PROFISSIONAIS -->
       <div class="page" id="page-profissionais">
@@ -3456,6 +3496,9 @@
 
   <!-- junto dos demais <script>, no final do body (depois de script.js) -->
   <script src="/categorias-produtos.js?v=1" defer onerror="this.onerror=null;this.src='categorias-produtos.js?v=1'"></script>
+
+  <!-- Clientes: situação de atendimento, filtros e ordenação (deve carregar DEPOIS de script.js) -->
+  <script src="/clientes-situacao.js?v=1" defer onerror="this.onerror=null;this.src='clientes-situacao.js?v=1'"></script>
 
 </body>
 </html>

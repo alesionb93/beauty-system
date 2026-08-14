@@ -1,0 +1,115 @@
+/* ============================================================
+   CLIENTES — Filtros, ordenação e badges de situação.
+   Usa as variáveis de tema já existentes no Slotify, com
+   fallback seguro caso a variável não exista.
+   ============================================================ */
+
+.clients-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.clients-toolbar .search-bar { flex: 1 1 320px; margin-bottom: 0; }
+
+#btn-clients-filtros .cf-caret { transition: transform .18s ease; font-size: .8em; }
+#btn-clients-filtros.is-open .cf-caret { transform: rotate(180deg); }
+#btn-clients-filtros.has-filters {
+  border-color: var(--gold, #652AF4);
+  color: var(--gold, #652AF4);
+}
+
+/* ---------- Painel de filtros ---------- */
+.clients-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border, rgba(0, 0, 0, .08));
+  border-radius: 12px;
+  background: var(--card-bg, var(--bg-card, #fff));
+}
+.clients-filtros[hidden] { display: none; }
+
+.cf-group { display: flex; flex-direction: column; gap: 8px; }
+.cf-group-label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--text-muted, #6b7280);
+}
+.cf-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.cf-field { display: flex; flex-direction: column; gap: 4px; }
+.cf-field > span { font-size: .72rem; color: var(--text-muted, #6b7280); }
+.cf-field input,
+.cf-select {
+  padding: 9px 12px;
+  border: 1px solid var(--border, rgba(0, 0, 0, .12));
+  border-radius: 8px;
+  background: var(--input-bg, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: .9rem;
+  min-width: 150px;
+}
+.cf-field input:focus,
+.cf-select:focus {
+  outline: none;
+  border-color: var(--gold, #652AF4);
+  box-shadow: 0 0 0 3px rgba(101, 42, 244, .15);
+}
+.cf-actions { display: flex; gap: 10px; margin-left: auto; }
+
+/* ---------- Cabeçalho ordenável ---------- */
+.clients-table th.cf-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.clients-table th.cf-sortable .cf-sort-ico::after {
+  content: "\2195";
+  opacity: .35;
+  margin-left: 4px;
+  font-size: .9em;
+}
+.clients-table th.cf-sortable.is-asc .cf-sort-ico::after { content: "\2191"; opacity: 1; }
+.clients-table th.cf-sortable.is-desc .cf-sort-ico::after { content: "\2193"; opacity: 1; }
+.clients-table th.cf-sortable.is-sorted { color: var(--gold, #652AF4); }
+
+/* ---------- Badges de situação ---------- */
+.client-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.client-status-badge.is-never {
+  background: rgba(245, 158, 11, .14);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, .32);
+}
+.client-status-badge.is-done {
+  background: rgba(16, 185, 129, .14);
+  color: #047857;
+  border: 1px solid rgba(16, 185, 129, .32);
+}
+
+.clients-count {
+  margin-top: 10px;
+  font-size: .82rem;
+  color: var(--text-muted, #6b7280);
+}
+
+@media (max-width: 720px) {
+  .clients-filtros { flex-direction: column; align-items: stretch; }
+  .cf-actions { margin-left: 0; }
+  .cf-field input, .cf-select { width: 100%; min-width: 0; }
+}
