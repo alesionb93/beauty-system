@@ -4362,8 +4362,12 @@ function renderClients() {
   var todayStr = pad(today.getDate()) + '/' + pad(today.getMonth() + 1);
   var birthdayNames = [];
   var termo = normalizeSearch(window.clientsSearchTerm || '');
+  var termoDigits = String(window.clientsSearchTerm || '').replace(/\D/g, '');
   var lista = !termo ? clients : clients.filter(function(c){
-    return normalizeSearch(c && c.nome).indexOf(termo) !== -1;
+    if (normalizeSearch(c && c.nome).indexOf(termo) !== -1) return true;
+    if (!termoDigits) return false;
+    var telDigits = String((c && c.telefone) || '').replace(/\D/g, '');
+    return telDigits.indexOf(termoDigits) !== -1;
   });
   lista.forEach(function(c) {
     var tr = document.createElement('tr');

@@ -220,9 +220,6 @@
       var ultimoHtml = atendido
         ? fmtDateBR(c.ultimo_atendimento)
         : '<span class="client-status-badge is-never">Nunca atendido</span>';
-      var situacaoHtml = atendido
-        ? '<span class="client-status-badge is-done">Já atendido</span>'
-        : '';
 
       var telefoneFmt = (typeof formatTelefoneDisplay === 'function')
         ? formatTelefoneDisplay(c.telefone) : (c.telefone || '');
@@ -251,7 +248,7 @@
         '<td class="cell-icon-last" data-label="Último atendimento">' +
           '<span class="cell-icon-svg">' + svgCheck + '</span>' +
           '<span class="cell-label">Último atendimento</span>' +
-          '<span class="cell-value">' + ultimoHtml + ' ' + situacaoHtml + '</span>' +
+          '<span class="cell-value">' + ultimoHtml + '</span>' +
         '</td>' +
         '<td class="col-acoes" data-label="Ações">' +
           '<button type="button" class="btn-edit-client" data-client-id="' + c.id + '" ' +

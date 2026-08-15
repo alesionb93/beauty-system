@@ -111,5 +111,12 @@
 @media (max-width: 720px) {
   .clients-filtros { flex-direction: column; align-items: stretch; }
   .cf-actions { margin-left: 0; }
-  .cf-field input, .cf-select { width: 100%; min-width: 0; }
+  .cf-row { flex-direction: column; gap: 12px; }
+  .cf-group, .cf-field { width: 100%; min-width: 0; }
+  .cf-field input, .cf-select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
 }
