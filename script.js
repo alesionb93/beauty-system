@@ -1265,11 +1265,47 @@ async function loadAppointments() {
   var tenantId = getCurrentTenantId();
   AgendaTrace.log('fetch:start', { seq: mySeq, tenantId: tenantId });
 
+  // 🔒 FIX PAGINAÇÃO: o Supabase/PostgREST limita cada resposta a no máximo
+  // 1000 linhas por padrão. Sem paginação, um tenant com mais de 1000
+  // agendamentos no total simplesmente não recebe a tabela inteira — e como
+  // não havia .order() explícito, QUAL recorte de 1000 linhas volta pode
+  // mudar a cada UPDATE em qualquer agendamento (a ordem física das linhas
+  // no Postgres muda), fazendo agendamentos completamente aleatórios
+  // (antigos, concluídos, de qualquer origem) somem/reaparecerem sem padrão.
+  // A função abaixo pagina em blocos de 1000, com ordenação explícita e
+  // estável (data, hora, id), até esgotar a tabela inteira.
+  var __PAGE_SIZE = 1000;
+  async function __fetchAllPaginado(makeQuery, stageLabel) {
+    var allRows = [];
+    var from = 0;
+    var pagina = 0;
+    while (true) {
+      var page = await makeQuery().order('data', { ascending: true }).order('hora', { ascending: true }).order('id', { ascending: true }).range(from, from + __PAGE_SIZE - 1);
+      pagina++;
+      if (page.error) return page;
+      var rows = page.data || [];
+      allRows = allRows.concat(rows);
+      AgendaTrace.log('fetch:page', { seq: mySeq, stage: stageLabel, pagina: pagina, linhas_pagina: rows.length, total_ate_agora: allRows.length });
+      if (rows.length < __PAGE_SIZE) break; // última página (veio incompleta)
+      from += __PAGE_SIZE;
+    }
+    return { data: allRows, error: null };
+  }
+
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
   // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
-  var query = supabaseClient.from('agendamentos').select('*, agendamento_pagamentos(id, forma_pagamento, valor, parcelas, created_at), agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
-  if (tenantId) query = query.eq('tenant_id', tenantId);
-  var resp = await query;
+  function __makePrimaryQuery() {
+    var q = supabaseClient.from('agendamentos').select('*, agendamento_pagamentos(id, forma_pagamento, valor, parcelas, created_at), agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+    return q;
+  }
+  function __makeFallbackQuery() {
+    var q = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
+    if (tenantId) q = q.eq('tenant_id', tenantId);
+    return q;
+  }
+
+  var resp = await __fetchAllPaginado(__makePrimaryQuery, 'primary');
   if (resp.error) {
     console.warn('Erro agendamentos com pagamentos embutidos, tentando fallback:', resp.error);
     AgendaTrace.log('fetch:error', {
@@ -1278,9 +1314,7 @@ async function loadAppointments() {
       motivo_possivel: 'PostgREST não conseguiu embutir agendamento_pagamentos automaticamente (provável ambiguidade de relacionamento entre agendamentos e agendamento_pagamentos — ver FK agendamentos_prepaid_origin_payment_id_fkey). Tentando fallback sem esse embed.',
       error: (resp.error && resp.error.message) || String(resp.error)
     });
-    var fallbackQuery = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
-    if (tenantId) fallbackQuery = fallbackQuery.eq('tenant_id', tenantId);
-    resp = await fallbackQuery;
+    resp = await __fetchAllPaginado(__makeFallbackQuery, 'fallback');
   }
   if (resp.error) {
     AgendaTrace.log('fetch:error', {
