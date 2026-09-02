@@ -634,6 +634,12 @@ function getCurrentTenantId() {
   }
 
   function refetchAgenda(reason) {
+    try {
+      if (typeof AgendaTrace !== 'undefined') {
+        AgendaTrace.log('realtime:event', { reason: reason });
+      }
+    } catch (err) {}
+
     if (refetchTimer) clearTimeout(refetchTimer);
 
     refetchTimer = setTimeout(function () {
@@ -1166,8 +1172,99 @@ async function loadClients() {
   });
 }
 
+/* ============================================================================
+   AGENDA TRACE — rastreamento do ciclo de vida dos agendamentos (foco em
+   origem='externo', mas cobre todos).
+   Registra em console E em localStorage (sobrevive a reload):
+     1) fetch:start              -> disparo de uma busca de agendamentos
+     2) fetch:error              -> busca falhou (com motivo possível)
+     3) fetch:stale-discarded    -> resposta chegou fora de ordem e foi
+                                     ignorada de propósito (ver FIX RACE
+                                     CONDITION abaixo)
+     4) fetch:applied            -> uma resposta foi de fato aplicada em
+                                     `appointments`
+     5) agendamento:detected     -> um agendamento específico apareceu pela
+                                     primeira vez nesta tela, com o tempo
+                                     decorrido desde a criação no banco
+     6) realtime:event           -> evento do Supabase Realtime que disparou
+                                     um refetch (ver refetchAgenda)
+
+   Uso no console do navegador:
+     AgendaTrace.dump()              -> tabela com todo o histórico
+     AgendaTrace.forAgendamento(id)  -> histórico de um agendamento específico
+     AgendaTrace.clear()             -> limpa o histórico local
+   ========================================================================= */
+var AgendaTrace = (function () {
+  var STORAGE_KEY = 'slotify_agenda_trace_log';
+  var MAX_ENTRIES = 300;
+
+  function _read() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function _write(list) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(-MAX_ENTRIES)));
+    } catch (err) {
+      // localStorage indisponível/cheio — não deve quebrar a aplicação.
+    }
+  }
+
+  function log(event, data) {
+    var entry = { ts: new Date().toISOString(), event: event };
+    for (var k in (data || {})) { if (Object.prototype.hasOwnProperty.call(data, k)) entry[k] = data[k]; }
+    try {
+      var tag = '[agenda-trace]';
+      if (event === 'fetch:error' || event === 'fetch:stale-discarded') {
+        console.warn(tag, event, entry);
+      } else {
+        console.log(tag, event, entry);
+      }
+    } catch (err) {}
+    var list = _read();
+    list.push(entry);
+    _write(list);
+    return entry;
+  }
+
+  function dump() {
+    var list = _read();
+    if (console.table) console.table(list); else console.log(list);
+    return list;
+  }
+
+  function clear() {
+    try { localStorage.removeItem(STORAGE_KEY); } catch (err) {}
+    console.log('[agenda-trace] histórico limpo.');
+  }
+
+  function forAgendamento(id) {
+    return _read().filter(function (e) { return e.id === id; });
+  }
+
+  return { log: log, dump: dump, clear: clear, forAgendamento: forAgendamento };
+})();
+window.AgendaTrace = AgendaTrace;
+
+var __loadAppointmentsSeq = 0;
+
 async function loadAppointments() {
+  // 🔒 FIX RACE CONDITION: cada chamada recebe um número de sequência. Se,
+  // quando a resposta desta chamada voltar, JÁ EXISTIR uma chamada mais nova
+  // em andamento/concluída, esta resposta é descartada. Sem isso, uma
+  // resposta antiga que demore mais pra responder pode sobrescrever
+  // `appointments` com dados desatualizados, fazendo agendamentos recém
+  // criados (principalmente externos, criados em rajada pelo cliente)
+  // sumirem da agenda sem nenhum erro visível.
+  var mySeq = ++__loadAppointmentsSeq;
   var tenantId = getCurrentTenantId();
+  AgendaTrace.log('fetch:start', { seq: mySeq, tenantId: tenantId });
+
   // ✅ FIX MULTI-PROFISSIONAL: incluir profissional_id em agendamento_servicos
   // ✅ FIX ORDEM SERVIÇOS (v10): incluir created_at p/ ordenar serviços conforme cadastro
   var query = supabaseClient.from('agendamentos').select('*, agendamento_pagamentos(id, forma_pagamento, valor, parcelas, created_at), agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
@@ -1175,17 +1272,48 @@ async function loadAppointments() {
   var resp = await query;
   if (resp.error) {
     console.warn('Erro agendamentos com pagamentos embutidos, tentando fallback:', resp.error);
+    AgendaTrace.log('fetch:error', {
+      seq: mySeq,
+      stage: 'primary',
+      motivo_possivel: 'PostgREST não conseguiu embutir agendamento_pagamentos automaticamente (provável ambiguidade de relacionamento entre agendamentos e agendamento_pagamentos — ver FK agendamentos_prepaid_origin_payment_id_fkey). Tentando fallback sem esse embed.',
+      error: (resp.error && resp.error.message) || String(resp.error)
+    });
     var fallbackQuery = supabaseClient.from('agendamentos').select('*, agendamento_servicos(id, created_at, servico_id, profissional_id, preco, duracao, cor_id, cliente_pacote_id, origem, credito_consumido, servicos(id, nome, preco, duracao), cores(id, nome, hex), agendamento_servico_cores(id, cor_id, tipo, quantidade, cores(id, nome, hex)))');
     if (tenantId) fallbackQuery = fallbackQuery.eq('tenant_id', tenantId);
     resp = await fallbackQuery;
   }
-  if (resp.error) { console.error('Erro agendamentos:', resp.error); return; }
+  if (resp.error) {
+    AgendaTrace.log('fetch:error', {
+      seq: mySeq,
+      stage: 'fallback',
+      motivo_possivel: 'Falha também no fallback — provável problema de rede, RLS ou schema. Veja o campo "error" para detalhes.',
+      error: (resp.error && resp.error.message) || String(resp.error)
+    });
+    console.error('Erro agendamentos:', resp.error);
+    return;
+  }
+
+  // 🔒 Ponto de checagem da FIX RACE CONDITION: se já rolou uma chamada mais
+  // nova enquanto esperávamos essa resposta, descarta e não mexe em `appointments`.
+  if (mySeq !== __loadAppointmentsSeq) {
+    AgendaTrace.log('fetch:stale-discarded', {
+      seq: mySeq,
+      latestSeq: __loadAppointmentsSeq,
+      motivo_possivel: 'Esta resposta chegou fora de ordem: uma chamada de loadAppointments() mais recente já foi (ou está sendo) aplicada. Descartada de propósito para não sobrescrever dados mais novos.'
+    });
+    return;
+  }
 
   // Build profissional id->nome map
   var profIdToNome = {};
   allProfissionais.forEach(function(p) { profIdToNome[p.id] = p.nome; });
 
-  appointments = resp.data.map(function(a) {
+  // Snapshot de quem já era conhecido ANTES desta atualização, para detectar
+  // chegadas novas logo abaixo (usado pelo AgendaTrace).
+  var __idsConhecidosAntes = {};
+  (appointments || []).forEach(function (a) { __idsConhecidosAntes[a.id] = true; });
+
+  var __novosAppointments = resp.data.map(function(a) {
     var profPrincipalNome = profIdToNome[a.profissional_id] || '';
     // ✅ FIX ORDEM SERVIÇOS (v10): garantir ordem por created_at (fallback id)
     var svcsOrdenados = (a.agendamento_servicos || []).slice().sort(function(x, y) {
@@ -1300,8 +1428,39 @@ async function loadAppointments() {
       servicos: svcs.length > 0 ? svcs : null,
       _pacoteVendaItems: vendaItems,
       _hasVendaPacote: vendaItems.length > 0,
-      _vendaPacoteIds: _vendaPacoteIds
+      _vendaPacoteIds: _vendaPacoteIds,
+      // 🩺 AGENDA TRACE: campos usados só para rastreamento/depuração
+      // (origem e created_at já vinham do banco via '*', só não eram mapeados).
+      origem: a.origem || null,
+      created_at: a.created_at || null
     };
+  });
+
+  appointments = __novosAppointments;
+  AgendaTrace.log('fetch:applied', { seq: mySeq, total: appointments.length });
+
+  // 🩺 AGENDA TRACE: detecta agendamentos que "chegaram" agora nesta tela
+  // (não existiam no snapshot anterior em memória), e calcula quanto tempo
+  // se passou entre a criação no banco (created_at) e a exibição aqui.
+  // Na primeiríssima carga da página, __idsConhecidosAntes está vazio, então
+  // todos os agendamentos do dia contam como "detectados" — isso é esperado
+  // (é a carga inicial, não uma chegada tardia).
+  appointments.forEach(function (a) {
+    if (__idsConhecidosAntes[a.id]) return;
+    var criadoEmMs = a.created_at ? new Date(a.created_at).getTime() : null;
+    var agoraMs = Date.now();
+    AgendaTrace.log('agendamento:detected', {
+      seq: mySeq,
+      id: a.id,
+      cliente: a.cliente,
+      origem: a.origem,
+      profissional: a.profissional,
+      data: a.data,
+      hora: a.hora,
+      criado_em: a.created_at || null,
+      detectado_em: new Date(agoraMs).toISOString(),
+      latencia_ms: criadoEmMs != null ? (agoraMs - criadoEmMs) : null
+    });
   });
 }
 
