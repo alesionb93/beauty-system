@@ -1099,8 +1099,13 @@
             .neq('status', 'cancelado'),
           REQ_TIMEOUT, 'agendamentos'
         );
-        if (rA.error || !rA.data) return [];
-        if (rA.data.length === 0) return [];
+        // 🔒 FAIL-CLOSED: chegamos aqui porque a RPC falhou. Para visitante anônimo o
+        // RLS devolve lista VAZIA (sem erro) em `agendamentos`, e vazio aqui NÃO
+        // significa "dia livre" — significa "não consegui ver". Antes isso virava
+        // "todos os horários livres" e permitia agendar por cima de horário ocupado.
+        if (rA.error || !rA.data || rA.data.length === 0) {
+          throw new Error('busy_slots_indisponivel');
+        }
 
         var ids = rA.data.map(function (a) { return a.id; });
         var rS = await withTimeout(
@@ -1126,7 +1131,9 @@
         return ocupFb.concat(blqFb);
       } catch (e) {
         console.error('[ac] listarAgendamentosDoDia timeout/erro', e && e.message);
-        return [];
+        // 🔒 FAIL-CLOSED: não devolve [] (que a tela interpretaria como "tudo livre").
+        // Quem chama decide como avisar o cliente e permitir nova tentativa.
+        throw new Error('busy_slots_indisponivel');
       }
     },
 
@@ -1729,7 +1736,22 @@
 
     wrap.innerHTML = '<div class="ac-loading"><i class="fas fa-spinner fa-spin"></i> Carregando horários...</div>';
 
-    var ocup = await TenantDataService.listarAgendamentosDoDia(state.selectedDate, candidatoIds);
+    var ocup;
+    try {
+      ocup = await TenantDataService.listarAgendamentosDoDia(state.selectedDate, candidatoIds);
+    } catch (errOcup) {
+      // 🔒 FAIL-CLOSED: sem saber o que está ocupado, NÃO mostramos horários
+      // (antes a falha era tratada como "tudo livre"). Oferece nova tentativa.
+      state.ocupacoesCache = null;
+      empty.hidden = true;
+      wrap.innerHTML = '<div class="ac-period">' +
+        '<div class="ac-period-title"><i class="fas fa-exclamation-triangle"></i> Não foi possível carregar os horários agora.</div>' +
+        '<div class="ac-slots-grid"><button type="button" class="ac-slot" id="ac-slots-retry">Tentar novamente</button></div>' +
+        '</div>';
+      var btnRetry = document.getElementById('ac-slots-retry');
+      if (btnRetry) btnRetry.addEventListener('click', function () { renderSlots(); });
+      return;
+    }
     state.ocupacoesCache = ocup;
 
     var allSlots = buildAllSlots(horarioDia);
@@ -1885,6 +1907,34 @@
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Confirmando...';
     try {
+      // 🔒 REVALIDAÇÃO NA HORA DE CONFIRMAR: a lista de horários foi carregada
+      // quando o cliente escolheu a data e pode estar desatualizada (aba aberta
+      // há minutos/horas). Busca de novo e confere este profissional neste
+      // horário antes de enviar. A garantia final continua sendo a trava do
+      // servidor (create_public_agendamento); isto só evita o erro na cara.
+      var ocupFresca;
+      try {
+        ocupFresca = await TenantDataService.listarAgendamentosDoDia(state.selectedDate, [profId]);
+      } catch (errFresh) {
+        return showFeedback('Não foi possível confirmar a disponibilidade agora. Verifique sua conexão e tente novamente.');
+      }
+      var durTotalConfirm = Number(servico.duracao || 30) + (state.acceptedUpsells || []).reduce(function (t, e) {
+        return t + Number(e.duracao || 30);
+      }, 0);
+      var iniConfirm = slotToMinutes(state.selectedSlot), fimConfirm = iniConfirm + durTotalConfirm;
+      var conflitoConfirm = (ocupFresca || []).some(function (a) {
+        if (a.profissional_id !== profId) return false;
+        var oi = slotToMinutes(a.hora), of = oi + (a.duracao_total || 30);
+        return iniConfirm < of && fimConfirm > oi;
+      });
+      if (conflitoConfirm) {
+        $('#ac-modal-confirm').hidden = true;
+        document.body.style.overflow = '';
+        showToast('Esse horário acabou de ser ocupado. Escolha outro horário.', 'error');
+        try { await renderSlots(); } catch (e) {}
+        return;
+      }
+
       await TenantDataService.criarAgendamento({
         cliente_id: state.cliente.id,
         cliente_nome: state.cliente.nome,
@@ -1916,7 +1966,16 @@
       }
     } catch (err) {
       console.error(err);
-      showFeedback((err && err.message) || 'Não foi possível confirmar. Tente novamente.');
+      // 🔒 O servidor recusou porque o horário já foi ocupado (trava em
+      // create_public_agendamento). Mensagem amigável + recarrega os horários.
+      if (err && /horario_indisponivel/.test(String(err.message || ''))) {
+        $('#ac-modal-confirm').hidden = true;
+        document.body.style.overflow = '';
+        showToast('Esse horário acabou de ser ocupado. Escolha outro horário.', 'error');
+        try { await renderSlots(); } catch (e) {}
+      } else {
+        showFeedback((err && err.message) || 'Não foi possível confirmar. Tente novamente.');
+      }
     } finally {
       btn.disabled = false;
       btn.innerHTML = '<i class="fas fa-check"></i> Confirmar agendamento';
